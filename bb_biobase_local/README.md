@@ -59,7 +59,17 @@ GF_SERVER_ROOT_URL=http://biobase.local:8880/bb/
 
 (Use `http://biobase.local/bb/` only if you bound the gateway to port 80.) Restart Grafana after changing it.
 
-## 6. What stays separate
+## 6. Troubleshooting: “no dashboard” or wrong page
+
+1. **Use the hub port in the URL.** The Biobase gateway defaults to **`:8880`**. A bare `http://biobase.local` (port **80**) is often a **different** nginx or app on the same host. Open **`http://biobase.local:8880/`** (or your `BIOBASE_LOCAL_PORT`).
+
+2. **Grafana is not on `/`.** After the hub page loads, open **Grafana** (path **`/bb/`**). You get a sign-in or Grafana home — then use the **menu to open a dashboard** (e.g. under “Biobase” or “Dashboards”). There is no single auto-opened “default” view until you pick one.
+
+3. **`GF_SERVER_ROOT_URL` mismatches the browser.** If Grafana redirects to the wrong host or shows an empty/redirect loop, set `GF_SERVER_ROOT_URL=http://biobase.local:8880/bb/` in `bb_monitor_grafana` and restart Grafana.
+
+4. **Name does not resolve** — add `biobase.local` to `/etc/hosts` or run mDNS (see §3).
+
+## 7. What stays separate
 
 - CS2 and RCON are unchanged; this layer only unifies **discovery and navigation** (per `../info.md`).
 - Remote access from other networks is out of scope; use VPN or a tunnel.

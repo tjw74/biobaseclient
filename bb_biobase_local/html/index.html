@@ -87,16 +87,39 @@
         color: #666;
         max-width: 42em;
       }
+      .port-alert {
+        max-width: 48em;
+        margin: 0 0 1.25rem 0;
+        padding: 1rem 1.1rem;
+        border: 1px solid #8b5252;
+        border-radius: 6px;
+        background: #1a0f0f;
+        color: #f0d9d9;
+        font-size: 0.92rem;
+        line-height: 1.5;
+      }
+      .port-alert code {
+        color: #ffb4a8;
+        font-size: 0.88em;
+        word-break: break-all;
+      }
+      .port-alert .ok {
+        color: #8fdb9a;
+        border-color: #3d6b47;
+        background: #0f1a10;
+        color: #d8f0dc;
+      }
     </style>
   </head>
   <body>
     <h1>Biobase</h1>
+    <div id="portHint" class="port-alert" role="status"></div>
     <p class="sub">
-      Open this page from any machine on the same LAN. Name resolution should use
-      Use <code>bb_biobase_local</code> on the host (mDNS in <code>mdns/</code> or
-      <code>/etc/hosts</code> — see README). If the page URL includes a port (default
-      <code>:8880</code>), use that in Grafana’s <code>GF_SERVER_ROOT_URL</code> too. Links
-      below are path-relative. Monitoring, logs, and game control:
+      LAN <code>biobase.local</code> (mDNS in <code>mdns/</code> or
+      <code>/etc/hosts</code> — see <code>bb_biobase_local/README.md</code>). The links below
+      are path-relative on <strong>this</strong> host. For Grafana, use the same origin as in
+      the address bar, then <code>/bb/</code> (login is usually the default admin user from
+      compose). Set <code>GF_SERVER_ROOT_URL</code> to that origin + <code>/bb/</code>.
     </p>
     <ul>
       <li>
@@ -144,11 +167,34 @@
     <script>
       (function () {
         var h = location.hostname || "localhost";
+        var port = location.port;
+        var el = document.getElementById("portHint");
         var p = "http://" + h + ":19090/";
         var a = document.getElementById("link-prometheus");
         var c = document.getElementById("link-prometheus-href");
         if (a) a.setAttribute("href", p);
         if (c) c.textContent = h + ":19090";
+
+        if (el) {
+          if (port === "8880") {
+            el.className = "port-alert ok";
+          }
+          el.innerHTML =
+            "<p><strong>Port 8880</strong> — This hub (nginx <code>bb_biobase_local</code>) listens on " +
+            "<code>:8880</code> by default. If you opened <code>http://" +
+            h +
+            "</code> with <em>no</em> port, the browser used <strong>port 80</strong>, which is often a <em>different</em> app on this host — not this page. Use: " +
+            "<code>http://" +
+            h +
+            ":8880/</code></p>" +
+            "<p><strong>Dashboards (Grafana)</strong> — Go to <a style=\"color:#9edcff\" href=\"/bb/\">/bb/</a> " +
+            "(or click <i>Grafana</i> below). You should get a sign-in or the Grafana home; " +
+            "use the left menu to open a dashboard (e.g. Biobase). Default credentials are often the ones in " +
+            "<code>bb_monitor_grafana/docker-compose</code> (<code>admin</code> / <code>admin</code> unless you changed them).</p>" +
+            "<p style=\"opacity:0.85;margin:0.5rem 0 0 0\">You are on: <code>" +
+            location.origin +
+            "</code></p>";
+        }
       })();
     </script>
   </body>

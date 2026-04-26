@@ -69,6 +69,19 @@ GF_SERVER_ROOT_URL=http://biobase.local:8880/bb/
 
 4. **Name does not resolve** — add `biobase.local` to `/etc/hosts` or run mDNS (see §3).
 
+### “Server not found” for `http://biobase.local:8880` (e.g. Firefox)
+
+That error is almost always **name resolution** on the **machine running the browser**, not a missing Grafana page.
+
+1. **You are on another PC / phone** — `biobase.local` is not a public DNS name. Add a static line on **that** device: the Docker host’s LAN address and `biobase.local` (e.g. `192.168.1.113 biobase.local`). On the host, run `./print-client-hint.sh` to print a ready-to-paste line for your current IP.
+
+2. **You are on the same machine as Docker** — use:  
+   `127.0.0.1   biobase.local` in `/etc/hosts` on that machine, then `http://biobase.local:8880/`.
+
+3. **Port reaches nothing** — on the host, `ss -tlnp | grep 8880` should show the gateway; open the host firewall for TCP 8880 from the client’s network if needed.
+
+4. **Firefox still ignores `.local`** — in `about:config`, set `network.dns.localDomains` to `biobase.local` (after fixed hosts or mDNS is working).
+
 ## 7. What stays separate
 
 - CS2 and RCON are unchanged; this layer only unifies **discovery and navigation** (per `../info.md`).

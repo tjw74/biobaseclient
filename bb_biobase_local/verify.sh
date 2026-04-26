@@ -46,3 +46,7 @@ else
   fi
   echo "  Then open: http://biobase.local:${PORT}/"
 fi
+
+echo ""
+echo "NOTE: Use http://biobase.local:${PORT}/ for this Biobase hub. http://biobase.local/ (port 80) is often a different service on the same host — not this gateway."
+echo "Grafana: http://biobase.local:${PORT}/bb/"

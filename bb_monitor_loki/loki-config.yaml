@@ -1,0 +1,49 @@
+# From grafana/loki v3.4.x docker example; paths under /loki volume.
+auth_enabled: false
+
+analytics:
+  reporting_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# Allow backfilled docker log lines; raise defaults so Promtail can catch up
+limits_config:
+  reject_old_samples: false
+  ingestion_rate_mb: 32
+  ingestion_burst_size_mb: 32
+
+# Out-of-order window is max_chunk_age/2 behind the newest line seen for a stream;
+# docker log replay is very out-of-order — use a large chunk window for this single host.
+ingester:
+  max_chunk_age: 20000h
+
+# 0 = always include ingesters in queries (needed when large max_chunk_age holds data in ingesters)
+querier:
+  query_ingesters_within: 0s
+
+ruler:
+  alertmanager_url: http://localhost:9093

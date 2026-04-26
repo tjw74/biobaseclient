@@ -1,0 +1,46 @@
+# Biobase client app — phase 1: game data (plugins → DB), not server health.
+# Run from this directory: docker compose up -d
+name: bb_client
+
+services:
+  bb_postgres:
+    image: postgres:16-alpine
+    container_name: bb_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-biobase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-biobase}
+      POSTGRES_DB: ${POSTGRES_DB:-biobase}
+    volumes:
+      - bb_postgres_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - bb_client
+    restart: unless-stopped
+
+  bb_data_collection:
+    build:
+      context: ../bb_data_collection
+      dockerfile: Dockerfile
+    image: bb-data-collection:local
+    container_name: bb_data_collection
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-biobase}:${POSTGRES_PASSWORD:-biobase}@bb_postgres:5432/${POSTGRES_DB:-biobase}
+    depends_on:
+      bb_postgres:
+        condition: service_healthy
+    networks:
+      - bb_client
+    restart: unless-stopped
+
+volumes:
+  bb_postgres_data:
+
+networks:
+  bb_client:
+    name: bb_client
+    driver: bridge

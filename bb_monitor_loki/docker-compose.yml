@@ -1,0 +1,86 @@
+# Biobase: Loki+Promtail (logs), cAdvisor+Prometheus (per-container / bb_* system dashboard in Grafana).
+# Create network, then: docker compose up -d, then (re)start bb_monitor_grafana on biobase_internal.
+services:
+  bb_monitor_cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: bb_monitor_cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - biobase_internal
+    restart: unless-stopped
+
+  bb_monitor_prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: bb_monitor_prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+      # Avoid default :9090 (often used by other Prometheus on the host); Biobase uses 19090 only on this network.
+      - --web.listen-address=0.0.0.0:19090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-19090}:19090"
+    networks:
+      - biobase_internal
+    depends_on:
+      - bb_monitor_cadvisor
+    restart: unless-stopped
+
+  bb_monitor_loki:
+    image: grafana/loki:3.4.2
+    container_name: bb_monitor_loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - loki_data:/loki
+      - ./loki-config.yaml:/etc/loki/loki-config.yaml:ro
+    networks:
+      - biobase_internal
+    restart: unless-stopped
+
+  bb_monitor_promtail:
+    image: grafana/promtail:3.0.0
+    container_name: bb_monitor_promtail
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+    networks:
+      - biobase_internal
+    depends_on:
+      - bb_monitor_loki
+    restart: unless-stopped
+
+  bb_monitor_rcon:
+    build:
+      context: ../bb_monitor_rcon
+      dockerfile: Dockerfile
+    image: bb-monitor-rcon:local
+    container_name: bb_monitor_rcon
+    environment:
+      RCON_HOST: bb_cs2_server
+      RCON_PORT: "27015"
+      # Use same RCON as bb_cs2_server: prefer CS2_RCONPW in .env, else RCON_PASSWORD, else default.
+      RCON_PASSWORD: ${CS2_RCONPW:-${RCON_PASSWORD:-changeme}}
+      RCON_POLL_INTERVAL: "10"
+    networks:
+      - biobase_internal
+    restart: unless-stopped
+
+volumes:
+  loki_data:
+
+networks:
+  biobase_internal:
+    name: biobase_internal
+    driver: bridge

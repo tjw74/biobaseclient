@@ -1,0 +1,49 @@
+services:
+  bb_monitor_grafana:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bb-monitor-grafana:local
+    container_name: bb_monitor_grafana
+    environment:
+      # Must match the URL you type in the browser (scheme + host + port + /bb/ path).
+      # Default: local-only. If unset, the previous production default could 301 you to clarionlab.dev
+      # when you opened http://<lan-ip>:3003 and Grafana looked "empty" in the local tab.
+      # Production (nginx at clarionlab.dev): GF_SERVER_ROOT_URL=https://clarionlab.dev/bb/
+      # Same-LAN:                          GF_SERVER_ROOT_URL=http://192.168.x.x:3003/bb/
+      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://127.0.0.1:3003/bb/}
+      # Optional: set when needed (e.g. production cookie domain). Omit for local use.
+      # GF_SERVER_DOMAIN: clarionlab.dev
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Biobase Postgres (bb_client stack) — for BioBase Data Ingestion dashboard; match bb_client .env
+      # Host:port must match biobase postgres on bb_client (bb_client/docker-compose: bb_postgres:5432)
+      POSTGRES_ADDR: ${POSTGRES_ADDR:-bb_postgres:5432}
+      POSTGRES_USER: ${POSTGRES_USER:-biobase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-biobase}
+      POSTGRES_DB: ${POSTGRES_DB:-biobase}
+    ports:
+      # Host 3003: avoid clash with other Grafanas; nginx clarionlab.dev → 192.168.1.113:3003
+      - "${GRAFANA_PORT:-3003}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Live dashboards + datasources from repo (image COPY is fallback). Rebuild is not required
+      # when you add a JSON like biobase-data-ingestion.json — restart is enough to pick it up.
+      - ./provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - biobase_internal
+      - bb_client
+    restart: unless-stopped
+
+volumes:
+  grafana_data:
+
+networks:
+  biobase_internal:
+    external: true
+    name: biobase_internal
+  bb_client:
+    external: true
+    name: bb_client

@@ -1,0 +1,192 @@
+{
+  "annotations": { "list": [] },
+  "description": "Is the game server answering our scheduled admin (RCON) checks?",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "id": 20,
+      "options": {
+        "content": "This page answers two simple things:\n\n1. **Is the game server accepting the admin password** we use to run a one-line “how are you” check? **Yes** means the last check could log in. **No** means a bad password, the server is down, or this monitor cannot reach the game machine on the network.\n\n2. **How many people are on the server** is read from the same reply text. If you see **Not read** for a number, the check still works—we just have not updated the number parser to match this game’s exact text format yet. That is normal after an update to the game.\n\nThe bottom charts show how long a check took and how often they succeed or fail, for troubleshooting only.",
+        "mode": "markdown"
+      },
+      "title": "What is this page?",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 3 },
+      "id": 1,
+      "title": "At a glance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+      "description": "1 = the last scheduled check could log into the game with the RCON password and run a status command. 0 = that failed (password, network, or server off).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 0, "text": "No" } }, "type": "value" },
+            { "options": { "1": { "color": "green", "index": 1, "text": "Yes" } }, "type": "value" }
+          ],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 4 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+          "editorMode": "code",
+          "expr": "max(rcon_up)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Could the last check open the game admin console?",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+      "description": "Number of people on the server, read from the status text. “Not read” means we could not find that number in the text yet (parser), not that RCON is broken.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "-1": { "index": 0, "text": "Not read" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 4 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+          "editorMode": "code",
+          "expr": "max(rcon_status_players)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "How many people are on the server (from the last reply text)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+      "description": "Server slot limit, when we can read it from the same text.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "-1": { "index": 0, "text": "Not read" } }, "type": "value" }
+          ],
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 4 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+          "editorMode": "code",
+          "expr": "max(rcon_status_max_players)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "How many player slots the server says it has (when we can read that)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+          "editorMode": "code",
+          "expr": "rcon_last_scrape_duration_seconds",
+          "legendFormat": "Time for one check (seconds)",
+          "refId": "A"
+        }
+      ],
+      "title": "How long one check took (usually a fraction of a second)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+      "description": "ok = the tool finished that run. Other labels mean a timeout, wrong answer, or system error. Only needed when something looks wrong above.",
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 8 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+          "editorMode": "code",
+          "expr": "sum by (result) (rate(rcon_mcrcon_runs_total[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Troubleshooting: how many checks per second, by outcome (ignore if all is well above)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["biobase", "rcon", "cs2"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "BioBase RCON",
+  "uid": "bb-biobase-rcon",
+  "version": 2
+}

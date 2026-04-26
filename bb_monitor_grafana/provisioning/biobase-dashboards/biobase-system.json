@@ -1,0 +1,110 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Per-container liveness: seconds since cAdvisor last reported this Docker container. Green in range 0–120s; 1,000,000s = cAdvisor has no series (stopped). cAdvisor label is `name` (cgroup v2: docker-*.scope, not /docker/…).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 10,
+      "panels": [],
+      "title": "Containers (name =~ bb_.+)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+      "description": "cAdvisor `container_last_seen` vs now. Stale/removed series → 1,000,000s (red).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 0,
+          "mappings": [],
+          "noValue": "no data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 120 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "textMode": "value"
+      },
+      "pluginVersion": "11.0.0",
+      "repeat": "cname",
+      "repeatDirection": "h",
+      "maxPerRow": 6,
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+          "editorMode": "code",
+          "expr": "((time() - max(container_last_seen{name=~\"$cname\"}))) or vector(1000000)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "$cname",
+      "type": "stat"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["biobase", "ops", "prometheus", "cadvisor"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "bb-prometheus" },
+        "includeAll": true,
+        "label": "bb container (name)",
+        "multi": true,
+        "name": "cname",
+        "query": "label_values(container_cpu_usage_seconds_total{name=~\"bb_.+\"}, name)",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "BioBase System",
+  "uid": "bb-biobase-system",
+  "version": 1
+}

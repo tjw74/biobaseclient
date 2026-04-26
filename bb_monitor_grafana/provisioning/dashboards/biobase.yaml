@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: biobase
+    orgId: 1
+    folder: Biobase
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/biobase-dashboards

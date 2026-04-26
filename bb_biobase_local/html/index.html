@@ -93,8 +93,10 @@
     <h1>Biobase</h1>
     <p class="sub">
       Open this page from any machine on the same LAN. Name resolution should use
-      mDNS: <code>biobase.local</code> (see <code>bb_biobase_local/mdns/</code> on the
-      host). Use the links below to reach monitoring, logs, and game control.
+      Use <code>bb_biobase_local</code> on the host (mDNS in <code>mdns/</code> or
+      <code>/etc/hosts</code> — see README). If the page URL includes a port (default
+      <code>:8880</code>), use that in Grafana’s <code>GF_SERVER_ROOT_URL</code> too. Links
+      below are path-relative. Monitoring, logs, and game control:
     </p>
     <ul>
       <li>
@@ -135,9 +137,9 @@
       </li>
     </ul>
     <footer>
-      Set <code>GF_SERVER_ROOT_URL=http://biobase.local/bb/</code> for Grafana when using this
-      host so redirects and auth cookies line up. Direct access to old ports
-      (3003, 19090, 8765) is unchanged.
+      Set <code>GF_SERVER_ROOT_URL</code> to this origin plus <code>/bb/</code> (e.g.
+      <code>http://biobase.local:8880/bb/</code> with the default gateway port) so redirects
+      and cookies line up. Direct access to old ports (3003, 19090, 8765) is unchanged.
     </footer>
     <script>
       (function () {

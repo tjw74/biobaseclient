@@ -4,8 +4,9 @@ services:
   bb_biobase_local:
     image: nginx:1.27-alpine
     container_name: bb_biobase_local
+    # Default 8880: port 80 is often already taken (e.g. another reverse proxy). Override: BIOBASE_LOCAL_PORT=80
     ports:
-      - "${BIOBASE_LOCAL_PORT:-80}:80"
+      - "${BIOBASE_LOCAL_PORT:-8880}:80"
     volumes:
       - ./nginx/biobase.local.conf:/etc/nginx/conf.d/default.conf:ro
       - ./html:/usr/share/nginx/html:ro

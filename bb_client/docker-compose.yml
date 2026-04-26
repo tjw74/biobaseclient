@@ -30,11 +30,19 @@ services:
     container_name: bb_data_collection
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-biobase}:${POSTGRES_PASSWORD:-biobase}@bb_postgres:5432/${POSTGRES_DB:-biobase}
+      LOKI_URL: ${LOKI_URL:-http://bb_monitor_loki:3100}
+      CS2_CONTROL_URL: ${CS2_CONTROL_URL:-http://bb_cs2_control:8765}
+      CS2_CONTROL_TOKEN: ${CS2_CONTROL_TOKEN:-}
+      BIOBASE_LOKI_LINE_LIMIT: ${BIOBASE_LOKI_LINE_LIMIT:-5000}
     depends_on:
       bb_postgres:
         condition: service_healthy
+    ports:
+      # Default 28080: host may already use 8080/18080 for other services
+      - "${BB_DATA_COLLECTION_PORT:-28080}:8080"
     networks:
       - bb_client
+      - biobase_internal
     restart: unless-stopped
 
 volumes:
@@ -44,3 +52,6 @@ networks:
   bb_client:
     name: bb_client
     driver: bridge
+  biobase_internal:
+    external: true
+    name: biobase_internal

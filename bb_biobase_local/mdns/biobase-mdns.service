@@ -1,22 +1,21 @@
-# Optional systemd unit: mDNS for biobase.local on the Biobase host.
-# Install (paths may vary):
-#   sudo install -D -m0755 /path/to/publish-biobase-local.sh /usr/local/bin/publish-biobase-local.sh
-#   sudo install -D -m0644 biobase-mdns.service /etc/systemd/system/biobase-mdns.service
-#   sudo systemctl daemon-reload && sudo systemctl enable --now biobase-mdns.service
-#
-# Requires: avahi-daemon running; avahi-utils (avahi-publish).
+# Publishes biobase.local (A record) for the LAN. Does not modify avahi-daemon.conf.
+# Install:  sudo ./install-biobase-mdns.sh
+# Manual:   sudo install -m0755 publish-biobase-local.sh /usr/local/bin/biobase-mdns-publish
+#           sudo install -m0644 biobase-mdns.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now biobase-mdns.service
 
 [Unit]
-Description=Publish biobase.local on LAN via mDNS
+Description=Publish biobase.local (mDNS address record for Biobase)
 After=network-online.target avahi-daemon.service
 Wants=network-online.target
 Requires=avahi-daemon.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/publish-biobase-local.sh
-Restart=on-failure
-RestartSec=5
+EnvironmentFile=-/etc/default/biobase-mdns
+ExecStart=/usr/local/bin/biobase-mdns-publish
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target

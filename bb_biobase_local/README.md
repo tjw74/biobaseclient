@@ -22,14 +22,20 @@ docker compose up -d
 
 The gateway only answers HTTP; **your browser must resolve the hostname** to an IP. Pick one:
 
-### A) mDNS (no hosts file) — server runs Avahi
+### A) mDNS (recommended) — add only `biobase.local` via Avahi
 
-On the **Docker host**, keep one of these running so LAN clients see **biobase.local**:
+On the **Docker host** (does **not** change `avahi-daemon.conf` or other mDNS data except one new `services` file):
 
-- Foreground: `./mdns/publish-biobase-local.sh`, or
-- systemd: `mdns/biobase-mdns.service` (see comments in that file)
+```bash
+cd bb_biobase_local/mdns
+sudo BIOBASE_LOCAL_PORT=8880 ./install-biobase-mdns.sh
+```
 
-Optional: set `BIOBASE_LOCAL_IP` in the environment if the script’s IP guess is wrong. Some networks also need the client to support mDNS (Linux: `libnss-mdns` / `systemd-resolved`).
+This installs a small systemd unit that runs `avahi-publish` for **`biobase.local`** and an optional `/_http._tcp` advertisement for the same port. Details: `mdns/README.md`.
+
+- Foreground (no install): `mdns/publish-biobase-local.sh` (Ctrl+C to stop)  
+- Optional: `/etc/default/biobase-mdns` for `BIOBASE_LOCAL_IP` / `BIOBASE_MDNS_NAME`  
+- Clients on the LAN need mDNS support (e.g. macOS; Linux often `avahi` / `libnss-mdns` / `systemd-resolved`).
 
 ### B) Static `/etc/hosts` (works everywhere) — on the device running Firefox
 

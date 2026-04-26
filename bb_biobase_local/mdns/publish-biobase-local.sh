@@ -1,15 +1,20 @@
 #!/usr/bin/env sh
-# Publish mDNS A record for biobase.local (single-label: biobase) on the main IPv4 default route.
-# Requires: avahi-daemon, avahi-utils (avahi-publish).
-# Stop with Ctrl+C; for always-on, use the systemd unit in this directory.
+# Publish mDNS A record: ${BIOBASE_MDNS_NAME}.local -> LAN IPv4 (default name: biobase).
+# Does not modify avahi-daemon.conf. Requires: avahi-daemon, avahi-utils.
+# See install-biobase-mdns.sh for a systemd one-shot; optional env: /etc/default/biobase-mdns
 set -eu
 
 if ! command -v avahi-publish >/dev/null 2>&1; then
-  echo "avahi-publish not found. Install avahi (e.g. avahi-daemon + avahi-utils on Debian/Ubuntu)." >&2
+  echo "avahi-publish not found. Install avahi-utils (e.g. apt install avahi-utils)." >&2
   exit 1
 fi
 
-# Prefer default-route source address (outbound 1.1.1.1/8.8.8.8); fallback: first private IPv4.
+NAME=${BIOBASE_MDNS_NAME:-biobase}
+# Single DNS label; avahi will advertise NAME.local
+case "$NAME" in
+*.* | *:* | "") echo "BIOBASE_MDNS_NAME must be a single label (e.g. biobase), got: $NAME" >&2; exit 1 ;;
+esac
+
 IP=${BIOBASE_LOCAL_IP:-}
 if [ -z "$IP" ]; then
   if command -v ip >/dev/null 2>&1; then
@@ -28,10 +33,12 @@ if [ -z "$IP" ] && command -v hostname >/dev/null 2>&1; then
   done
 fi
 if [ -z "$IP" ]; then
-  echo "Could not determine LAN IPv4. Set BIOBASE_LOCAL_IP=192.168.x.x" >&2
+  echo "Could not determine LAN IPv4. Set BIOBASE_LOCAL_IP in the environment or /etc/default/biobase-mdns" >&2
   exit 1
 fi
 
-# -R: replace; name without .local (avahi appends mDNS TLD)
-echo "Advertising biobase.local -> $IP (press Ctrl+C to stop)"
-exec avahi-publish -a -R biobase "$IP"
+# -R: replace existing; avahi appends .local
+if [ -t 1 ] && [ -t 2 ]; then
+  echo "Advertising ${NAME}.local -> $IP (Ctrl+C to stop; use systemd for always-on)" >&2
+fi
+exec avahi-publish -a -R "$NAME" "$IP"

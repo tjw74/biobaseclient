@@ -1,0 +1,10 @@
+<?xml version="1.0" standalone="no"?>
+<!-- Installed as /etc/avahi/services/bb-biobase-hub.service — only adds Bonjour _http; does not change avahi-daemon.conf -->
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name>Biobase hub</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>@@PORT@@</port>
+  </service>
+</service-group>

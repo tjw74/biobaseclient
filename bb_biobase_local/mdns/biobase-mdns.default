@@ -1,0 +1,8 @@
+# /etc/default/biobase-mdns (optional) — read by biobase-mdns.service
+# Documented in bb_biobase_local/mdns/README.md
+
+# Force LAN IPv4 if auto-detection is wrong
+#BIOBASE_LOCAL_IP=192.168.1.50
+
+# mDNS host label (publishes as ${BIOBASE_MDNS_NAME}.local, default: biobase)
+#BIOBASE_MDNS_NAME=biobase

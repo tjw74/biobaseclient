@@ -48,6 +48,7 @@ services:
       - bb_cs2_server
     networks:
       - default
+      - biobase_internal
     restart: unless-stopped
 
 volumes:

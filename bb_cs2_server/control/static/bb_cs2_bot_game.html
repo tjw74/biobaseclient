@@ -212,7 +212,7 @@
         btnStart.disabled = true;
         btnStop.disabled = true;
         try {
-          const r = await fetch("/api/status", { headers: getHeaders() });
+          const r = await fetch("api/status", { headers: getHeaders() });
           const d = await r.json();
           document.getElementById("headline").textContent = d.headline || "—";
           document.getElementById("humans").textContent =
@@ -270,8 +270,8 @@
         }
       }
 
-      btnStart.addEventListener("click", () => postAction("/api/bots/start"));
-      btnStop.addEventListener("click", () => postAction("/api/bots/stop"));
+      btnStart.addEventListener("click", () => postAction("api/bots/start"));
+      btnStop.addEventListener("click", () => postAction("api/bots/stop"));
 
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") loadStatus();

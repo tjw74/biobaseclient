@@ -13,7 +13,7 @@ Captures **game state** (via `bb_cs2_control` `/api/status` → JSON in Postgres
 From the **biobase repo root**:
 
 ```bash
-DURATION_SEC=300 DATA_URL=http://127.0.0.1:28080 ./run_kz_session.sh
+DURATION_SEC=300 DATA_URL=http://127.0.0.1:28080 ./tools/run_kz_session.sh
 ```
 
 Optional: `bb_cs2_server/short_match_rcon.sh` sets `mp_timelimit` / `mp_roundtime` (tune for your map/mode).

@@ -1,5 +1,5 @@
-# Biobase LAN admin hub: http://biobase.local/ (mDNS on host) → nginx → Grafana, Loki, CS2 control; Prometheus on :19090.
-# Requires: biobase_internal network (from bb_monitor_loki), stacks that publish those services, and mDNS (see ./mdns/).
+# Biobase LAN admin hub: nginx on host port BIOBASE_LOCAL_PORT (default 8880) → Grafana, Loki, CS2; Prometheus on :19090.
+# Requires: biobase_internal network (from bb_monitor_loki) and stacks that publish those upstream services.
 services:
   bb_biobase_local:
     image: nginx:1.27-alpine

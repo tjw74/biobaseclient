@@ -7,12 +7,12 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 import psycopg2
-from fastapi import FastAPI, HTTPException, Response
-from fastapi import Request
+from fastapi import Body, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from app.schema_cs2 import statements as cs2_table_statements
@@ -112,6 +112,13 @@ class SessionStartRequest(BaseModel):
     label: str | None = Field(default=None, max_length=200)
 
 
+class HubSessionRequest(BaseModel):
+    """Defaults tuned for hub: long window, cancel via hub Stop."""
+
+    duration_seconds: int = Field(default=86_400, ge=120, le=86_400)
+    rcon_interval_seconds: float = Field(default=5.0, ge=1.0, le=120.0)
+
+
 def _insert_pending_session(
     session_id: UUID,
     label: str | None,
@@ -175,6 +182,106 @@ async def start_session(body: SessionStartRequest) -> dict[str, Any]:
     }
 
 
+def _running_hub_session_id() -> UUID | None:
+    with db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id FROM public.biobase_cs2_match_session
+                WHERE status = 'running' AND label LIKE 'hub-auto%%'
+                ORDER BY coalesce(started_at, created_at) DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    return UUID(str(row[0]))
+
+
+@app.post("/v1/sessions/hub/start", status_code=202)
+async def hub_start_collection(
+    body: HubSessionRequest | None = Body(default=None),
+) -> dict[str, Any]:
+    """Start (or reuse) a long-lived ingest session for the operator hub."""
+    if not DATABASE_URL:
+        raise HTTPException(503, "DATABASE_URL not set")
+    ensure_cs2_tables()
+    if body is None:
+        body = HubSessionRequest()
+    existing = _running_hub_session_id()
+    if existing:
+        return {
+            "session_id": str(existing),
+            "status": "already_running",
+            "duration_seconds": body.duration_seconds,
+            "rcon_interval_seconds": body.rcon_interval_seconds,
+        }
+    session_id = uuid4()
+    label = f"hub-auto-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    _insert_pending_session(session_id, label, body.duration_seconds)
+    coro = run_session(
+        database_url=DATABASE_URL,
+        loki_url=LOKI_URL,
+        control_url=CS2_CONTROL_URL,
+        control_token=CS2_CONTROL_TOKEN,
+        session_id=session_id,
+        duration_sec=body.duration_seconds,
+        label=label,
+        rcon_interval_sec=body.rcon_interval_seconds,
+    )
+    asyncio.create_task(coro)
+    return {
+        "session_id": str(session_id),
+        "status": "accepted",
+        "duration_seconds": body.duration_seconds,
+        "rcon_interval_seconds": body.rcon_interval_seconds,
+        "label": label,
+    }
+
+
+@app.post("/v1/sessions/hub/stop")
+def hub_stop_collection() -> dict[str, Any]:
+    """Signal all running hub-auto sessions to stop sampling and flush Loki to Postgres."""
+    if not DATABASE_URL:
+        raise HTTPException(503, "DATABASE_URL not set")
+    ensure_cs2_tables()
+    with db_conn() as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.biobase_cs2_match_session
+                SET cancel_requested = true
+                WHERE status = 'running' AND label LIKE 'hub-auto%%'
+                """
+            )
+            n = cur.rowcount
+    return {"cancel_requested_rows": n}
+
+
+@app.post("/v1/sessions/{session_id}/cancel")
+def cancel_session(session_id: UUID) -> dict[str, Any]:
+    if not DATABASE_URL:
+        raise HTTPException(503, "DATABASE_URL not set")
+    ensure_cs2_tables()
+    with db_conn() as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.biobase_cs2_match_session
+                SET cancel_requested = true
+                WHERE id = %s AND status = 'running'
+                """,
+                (str(session_id),),
+            )
+            n = cur.rowcount
+    if n == 0:
+        raise HTTPException(404, "no running session with that id")
+    return {"session_id": str(session_id), "cancel_requested": True}
+
+
 @app.get("/v1/sessions/{session_id}")
 def get_session(session_id: UUID) -> dict[str, Any]:
     if not DATABASE_URL:
@@ -184,7 +291,7 @@ def get_session(session_id: UUID) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT id, label, status, duration_requested, created_at, started_at, ended_at,
-                       loki_start_ns, loki_end_ns, error_message
+                       loki_start_ns, loki_end_ns, error_message, cancel_requested
                 FROM public.biobase_cs2_match_session
                 WHERE id = %s
                 """,
@@ -204,6 +311,7 @@ def get_session(session_id: UUID) -> dict[str, Any]:
         "loki_start_ns": row[7],
         "loki_end_ns": row[8],
         "error_message": row[9],
+        "cancel_requested": row[10],
     }
 
 

@@ -48,4 +48,8 @@ def statements() -> list[str]:
         CREATE INDEX IF NOT EXISTS biobase_cs2_log_line_session
         ON public.biobase_cs2_log_line (session_id);
         """,
+        """
+        ALTER TABLE public.biobase_cs2_match_session
+          ADD COLUMN IF NOT EXISTS cancel_requested boolean NOT NULL DEFAULT false;
+        """,
     ]

@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "Connection check, per-table row stats, and the last 5 rows from a selected public table (heuristic order by first column).",
+  "description": "Postgres connection, CS2 session ingest (RCON + Loki log lines), table stats, and ad-hoc row peek.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -9,10 +9,10 @@
   "liveNow": false,
   "panels": [
     {
-      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "content": "The stub table `public.biobase_ingest_sample` (from `initdb` + app startup) gives Grafana a real row to show until real ingest tables exist. **Last 5 rows:** first column **DESC**; edit the panel SQL for your own time column.",
+        "content": "**CS2 / KZ ingest** — `bb_data_collection` writes to:\n- `public.biobase_cs2_match_session` — one row per `POST /v1/sessions` run\n- `public.biobase_cs2_rcon_sample` — time series from `bb_cs2_control` `/api/status` during the window\n- `public.biobase_cs2_log_line` — lines from Loki for container `bb_cs2_server` in the session time range\n\nStart a run from the repo: `./tools/run_ingest_session.sh` or `DURATION_SEC=60 ./tools/run_kz_session.sh`. The stub `biobase_ingest_sample` may still have one row from app bootstrap.",
         "mode": "markdown"
       },
       "title": "What is this page?",
@@ -20,9 +20,9 @@
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "One row if the connection works. If this is empty, check bb_postgres is up, bb_client network, and Biobase Postgres credentials.",
+      "description": "If empty, check `bb_postgres` and that Grafana is on networks `bb_client` + `biobase_internal`.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 3 },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 4 },
       "id": 2,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -41,9 +41,114 @@
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "n_live_tup is approximate; use it as a quick “is there data?” signal, not for precise counts. Table must be analyzed for best accuracy.",
+      "description": "Row counts from CS2 match ingest. Run a session to see these increase.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 7 },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 8 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (SELECT count(*)::bigint FROM public.biobase_cs2_match_session)  AS match_sessions,\n       (SELECT count(*)::bigint FROM public.biobase_cs2_rcon_sample)   AS rcon_samples,\n       (SELECT count(*)::bigint FROM public.biobase_cs2_log_line)         AS log_lines,\n       (SELECT count(*)::bigint FROM public.biobase_ingest_sample)         AS stub_ingest_rows",
+          "refId": "A"
+        }
+      ],
+      "title": "CS2 ingest — row counts",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Newest 5 rows, all columns.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT * FROM public.biobase_cs2_match_session\nORDER BY created_at DESC NULLS LAST\nLIMIT 5",
+          "refId": "A"
+        }
+      ],
+      "title": "Last 5 rows — biobase_cs2_match_session",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Newest 5 rows, all columns.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 23 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT * FROM public.biobase_cs2_rcon_sample\nORDER BY id DESC\nLIMIT 5",
+          "refId": "A"
+        }
+      ],
+      "title": "Last 5 rows — biobase_cs2_rcon_sample",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Newest 5 rows, all columns.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 33 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT * FROM public.biobase_cs2_log_line\nORDER BY id DESC\nLIMIT 5",
+          "refId": "A"
+        }
+      ],
+      "title": "Last 5 rows — biobase_cs2_log_line",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Newest 5 rows, all columns (stub table).",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 44 },
+      "id": 9,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT * FROM public.biobase_ingest_sample\nORDER BY id DESC\nLIMIT 5",
+          "refId": "A"
+        }
+      ],
+      "title": "Last 5 rows — biobase_ingest_sample",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "n_live_tup is approximate. Run `ANALYZE` for accuracy.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 51 },
       "id": 3,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true, "sortBy": [{ "displayName": "approx_live_rows", "desc": true }] },
       "pluginVersion": "11.0.0",
@@ -62,9 +167,9 @@
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Requires a selected **public_table**. Heuristic: ORDER BY first column DESC. Empty dropdown = no public base tables yet. If this errors, add ORDER BY <your_time_column> DESC in the panel query.",
+      "description": "Heuristic: ORDER BY first column DESC. Prefer `biobase_cs2_rcon_sample` or `biobase_cs2_log_line` for time-ish order. For `biobase_cs2_match_session` use the table above (UUID `id` order is not time order).",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 19 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 62 },
       "id": 4,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -78,19 +183,23 @@
           "refId": "A"
         }
       ],
-      "title": "Last 5 rows (ingestion / selected public table)",
+      "title": "Last 5 rows (selected public table)",
       "type": "table"
     }
   ],
-  "refresh": "",
+  "refresh": "10s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["biobase", "postgres", "ingestion"],
+  "tags": ["biobase", "postgres", "ingestion", "cs2"],
   "templating": {
     "list": [
       {
         "allValue": null,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "biobase_cs2_rcon_sample",
+          "value": "biobase_cs2_rcon_sample"
+        },
         "datasource": { "type": "postgres", "uid": "bb-postgres" },
         "definition": "SELECT tablename AS __value, tablename AS __text FROM pg_tables WHERE schemaname = 'public' ORDER BY 1",
         "description": "Public base tables only",
@@ -114,5 +223,5 @@
   "timezone": "browser",
   "title": "BioBase Data Ingestion",
   "uid": "bb-biobase-data-ingestion",
-  "version": 3
+  "version": 4
 }

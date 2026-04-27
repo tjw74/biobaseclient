@@ -44,6 +44,7 @@ async def run_session(
     t0 = time.time()
     loki_start = time.time_ns()
     t_end = t0 + max(1, duration_sec)
+    cancelled_early = False
 
     headers: dict[str, str] = {}
     if control_token:
@@ -66,6 +67,19 @@ async def run_session(
             rconn.autocommit = True
             async with httpx.AsyncClient(timeout=30.0) as client:
                 while time.time() < t_end:
+                    with rconn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT cancel_requested FROM public.biobase_cs2_match_session
+                            WHERE id = %s
+                            """,
+                            (str(session_id),),
+                        )
+                        cr = cur.fetchone()
+                    if cr and cr[0]:
+                        cancelled_early = True
+                        log.info("Session %s: cancel_requested; stopping RCON loop", session_id)
+                        break
                     now_s = datetime.now(UTC)
                     try:
                         r = await client.get(
@@ -142,6 +156,10 @@ async def run_session(
             log.exception("Loki query_range failed")
             loki_note = f"loki_error: {e!s}"[:2000]
 
+        if cancelled_early:
+            extra = " sampling stopped early (hub Stop or cancel); Loki window closed at stop time."
+            loki_note = (loki_note + extra) if loki_note else extra.strip()
+
         with _db(database_url) as conn:
             conn.autocommit = True
             with conn.cursor() as cur:
@@ -158,7 +176,8 @@ async def run_session(
                 cur.execute(
                     """
                     UPDATE public.biobase_cs2_match_session
-                    SET loki_end_ns = %s, ended_at = %s, status = %s, error_message = %s
+                    SET loki_end_ns = %s, ended_at = %s, status = %s, error_message = %s,
+                        cancel_requested = false
                     WHERE id = %s
                     """,
                     (loki_end, datetime.now(UTC), "complete", loki_note, str(session_id)),

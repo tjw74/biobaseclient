@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
-# One-shot: RCON time limits, start bb_data_collection session, start bots, wait, print summary.
-# Usage (from biobase repo root):
-#   DURATION_SEC=300 ./run_kz_session.sh
-#   DURATION_SEC=25 ./run_kz_session.sh    # short smoke
+# One-shot: optional RCON time preset, POST bb_data_collection /v1/sessions, start CS2 bots,
+# wait DURATION_SEC, poll until session complete, print text summary.
 #
-# Prereq: docker stacks — bb_client (data collection + postgres), bb_cs2_server, bb_monitor_loki, biobase_internal.
-# Env: DATA_URL (default http://127.0.0.1:28080), CS2_URL, optional BB_CS2_CONTROL_TOKEN
+# Usage (from repo root):
+#   DURATION_SEC=300 ./tools/run_kz_session.sh
+#
+# Prerequisites: Docker stacks — bb_client (Postgres + bb_data_collection), bb_cs2_server,
+# bb_monitor_loki (+ Promtail → bb_cs2_server logs), networks including biobase_internal.
+#
+# Environment:
+#   DATA_URL   — bb_data_collection base (default http://127.0.0.1:28080)
+#   CS2_URL    — bb_cs2_control base (default http://127.0.0.1:8765)
+#   DURATION_SEC — wall-clock collection window in seconds (default 300)
+#   LABEL      — overridden here to kz-data-${DURATION_SEC}s unless you export LABEL before call
+#   BB_CS2_CONTROL_TOKEN / CS2_CONTROL_TOKEN — if CS2 control requires API key
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DURATION_SEC="${DURATION_SEC:-300}"
 RCON_SH="${ROOT}/bb_cs2_server/short_match_rcon.sh"
 DATA_URL="${DATA_URL:-http://127.0.0.1:28080}"

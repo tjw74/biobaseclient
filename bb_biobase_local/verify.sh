@@ -8,7 +8,7 @@ if [[ -f .env ]]; then
   PORT="${BIOBASE_LOCAL_PORT:-$PORT}"
 fi
 
-echo "=== biobase.local gateway (host port ${PORT}) ==="
+echo "=== Biobase gateway (host port ${PORT}) ==="
 if docker ps --format '{{.Names}}' | grep -qx bb_biobase_local; then
   echo "OK: container bb_biobase_local is running"
   docker ps --filter name=bb_biobase_local --format '    {{.Ports}}'
@@ -29,24 +29,15 @@ else
   echo "FAIL: GET http://127.0.0.1:${PORT}/ -> HTTP ${code}"
 fi
 
+IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1 || true)"
 echo ""
-echo "=== name biobase.local ==="
-if getent ahosts biobase.local >/dev/null 2>&1; then
-  echo "OK: name resolves:"
-  getent ahosts biobase.local | head -3
+echo "=== From another device on the LAN ==="
+if [[ -n "$IP" ]]; then
+  echo "  Open:  http://${IP}:${PORT}/"
+  echo "  Grafana path:  http://${IP}:${PORT}/bb/"
 else
-  echo "NOT RESOLVING: Firefox 'Server Not Found' is usually this."
-  echo "  Option A — mDNS on the Docker host: ./mdns/publish-biobase-local.sh (keep running) or systemd unit"
-  echo "  Option B — /etc/hosts on the machine where the browser runs:"
-  echo "      same host as Docker:  127.0.0.1 biobase.local"
-  echo "      other LAN device:     <this-host-LAN-IP> biobase.local"
-  IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1 || true)"
-  if [[ -n "$IP" ]]; then
-    echo "      (this host’s LAN IP looks like: ${IP})"
-  fi
-  echo "  Then open: http://biobase.local:${PORT}/"
+  echo "  (Could not detect LAN IP — use the Docker host's address on your network.)"
 fi
-
 echo ""
-echo "NOTE: Use http://biobase.local:${PORT}/ for this Biobase hub. http://biobase.local/ (port 80) is often a different service on the same host — not this gateway."
-echo "Grafana: http://biobase.local:${PORT}/bb/"
+echo "NOTE: http://<host>:${PORT}/ is this hub. Port 80 without :${PORT} is often a different service."
+echo "Grafana (direct port 3003): still available; hub uses /bb/ on ${PORT}."

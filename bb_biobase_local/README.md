@@ -1,6 +1,6 @@
-# `biobase.local` — LAN admin hub
+# Biobase LAN admin hub (nginx gateway)
 
-Single entry point in the browser: **http://biobase.local:8880/** (default port; see below) after you bring this stack up and make the name resolve.
+Single browser entry on the **host’s address** and port, e.g. **`http://<LAN-IP>:8880/`** or **`http://127.0.0.1:8880/`** on the machine running Docker (default port **8880**).
 
 ## 1. Network
 
@@ -18,77 +18,41 @@ docker compose up -d
 
 **Port 8880 is the default** so this does not fight for **port 80** (often already used by another reverse proxy on the same host). To use port 80 instead: `BIOBASE_LOCAL_PORT=80 docker compose up -d` (only if nothing else binds 80).
 
-## 3. Make `biobase.local` resolve (otherwise the browser shows “Server not found”)
+## 3. How to open it
 
-The gateway only answers HTTP; **your browser must resolve the hostname** to an IP. Pick one:
-
-### A) mDNS (recommended) — add only `biobase.local` via Avahi
-
-On the **Docker host** (does **not** change `avahi-daemon.conf` or other mDNS data except one new `services` file):
-
-```bash
-cd bb_biobase_local/mdns
-sudo BIOBASE_LOCAL_PORT=8880 ./install-biobase-mdns.sh
-```
-
-This installs a small systemd unit that runs `avahi-publish` for **`biobase.local`** and an optional `/_http._tcp` advertisement for the same port. Details: `mdns/README.md`.
-
-- Foreground (no install): `mdns/publish-biobase-local.sh` (Ctrl+C to stop)  
-- Optional: `/etc/default/biobase-mdns` for `BIOBASE_LOCAL_IP` / `BIOBASE_MDNS_NAME`  
-- Clients on the LAN need mDNS support (e.g. macOS; Linux often `avahi` / `libnss-mdns` / `systemd-resolved`).
-
-### B) Static `/etc/hosts` (works everywhere) — on the device running Firefox
-
-Add one line to **`/etc/hosts`** (Linux/macOS) or `C:\Windows\System32\drivers\etc\hosts` (Windows), using the same machine’s IP you use to SSH to the host:
-
-- **Browser on the same machine as Docker:** `127.0.0.1 biobase.local`
-- **Another device on the LAN:** `<the host’s LAN IP>` `biobase.local` (e.g. `192.168.1.50 biobase.local`)
-
-Then open: **`http://biobase.local:8880/`** (include the port if you use the default).
+- **Same machine as Docker:** `http://127.0.0.1:8880/` (or `localhost:8880`).
+- **Another device on the LAN:** `http://<Docker-host-LAN-IP>:8880/` (e.g. `http://192.168.1.113:8880/`). You can bookmark that URL; optional static names are **router DNS** or **`/etc/hosts`** on the client if you assign a hostname yourself — Biobase does not rely on a reserved `.local` mDNS name for the app.
 
 ## 4. Nginx paths
 
-- **`/`** — static index with links
+- **`/`** — hub with links **and embedded bot game controls** (uses `/cs2/api/…` under the hood)
 - **`/bb/`** — Grafana
 - **`/loki/`** — Loki
-- **`/cs2/`** — CS2 control
+- **`/cs2/`** — standalone CS2 control UI (same FastAPI as the hub controls)
 
 Prometheus stays on host port **19090**; the home page links by hostname and port.
 
 ## 5. Grafana URL
 
-Set in `bb_monitor_grafana` to match the URL you use in the browser, **including the port** if it is not 80:
+Set in `bb_monitor_grafana` to match the **exact origin** you use in the browser (scheme + host + port + `/bb/`):
 
 ```env
-GF_SERVER_ROOT_URL=http://biobase.local:8880/bb/
+GF_SERVER_ROOT_URL=http://192.168.1.113:8880/bb/
 ```
 
-(Use `http://biobase.local/bb/` only if you bound the gateway to port 80.) Restart Grafana after changing it.
+(Replace the IP with your host’s LAN address, or use `127.0.0.1` when you only use Grafana from the same machine.) Restart Grafana after changing it.
 
-## 6. Troubleshooting: “no dashboard” or wrong page
+## 6. Troubleshooting
 
-1. **Use the hub port in the URL.** The Biobase gateway defaults to **`:8880`**. A bare `http://biobase.local` (port **80**) is often a **different** nginx or app on the same host. Open **`http://biobase.local:8880/`** (or your `BIOBASE_LOCAL_PORT`).
+1. **Use the hub port in the URL.** The gateway defaults to **`:8880`**. A URL with **no** port often hits **port 80**, which may be a **different** app. Open **`http://<host>:8880/`** (or your `BIOBASE_LOCAL_PORT`).
 
-2. **Grafana is not on `/`.** After the hub page loads, open **Grafana** (path **`/bb/`**). You get a sign-in or Grafana home — then use the **menu to open a dashboard** (e.g. under “Biobase” or “Dashboards”). There is no single auto-opened “default” view until you pick one.
+2. **Grafana is not on `/`.** Open **`/bb/`** from this hub, sign in, then choose a dashboard from the menu.
 
-3. **`GF_SERVER_ROOT_URL` mismatches the browser.** If Grafana redirects to the wrong host or shows an empty/redirect loop, set `GF_SERVER_ROOT_URL=http://biobase.local:8880/bb/` in `bb_monitor_grafana` and restart Grafana.
+3. **`GF_SERVER_ROOT_URL` mismatches the browser.** If Grafana redirects wrongly, set it to the same origin you type in the address bar, plus `/bb/`.
 
-4. **Name does not resolve** — add `biobase.local` to `/etc/hosts` or run mDNS (see §3).
-
-### “Server not found” for `http://biobase.local:8880` (e.g. Firefox)
-
-That error is almost always **name resolution** on the **machine running the browser**, not a missing Grafana page.
-
-1. **You are on another PC / phone** — `biobase.local` is not a public DNS name. Add a static line on **that** device: the Docker host’s LAN address and `biobase.local` (e.g. `192.168.1.113 biobase.local`). On the host, run `./print-client-hint.sh` to print a ready-to-paste line for your current IP.
-
-2. **You are on the same machine as Docker** — use:  
-   `127.0.0.1   biobase.local` in `/etc/hosts` on that machine, then `http://biobase.local:8880/`.
-
-3. **Port reaches nothing** — on the host, `ss -tlnp | grep 8880` should show the gateway; open the host firewall for TCP 8880 from the client’s network if needed.
-
-4. **Firefox still ignores `.local`** — in `about:config`, set `network.dns.localDomains` to `biobase.local` (after fixed hosts or mDNS is working).
+4. **Cannot reach from another PC** — use the server’s **LAN IP**, check firewall (allow TCP **8880** from the LAN), and confirm `docker compose` for this directory is up.
 
 ## 7. What stays separate
 
-- CS2 and RCON are unchanged; this layer only unifies **discovery and navigation** (per `../info.md`).
+- CS2 and RCON are unchanged; this layer only unifies **navigation** under one HTTP origin (per `../info.md`).
 - Remote access from other networks is out of scope; use VPN or a tunnel.

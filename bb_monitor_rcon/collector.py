@@ -14,7 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from prometheus_client import Counter, Gauge, generate_latest
+from prometheus_client import Counter, Gauge, Info, generate_latest
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -47,12 +47,26 @@ rcon_last_scrape_duration_seconds = Gauge(
     "rcon_last_scrape_duration_seconds",
     "Wall time of last mcrcon status run",
 )
+rcon_server = Info(
+    "rcon_server",
+    "Map and hostname from last mcrcon status (CS2 / Source; best effort)",
+)
 
 # --- status parsing (Source / CS2, best effort) ----------------------------------
 
 _RE_MAP = re.compile(r"^map\s*:\s*(\S+)", re.IGNORECASE | re.MULTILINE)
 _RE_HOST = re.compile(r"^hostname\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
-# "players : 2 (2 max) (0 humans)" (CS2-style)
+# CS2 dedicated server: "players : 0 humans, 10 bots"
+_RE_CS2_HUMANS_BOTS = re.compile(
+    r"players\s*:\s*(\d+)\s*humans,\s*(\d+)\s*bots",
+    re.IGNORECASE,
+)
+_RE_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(s: str) -> str:
+    return _RE_ANSI.sub("", s)
+# "players : 2 (2 max) (0 humans)" (alternate CS2-style)
 _RE_PLAYERS_MAX = re.compile(
     r"players\s*:\s*(\d+)(?:\s*active)?\s*\((\d+)\s*max\)[^\n]*\((\d+)\s*humans\)",
     re.IGNORECASE,
@@ -60,6 +74,7 @@ _RE_PLAYERS_MAX = re.compile(
 
 
 def parse_status_text(text: str) -> dict[str, Any]:
+    text = strip_ansi(text)
     out: dict[str, Any] = {
         "hostname": "",
         "map": "",
@@ -70,14 +85,28 @@ def parse_status_text(text: str) -> dict[str, Any]:
     }
     if not (text and text.strip()):
         return out
+    m_bracket = re.search(r"\[1:\s*([a-z0-9_]+)\s*\|", text, re.IGNORECASE)
+    if m_bracket:
+        out["map"] = m_bracket.group(1).strip()
     m = _RE_MAP.search(text)
-    if m:
+    if m and not out["map"]:
         out["map"] = m.group(1).strip()
     h = _RE_HOST.search(text)
     if h:
         out["hostname"] = h.group(1).strip()
+    mcs2 = _RE_CS2_HUMANS_BOTS.search(text)
+    if mcs2:
+        try:
+            human_n = int(mcs2.group(1))
+            bot_n = int(mcs2.group(2))
+            out["humans"] = human_n
+            out["bots"] = bot_n
+            out["players"] = human_n
+            out["parse_ok"] = True
+        except (ValueError, IndexError):
+            pass
     pm = _RE_PLAYERS_MAX.search(text)
-    if pm:
+    if pm and not mcs2:
         try:
             out["max"] = int(pm.group(2))
             out["players"] = int(pm.group(3))
@@ -162,12 +191,22 @@ def one_poll() -> None:
     rcon_status_players.set(p if p is not None else -1.0)
     rcon_status_max_players.set(m if m is not None else -1.0)
     rcon_status_bots.set(b if b is not None else -1.0)
+    try:
+        rcon_server.info(
+            {
+                "map": (parsed.get("map") or "unknown")[:64],
+                "hostname": (parsed.get("hostname") or "unknown")[:128],
+            }
+        )
+    except (OSError, TypeError, ValueError) as e:
+        log.debug("rcon_server.info: %s", e)
     if code == 0 and text and parsed.get("parse_ok"):
         log.info(
-            "rcon map=%r hostname=%r players=%s max=%s",
+            "rcon map=%r hostname=%r players/humans=%s bots=%s max=%s",
             (parsed.get("map") or "")[:120],
             (parsed.get("hostname") or "")[:120],
             parsed.get("players"),
+            parsed.get("bots"),
             parsed.get("max"),
         )
     if code != 0:

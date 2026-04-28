@@ -1,0 +1,65 @@
+---
+title: >-
+  Biobase
+category: projects
+tags: [cs2, game-analytics, postgres, grafana, docker]
+sources: [projects/biobase]
+summary: >-
+  CS2 game analytics platform: collects server telemetry into Postgres via
+  session-based ingest and exposes it through Grafana dashboards.
+provenance:
+  extracted: 0.85
+  inferred: 0.12
+  ambiguous: 0.03
+created: 2026-04-28T00:00:00Z
+updated: 2026-04-28T00:00:00Z
+---
+
+# Biobase
+
+A self-hosted analytics platform for Counter-Strike 2 dedicated servers. It captures game telemetry (server status, log lines, player snapshots, game events, movement data, round stats) into Postgres during a **session** and surfaces it through Grafana dashboards.
+
+## Architecture
+
+```
+Hub (port 8880)
+  └── nginx reverse proxy (bb_biobase_local)
+        ├── /bb/     → Grafana
+        ├── /loki/   → Loki
+        ├── /cs2/    → bb_cs2_control (FastAPI :8765)
+        └── /data/   → bb_data_collection (FastAPI :8080)
+
+CS2 Server (bb_cs2_server)
+  └── logs → Docker stdout → Loki → bb_data_collection queries Loki by session window
+
+bb_cs2_control
+  └── RCON (mcrcon) → CS2 server → bb_data_collection polls status
+```
+
+## Key Concepts
+
+- [[biobase-session-ingest]] — session lifecycle, RCON polling, Loki query
+- [[biobase-telemetry-schema]] — all 6 Postgres tables and their roles
+- [[biobase-log-parsing]] — CS2 log format, BIOBASE plugin protocol, event types
+- [[biobase-hub-routing]] — nginx path routing, hub UI, GF_SERVER_ROOT_URL requirement
+
+## Stacks and Services
+
+| Compose stack | Role |
+|---|---|
+| `bb_client` | Postgres + `bb_data_collection` |
+| `bb_cs2_server` | CS2 dedicated server |
+| `bb_monitor_loki` | Loki + Promtail (collects container logs) |
+| `bb_monitor_grafana` | Grafana (provisioned dashboards) |
+| `bb_monitor_prometheus` | Prometheus + RCON exporter |
+| `bb_biobase_local` | nginx hub, operator entry point |
+
+All stacks share `biobase_internal` Docker network (and friends per compose).
+
+## CLI Tools
+
+`tools/run_kz_session.sh` and `tools/run_ingest_session.sh` — start a fixed-duration ingest session from the CLI without the browser. Useful for reproducible runs. Defaults: `DATA_URL=http://127.0.0.1:28080`, `CS2_URL=http://127.0.0.1:8765`, `DURATION_SEC=300`.
+
+## Key Constraint: RCON Gives Coarse Data
+
+`GET /api/status` only returns what the vanilla `status` RCON command returns — human/bot count, map, hostname. It does **not** return positions, velocities, or per-shot data. Granular telemetry requires CS2 server plugins that emit structured `BIOBASE_POS_JSON` / `BIOBASE_EVENT_JSON` log lines. ^[inferred]

@@ -28,6 +28,19 @@ app = FastAPI(title="bb_cs2_control", version="1.0.0")
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
+# Matches CS2 `status` player rows (format differs from CS:GO).
+# Header:  id  time  ping  loss  state  rate  [adr]  name
+# Bot row: "   0      BOT    0    0     active      0 'BotName '"
+# Player:  "   2    12:45   45    0     active 196608 '1.2.3.4:27005' 'HumanName'"
+# Strategy: capture id/time/ping/loss/state, then take the LAST single-quoted
+# field on the line as the player name (backtracking handles optional address).
+_PLAYER_ROW_RE = re.compile(
+    r"^\s+(\d+)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\w+)\s+\d+"  # id, time/BOT, ping, loss, state, rate
+    r"(?:\s+'[^']*')?"                                     # optional address (e.g. '1.2.3.4:27005')
+    r"\s+'([^']*)'",                                        # name (last single-quoted field)
+    re.MULTILINE,
+)
+
 
 def _strip_ansi(s: str) -> str:
     return _ANSI.sub("", s)
@@ -53,6 +66,27 @@ def require_token(authorization: str | None, x_api_key: str | None) -> None:
     if authorization and authorization.startswith("Bearer ") and authorization[7:] == CONTROL_TOKEN:
         return
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def parse_players(text: str) -> list[dict]:
+    """Extract per-player rows from `status` command output."""
+    text = _strip_ansi(text)
+    players = []
+    for m in _PLAYER_ROW_RE.finditer(text):
+        slot, time_or_bot, ping, loss, state, name = m.groups()
+        is_bot = time_or_bot.upper() == "BOT"
+        players.append(
+            {
+                "userid": int(slot),
+                "name": name.strip(),
+                "steamid": "BOT" if is_bot else None,
+                "connected": None if is_bot else time_or_bot,
+                "ping": int(ping),
+                "loss": int(loss),
+                "state": state,
+            }
+        )
+    return players
 
 
 def parse_status(text: str) -> dict:
@@ -103,6 +137,7 @@ def parse_status(text: str) -> dict:
         "server_listed_running": server_running,
         "rcon_ok": True,
         "rcon_code": 0,
+        "players": parse_players(text),
     }
 
 
@@ -139,6 +174,8 @@ def api_bots_start(
         f"bot_quota {BOT_QUOTA}",
         f"bot_quota_mode {BOT_MODE}",
         f"bot_difficulty {BOT_DIFF}",
+        "log on",
+        "sv_logecho 1",
         "mp_restartgame 1",
     ]
     last_err = None

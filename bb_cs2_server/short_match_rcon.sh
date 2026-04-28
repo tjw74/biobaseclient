@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Optional RCON preset before a data-collection session: ~5 min map, long rounds (KZ/bot testing).
+# Prepare bb_cs2_server for a bot deathmatch data-collection session.
+# Overrides CS2KZ defaults (game_type 3 / bot_stop 1) for standard casual bot play.
 # Run on the host with bb_cs2_server up:  ./short_match_rcon.sh
 # Set RCON_HOST / RCON_PORT / RCON_PASSWORD or CS2_RCONPW to match docker-compose.
 set -euo pipefail
@@ -7,13 +8,38 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="${DIR}/rcon.sh"
 [[ -x "$R" ]] || { echo "missing $R"; exit 1; }
 
-echo "bb_cs2_server: applying short-session friendly cvars (ignore unknown errors)"
-r() { "$R" "$@" 2>&1 | head -1 || true; }
+echo "bb_cs2_server: applying bot-deathmatch cvars (overrides CS2KZ defaults)"
+# "$*" joins all args into a single RCON command string (mcrcon treats each arg as a command)
+r() { "$R" "$*" 2>&1 | head -1 || true; }
 
-r mp_warmup_end
-r mp_freezetime 3
-r mp_timelimit 5
-r mp_roundtime 5
-r mp_roundtime_defuse 5
-r mp_halftime 0
-echo "Done. If the server is not on a defuse map, some cvars are no-ops — still OK for KZ."
+# Unload CS2KZ plugin so its cvar hooks (mp_roundtime ↔ mp_timelimit sync, bot_stop) don't interfere.
+# The plugin reloads on next map change; re-run this script after each changelevel.
+r "meta unload 1"
+
+# Switch from KZ custom mode (game_type 3) to casual (game_type 0, game_mode 0)
+# so bots fight each other with standard round logic.
+r "game_type 0"
+r "game_mode 0"
+
+# Unfreeze bots (cs2kz.cfg sets bot_stop 1).
+r "bot_stop 0"
+r "bot_join_after_player 0"
+
+# Timing: roundtime and timelimit are independent once KZ is unloaded.
+r "mp_roundtime 2"
+r "mp_roundtime_defuse 2"
+r "mp_timelimit 0"
+r "mp_freezetime 0"
+r "mp_halftime 0"
+
+# Prevent map rotation at game over (cs2kz.cfg enables it).
+r "mp_match_end_changelevel 0"
+
+# Enable HL-format game event logging (kill/round/damage events → Loki).
+r "log on"
+r "sv_logecho 1"
+r "mp_logdetail 3"
+
+r "mp_warmup_end"
+r "mp_restartgame 1"
+echo "Done. Bots should now fight on the current map; check status in ~10 s."

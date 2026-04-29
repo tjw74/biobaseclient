@@ -35,7 +35,7 @@
       "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "content": "### Game schema (`game`)\nAll panels query **`game.*`** only (separate from ops collection storage).\n- **Game events** — parsed combat/chat/round lines.\n- **Movement** — `BIOBASE_POS_JSON` ticks only.\n- **Round stats** — CS2 JSON round blocks.\n- **CS2KZ** — SQLite mirror (runs, jumpstats).\n\nFor **RCON samples, raw log lines, and status snapshots** see **Ops ingest** in the link above.",
+        "content": "### Game schema (`game`)\n**Parsed** rows are written only **after** an ingest session **finishes** the Loki window (batch at end): `log_parser.py` fills `game.*` from **`ops.biobase_cs2_log_line`**. Nothing appears here while a session is still in the RCON loop.\n\nPanels query **`game.*`** only:\n- **Game events** — kills, chat, rounds, etc. (needs server logging; see prep docs).\n- **Movement** — only if the server prints `BIOBASE_POS_JSON`.\n- **Round stats** — CS2 `JSON_BEGIN` / `JSON_END` blocks.\n- **CS2KZ** — SQLite mirror when `CS2KZ_SQLITE_PATH` is configured.\n\nIf **Quick counts** shows `ops_log_lines > 0` but `game_event_rows = 0`, open **Ops ingest** to confirm lines exist, then check session completed (`complete`) and CS2 logging cvars.\n\nFor **RCON / raw logs** see **Ops ingest** in the link above.",
         "mode": "markdown"
       },
       "title": "Overview",
@@ -43,9 +43,30 @@
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "If game_* rows are 0 but ops_log_lines is high, parsing may have failed or sessions never reached complete. If all zero, run an ingest session and wait for it to finish.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 5 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (SELECT count(*)::bigint FROM game.biobase_cs2_game_event)      AS game_event_rows,\n       (SELECT count(*)::bigint FROM game.biobase_cs2_movement_sample)   AS movement_rows,\n       (SELECT count(*)::bigint FROM game.biobase_cs2_round_stats)      AS round_stats_rows,\n       (SELECT count(*)::bigint FROM ops.biobase_cs2_log_line)           AS ops_log_lines,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_run)            AS kz_run_rows,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_jumpstat)       AS kz_jumpstat_rows",
+          "refId": "A"
+        }
+      ],
+      "title": "Quick counts (game vs ops raw lines)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
       "description": "Parsed server log events (game time = engine log prefix on the line).",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 5 },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 9 },
       "id": 2,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -66,7 +87,7 @@
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
       "description": "Position / velocity samples from BIOBASE_POS_JSON log lines only.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 19 },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 23 },
       "id": 3,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -87,7 +108,7 @@
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
       "description": "Per-player cumulative stats when CS2 emits JSON_BEGIN … JSON_END round_stats.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 33 },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 37 },
       "id": 5,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -108,7 +129,7 @@
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
       "description": "CS2KZ Times table mirrored from local SQLite (per ingest session).",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 47 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 51 },
       "id": 6,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -129,7 +150,7 @@
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
       "description": "CS2KZ Jumpstats mirrored from local SQLite.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 59 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 63 },
       "id": 7,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",

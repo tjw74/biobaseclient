@@ -5,19 +5,20 @@ category: projects
 tags: [cs2, game-analytics, postgres, grafana, docker]
 sources: [projects/biobase]
 summary: >-
-  CS2 game analytics platform: collects server telemetry into Postgres via
-  session-based ingest and exposes it through Grafana dashboards.
+  CS2 game analytics platform: collects server telemetry into Postgres
+  (public session + ops ingest + game parsed/KZ data) and exposes it through
+  Grafana dashboards.
 provenance:
   extracted: 0.85
   inferred: 0.12
   ambiguous: 0.03
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-28T07:00:00Z
+updated: 2026-04-26T12:00:00Z
 ---
 
 # Biobase
 
-A self-hosted analytics platform for Counter-Strike 2 dedicated servers. It captures game telemetry (server status, log lines, player snapshots, game events, movement data, round stats) into Postgres during a **session** and surfaces it through Grafana dashboards.
+A self-hosted analytics platform for Counter-Strike 2 dedicated servers. It captures telemetry during a **session** into Postgres: **`public`** holds the session row; **`ops`** holds RCON samples, raw Loki lines, and status snapshots; **`game`** holds parsed events, movement, round stats, and the CS2KZ SQLite mirror. Grafana uses separate dashboards for **ops** vs **game** queries.
 
 ## Architecture
 
@@ -39,7 +40,7 @@ bb_cs2_control
 ## Key Concepts
 
 - [[biobase-session-ingest]] — session lifecycle, RCON polling, Loki query
-- [[biobase-telemetry-schema]] — all 6 Postgres tables and their roles
+- [[biobase-telemetry-schema]] — `public` / `ops` / `game` schemas, tables, Grafana split
 - [[biobase-log-parsing]] — CS2 log format, BIOBASE plugin protocol, event types
 - [[biobase-hub-routing]] — nginx path routing, hub UI, GF_SERVER_ROOT_URL requirement
 - [[biobase-data-collection-prep]] — CS2 server prep for bot-deathmatch sessions (CS2KZ, logging cvars)

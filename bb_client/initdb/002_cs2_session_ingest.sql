@@ -1,4 +1,7 @@
--- CS2 + KZ session capture: RCON samples (game state) and Loki log lines (plugins / server)
+-- CS2 + KZ session capture: shared session row (public), RCON + raw Loki lines (ops).
+CREATE SCHEMA IF NOT EXISTS ops;
+CREATE SCHEMA IF NOT EXISTS game;
+
 CREATE TABLE IF NOT EXISTS public.biobase_cs2_match_session (
     id                 uuid PRIMARY KEY,
     label              text,
@@ -12,7 +15,7 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2_match_session (
     error_message      text
 );
 
-CREATE TABLE IF NOT EXISTS public.biobase_cs2_rcon_sample (
+CREATE TABLE IF NOT EXISTS ops.biobase_cs2_rcon_sample (
     id           bigserial PRIMARY KEY,
     session_id   uuid NOT NULL REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
     sampled_at   timestamptz NOT NULL DEFAULT now(),
@@ -26,9 +29,9 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2_rcon_sample (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_rcon_sample_session_time
-  ON public.biobase_cs2_rcon_sample (session_id, sampled_at);
+  ON ops.biobase_cs2_rcon_sample (session_id, sampled_at);
 
-CREATE TABLE IF NOT EXISTS public.biobase_cs2_log_line (
+CREATE TABLE IF NOT EXISTS ops.biobase_cs2_log_line (
     id              bigserial PRIMARY KEY,
     session_id      uuid NOT NULL REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
     ingested_at     timestamptz NOT NULL DEFAULT now(),
@@ -37,4 +40,4 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2_log_line (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_log_line_session
-  ON public.biobase_cs2_log_line (session_id);
+  ON ops.biobase_cs2_log_line (session_id);

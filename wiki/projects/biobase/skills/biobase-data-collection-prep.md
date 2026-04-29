@@ -12,7 +12,7 @@ provenance:
   inferred: 0.08
   ambiguous: 0.02
 created: 2026-04-28T07:00:00Z
-updated: 2026-04-28T07:00:00Z
+updated: 2026-04-26T12:00:00Z
 ---
 
 # Biobase Data Collection Prep (CS2 Server)
@@ -36,7 +36,7 @@ Before starting an ingest session the CS2 server must be configured for standard
 `meta unload 1` only persists until the next map load. CS2KZ reloads automatically on `changelevel`. After any map change you must re-run `short_match_rcon.sh` before starting another ingest session, otherwise:
 - bots will be frozen again (`bot_stop 1`)
 - game mode reverts to KZ
-- `sv_logecho` may be off → no log lines flow into Loki → `biobase_cs2_game_event` will be empty
+- `sv_logecho` may be off → no log lines flow into Loki → **`game.biobase_cs2_game_event`** will be empty
 
 ## Logging Cvars Required for Ingest
 
@@ -65,7 +65,7 @@ Strategy: the `time_or_bot` field is `"BOT"` for bots; the **last** single-quote
 2. Run `./bb_cs2_server/short_match_rcon.sh`
 3. Wait ~10 s for bots to start fighting
 4. Start session via hub UI or `tools/run_ingest_session.sh`
-5. After session ends: verify `biobase_cs2_game_event` has `kill` rows (non-zero means logging worked)
+5. After session ends: verify **`game.biobase_cs2_game_event`** has `kill` rows (non-zero means logging worked)
 
 ## Related
 

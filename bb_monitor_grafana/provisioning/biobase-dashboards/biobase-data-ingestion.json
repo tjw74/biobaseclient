@@ -1,11 +1,22 @@
 {
   "annotations": { "list": [] },
-  "description": "In-game player telemetry from Postgres: combat/events, movement, status snapshots, round stats. Rows sorted by game or engine-reported time.",
+  "description": "Gameplay-derived tables in Postgres schema `game`: parsed log events, movement, round stats, CS2KZ mirror. Raw RCON/Loki ingest lives in schema `ops` (separate dashboard).",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
   "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Ops ingest (RCON & raw logs)",
+      "type": "link",
+      "url": "/d/bb-ops-ingest"
+    },
     {
       "asDropdown": false,
       "icon": "dashboard",
@@ -24,7 +35,7 @@
       "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "content": "### In-game player data (Postgres)\nEach panel is a **table**. The **first column is time** (server log time where available, else ingest fallback).\n- **Game events** — kills, damage, chat, rounds, etc. from parsed logs.\n- **Movement** — only if the server prints `BIOBASE_POS_JSON` lines.\n- **Player status** — per-player fields from each RCON `status` poll (`status_poll_time` is when that snapshot was taken).\n- **Round stats** — CS2 JSON round blocks; time is the `JSON_BEGIN` log line.",
+        "content": "### Game schema (`game`)\nAll panels query **`game.*`** only (separate from ops collection storage).\n- **Game events** — parsed combat/chat/round lines.\n- **Movement** — `BIOBASE_POS_JSON` ticks only.\n- **Round stats** — CS2 JSON round blocks.\n- **CS2KZ** — SQLite mirror (runs, jumpstats).\n\nFor **RCON samples, raw log lines, and status snapshots** see **Ops ingest** in the link above.",
         "mode": "markdown"
       },
       "title": "Overview",
@@ -44,7 +55,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT event_ts AS game_time,\n       event_type,\n       round_num,\n       attacker_name,\n       attacker_steamid,\n       attacker_team,\n       victim_name,\n       victim_steamid,\n       victim_team,\n       weapon,\n       headshot,\n       extra_json\nFROM   public.biobase_cs2_game_event\nORDER BY event_ts DESC NULLS LAST, id DESC\nLIMIT 200",
+          "rawSql": "SELECT event_ts AS game_time,\n       event_type,\n       round_num,\n       attacker_name,\n       attacker_steamid,\n       attacker_team,\n       victim_name,\n       victim_steamid,\n       victim_team,\n       weapon,\n       headshot,\n       extra_json\nFROM   game.biobase_cs2_game_event\nORDER BY event_ts DESC NULLS LAST, id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
@@ -65,7 +76,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_ts, sampled_at) AS game_time,\n       tick,\n       player_name,\n       steamid,\n       pos_x,\n       pos_y,\n       pos_z,\n       vel_x,\n       vel_y,\n       vel_z,\n       speed,\n       yaw,\n       pitch,\n       on_ground,\n       extra_json\nFROM   public.biobase_cs2_movement_sample\nORDER BY COALESCE(event_ts, sampled_at) DESC NULLS LAST, id DESC\nLIMIT 200",
+          "rawSql": "SELECT COALESCE(event_ts, sampled_at) AS game_time,\n       tick,\n       player_name,\n       steamid,\n       pos_x,\n       pos_y,\n       pos_z,\n       vel_x,\n       vel_y,\n       vel_z,\n       speed,\n       yaw,\n       pitch,\n       on_ground,\n       extra_json\nFROM   game.biobase_cs2_movement_sample\nORDER BY COALESCE(event_ts, sampled_at) DESC NULLS LAST, id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
@@ -74,30 +85,9 @@
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "One row per player per RCON status poll. Time = when that poll ran.",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 33 },
-      "id": 4,
-      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
-      "pluginVersion": "11.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "postgres", "uid": "bb-postgres" },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT sampled_at AS status_poll_time,\n       player_name,\n       steamid,\n       userid,\n       connected,\n       ping,\n       loss,\n       state\nFROM   public.biobase_cs2_player_snapshot\nORDER BY sampled_at DESC, id DESC\nLIMIT 200",
-          "refId": "A"
-        }
-      ],
-      "title": "Player status (from RCON /status)",
-      "type": "table"
-    },
-    {
-      "datasource": { "type": "postgres", "uid": "bb-postgres" },
       "description": "Per-player cumulative stats when CS2 emits JSON_BEGIN … JSON_END round_stats.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 45 },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 33 },
       "id": 5,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -107,23 +97,65 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_ts, recorded_at) AS game_time,\n       round_number,\n       map,\n       score_t,\n       score_ct,\n       slot_index,\n       accountid,\n       team,\n       money,\n       kills,\n       deaths,\n       assists,\n       dmg,\n       hsp,\n       kdr,\n       adr,\n       mvp,\n       ef,\n       ud,\n       kills_3k,\n       kills_4k,\n       kills_5k,\n       clutchk,\n       firstk,\n       pistolk,\n       sniperk,\n       blindk,\n       bombk,\n       firedmg,\n       uniquek,\n       dinks,\n       chickenk\nFROM   public.biobase_cs2_round_stats\nORDER BY COALESCE(event_ts, recorded_at) DESC NULLS LAST, id DESC\nLIMIT 200",
+          "rawSql": "SELECT COALESCE(event_ts, recorded_at) AS game_time,\n       round_number,\n       map,\n       score_t,\n       score_ct,\n       slot_index,\n       accountid,\n       team,\n       money,\n       kills,\n       deaths,\n       assists,\n       dmg,\n       hsp,\n       kdr,\n       adr,\n       mvp,\n       ef,\n       ud,\n       kills_3k,\n       kills_4k,\n       kills_5k,\n       clutchk,\n       firstk,\n       pistolk,\n       sniperk,\n       blindk,\n       bombk,\n       firedmg,\n       uniquek,\n       dinks,\n       chickenk\nFROM   game.biobase_cs2_round_stats\nORDER BY COALESCE(event_ts, recorded_at) DESC NULLS LAST, id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
       "title": "Round stats (per player)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "CS2KZ Times table mirrored from local SQLite (per ingest session).",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 47 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ingested_at,\n       map_name,\n       course_name,\n       mode_name,\n       run_time,\n       teleports,\n       steamid64,\n       time_id,\n       metadata\nFROM   game.biobase_cs2kz_run\nORDER BY ingested_at DESC, id DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "CS2KZ runs (Times)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "CS2KZ Jumpstats mirrored from local SQLite.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 59 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ingested_at,\n       steamid64,\n       jump_type,\n       mode_name,\n       distance,\n       strafes,\n       sync,\n       pre,\n       jump_air_max,\n       airtime,\n       jumpstat_id\nFROM   game.biobase_cs2kz_jumpstat\nORDER BY ingested_at DESC, id DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "CS2KZ jumpstats",
       "type": "table"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["biobase", "postgres", "players", "ingestion"],
+  "tags": ["biobase", "postgres", "game", "ingestion"],
   "templating": { "list": [] },
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "In-game player data",
+  "title": "Game data (parsed + CS2KZ)",
   "uid": "bb-data-ingestion",
   "version": 1
 }

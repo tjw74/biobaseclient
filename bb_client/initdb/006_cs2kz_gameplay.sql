@@ -1,7 +1,8 @@
 -- CS2KZ local SQLite mirror: times (runs), jumpstats, players — see CS2KZ db schema in
 -- https://github.com/KZGlobalTeam/cs2kz-metamod (src/kz/db/queries/*.h)
+-- Stored in game schema (alongside parsed log gameplay).
 
-CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_sqlite_cursor (
+CREATE TABLE IF NOT EXISTS game.biobase_cs2kz_sqlite_cursor (
     session_id   uuid    NOT NULL
         REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
     table_name   text    NOT NULL,
@@ -9,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_sqlite_cursor (
     PRIMARY KEY (session_id, table_name)
 );
 
-CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_player (
+CREATE TABLE IF NOT EXISTS game.biobase_cs2kz_player (
     id              bigserial PRIMARY KEY,
     session_id      uuid        NOT NULL
         REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
@@ -25,9 +26,9 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_player (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2kz_player_session_time
-    ON public.biobase_cs2kz_player (session_id, ingested_at DESC);
+    ON game.biobase_cs2kz_player (session_id, ingested_at DESC);
 
-CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_run (
+CREATE TABLE IF NOT EXISTS game.biobase_cs2kz_run (
     id               bigserial PRIMARY KEY,
     session_id       uuid           NOT NULL
         REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
@@ -50,12 +51,12 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_run (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2kz_run_session_time
-    ON public.biobase_cs2kz_run (session_id, ingested_at DESC);
+    ON game.biobase_cs2kz_run (session_id, ingested_at DESC);
 
 CREATE INDEX IF NOT EXISTS biobase_cs2kz_run_player
-    ON public.biobase_cs2kz_run (session_id, steamid64);
+    ON game.biobase_cs2kz_run (session_id, steamid64);
 
-CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_jumpstat (
+CREATE TABLE IF NOT EXISTS game.biobase_cs2kz_jumpstat (
     id             bigserial PRIMARY KEY,
     session_id     uuid        NOT NULL
         REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
@@ -79,7 +80,7 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2kz_jumpstat (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2kz_jumpstat_session_time
-    ON public.biobase_cs2kz_jumpstat (session_id, ingested_at DESC);
+    ON game.biobase_cs2kz_jumpstat (session_id, ingested_at DESC);
 
 CREATE INDEX IF NOT EXISTS biobase_cs2kz_jumpstat_player
-    ON public.biobase_cs2kz_jumpstat (session_id, steamid64);
+    ON game.biobase_cs2kz_jumpstat (session_id, steamid64);

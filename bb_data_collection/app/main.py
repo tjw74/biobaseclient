@@ -15,6 +15,7 @@ import psycopg2
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from app.pg_tables import INGEST_SAMPLE, MATCH_SESSION
 from app.schema_cs2 import statements as cs2_table_statements
 from app.session_ingest import run_session
 from app.summary import load_summary
@@ -59,8 +60,8 @@ def ensure_ingest_stub_table() -> None:
             conn.autocommit = True
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS public.biobase_ingest_sample (
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {INGEST_SAMPLE} (
                         id         bigserial PRIMARY KEY,
                         created_at timestamptz NOT NULL DEFAULT now(),
                         note       text
@@ -68,10 +69,10 @@ def ensure_ingest_stub_table() -> None:
                     """
                 )
                 cur.execute(
-                    """
-                    INSERT INTO public.biobase_ingest_sample (note)
+                    f"""
+                    INSERT INTO {INGEST_SAMPLE} (note)
                     SELECT 'stub: replace with real ingest rows'
-                    WHERE NOT EXISTS (SELECT 1 FROM public.biobase_ingest_sample LIMIT 1);
+                    WHERE NOT EXISTS (SELECT 1 FROM {INGEST_SAMPLE} LIMIT 1);
                     """
                 )
     except Exception as e:  # noqa: BLE001
@@ -93,8 +94,8 @@ def ensure_cs2_tables() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    ensure_ingest_stub_table()
     ensure_cs2_tables()
+    ensure_ingest_stub_table()
     yield
 
 
@@ -128,8 +129,8 @@ def _insert_pending_session(
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(
-                """
-                INSERT INTO public.biobase_cs2_match_session
+                f"""
+                INSERT INTO {MATCH_SESSION}
                 (id, label, status, duration_requested)
                 VALUES (%s, %s, 'pending', %s)
                 """,
@@ -186,8 +187,8 @@ def _running_hub_session_id() -> UUID | None:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT id FROM public.biobase_cs2_match_session
+                f"""
+                SELECT id FROM {MATCH_SESSION}
                 WHERE status = 'running' AND label LIKE 'hub-auto%%'
                 ORDER BY coalesce(started_at, created_at) DESC
                 LIMIT 1
@@ -250,8 +251,8 @@ def hub_stop_collection() -> dict[str, Any]:
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(
-                """
-                UPDATE public.biobase_cs2_match_session
+                f"""
+                UPDATE {MATCH_SESSION}
                 SET cancel_requested = true
                 WHERE status = 'running' AND label LIKE 'hub-auto%%'
                 """
@@ -269,8 +270,8 @@ def cancel_session(session_id: UUID) -> dict[str, Any]:
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(
-                """
-                UPDATE public.biobase_cs2_match_session
+                f"""
+                UPDATE {MATCH_SESSION}
                 SET cancel_requested = true
                 WHERE id = %s AND status = 'running'
                 """,
@@ -289,10 +290,10 @@ def get_session(session_id: UUID) -> dict[str, Any]:
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 SELECT id, label, status, duration_requested, created_at, started_at, ended_at,
                        loki_start_ns, loki_end_ns, error_message, cancel_requested
-                FROM public.biobase_cs2_match_session
+                FROM {MATCH_SESSION}
                 WHERE id = %s
                 """,
                 (str(session_id),),

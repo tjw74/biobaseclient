@@ -20,6 +20,8 @@ from uuid import UUID
 import psycopg2
 from psycopg2.extras import execute_values
 
+from app.pg_tables import KZ_JUMPSTAT, KZ_PLAYER, KZ_RUN, KZ_SQLITE_CURSOR
+
 log = logging.getLogger(__name__)
 
 MAX_ROWS_PER_POLL = int(os.environ.get("BIOBASE_CS2KZ_SQLITE_CHUNK", "2000"))
@@ -106,8 +108,8 @@ def _load_map_courses(conn: sqlite3.Connection) -> dict[int, tuple[str, str]]:
 
 def _get_cursor(cur: Any, session_id: str, table_name: str) -> int:
     cur.execute(
-        """
-        SELECT last_rowid FROM public.biobase_cs2kz_sqlite_cursor
+        f"""
+        SELECT last_rowid FROM {KZ_SQLITE_CURSOR}
         WHERE session_id = %s AND table_name = %s
         """,
         (session_id, table_name),
@@ -118,8 +120,8 @@ def _get_cursor(cur: Any, session_id: str, table_name: str) -> int:
 
 def _set_cursor(cur: Any, session_id: str, table_name: str, last_rowid: int) -> None:
     cur.execute(
-        """
-        INSERT INTO public.biobase_cs2kz_sqlite_cursor (session_id, table_name, last_rowid)
+        f"""
+        INSERT INTO {KZ_SQLITE_CURSOR} (session_id, table_name, last_rowid)
         VALUES (%s, %s, %s)
         ON CONFLICT (session_id, table_name) DO UPDATE SET last_rowid = EXCLUDED.last_rowid
         """,
@@ -174,8 +176,8 @@ def ingest_cs2kz_sqlite_for_session(
                 if player_rows:
                     execute_values(
                         cur,
-                        """
-                        INSERT INTO public.biobase_cs2kz_player
+                        f"""
+                        INSERT INTO {KZ_PLAYER}
                         (session_id, steamid64, alias, ip, preferences, cheater, last_played, created_server)
                         VALUES %s
                         ON CONFLICT (session_id, steamid64) DO UPDATE SET
@@ -247,8 +249,8 @@ def ingest_cs2kz_sqlite_for_session(
                     if run_ins:
                         execute_values(
                             cur,
-                            """
-                            INSERT INTO public.biobase_cs2kz_run
+                            f"""
+                            INSERT INTO {KZ_RUN}
                             (session_id, time_id, steamid64, map_course_id, map_name, course_name,
                              mode_id, mode_name, mode_short, style_id_flags, run_time, teleports,
                              metadata, created_unix, sqlite_rowid)
@@ -321,8 +323,8 @@ def ingest_cs2kz_sqlite_for_session(
                     if js_ins:
                         execute_values(
                             cur,
-                            """
-                            INSERT INTO public.biobase_cs2kz_jumpstat
+                            f"""
+                            INSERT INTO {KZ_JUMPSTAT}
                             (session_id, jumpstat_id, steamid64, jump_type, mode_id, mode_name,
                              distance, is_block_jump, block, strafes, sync, pre, jump_air_max, airtime,
                              created_unix, sqlite_rowid)

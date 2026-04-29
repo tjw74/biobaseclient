@@ -8,6 +8,16 @@ from uuid import UUID
 
 import psycopg2
 
+from app.pg_tables import (
+    GAME_EVENT,
+    LOG_LINE,
+    MATCH_SESSION,
+    MOVEMENT_SAMPLE,
+    PLAYER_SNAPSHOT,
+    RCON_SAMPLE,
+    ROUND_STATS,
+)
+
 ROUND_STAT_COLS = [
     "id", "session_id", "recorded_at", "event_ts", "round_number", "score_t", "score_ct", "map",
     "slot_index", "accountid", "team", "money", "kills", "deaths", "assists",
@@ -55,10 +65,10 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
         with conn.cursor() as cur:
             # Session row
             cur.execute(
-                """
+                f"""
                 SELECT id, label, status, duration_requested, created_at, started_at, ended_at,
                        loki_start_ns, loki_end_ns, error_message
-                FROM public.biobase_cs2_match_session
+                FROM {MATCH_SESSION}
                 WHERE id = %s
                 """,
                 (str(session_id),),
@@ -74,12 +84,12 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # RCON samples
             cur.execute(
-                """
+                f"""
                 SELECT count(*)::bigint,
                        min(sampled_at), max(sampled_at),
                        count(*) filter (where rcon_ok)::bigint,
                        count(*) filter (where not rcon_ok)::bigint
-                FROM public.biobase_cs2_rcon_sample
+                FROM {RCON_SAMPLE}
                 WHERE session_id = %s
                 """,
                 (str(session_id),),
@@ -89,12 +99,12 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Player snapshots
             cur.execute(
-                """
+                f"""
                 SELECT count(*)::bigint,
                        count(distinct player_name)::bigint,
                        count(distinct steamid)::bigint,
                        min(sampled_at), max(sampled_at)
-                FROM public.biobase_cs2_player_snapshot
+                FROM {PLAYER_SNAPSHOT}
                 WHERE session_id = %s
                 """,
                 (str(session_id),),
@@ -104,11 +114,11 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Log lines
             cur.execute(
-                """
+                f"""
                 SELECT count(*)::bigint,
                        coalesce(sum(octet_length(line::text)), 0)::bigint,
                        min(ingested_at), max(ingested_at)
-                FROM public.biobase_cs2_log_line
+                FROM {LOG_LINE}
                 WHERE session_id = %s
                 """,
                 (str(session_id),),
@@ -117,9 +127,9 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
             n_lines, n_bytes, line_i_min, line_i_max = lc
 
             cur.execute(
-                """
+                f"""
                 SELECT count(*)::bigint
-                FROM public.biobase_cs2_log_line
+                FROM {LOG_LINE}
                 WHERE session_id = %s AND line ~* 'kz|gokz|metamod|cs2kz|!record|timer|jump'
                 """,
                 (str(session_id),),
@@ -129,7 +139,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Game events — total + per type breakdown
             cur.execute(
-                """
+                f"""
                 SELECT count(*)::bigint,
                        count(*) filter (where event_type = 'kill')::bigint,
                        count(*) filter (where event_type = 'round_start')::bigint,
@@ -138,7 +148,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
                        max(round_num),
                        count(*) filter (where event_type = 'damage')::bigint,
                        count(*) filter (where event_type = 'assist')::bigint
-                FROM public.biobase_cs2_game_event
+                FROM {GAME_EVENT}
                 WHERE session_id = %s
                 """,
                 (str(session_id),),
@@ -148,11 +158,11 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Top killers
             cur.execute(
-                """
+                f"""
                 SELECT attacker_name, attacker_steamid,
                        count(*)::bigint AS kills,
                        count(*) filter (where headshot)::bigint AS headshots
-                FROM public.biobase_cs2_game_event
+                FROM {GAME_EVENT}
                 WHERE session_id = %s AND event_type = 'kill'
                 GROUP BY attacker_name, attacker_steamid
                 ORDER BY kills DESC
@@ -170,9 +180,9 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Weapon breakdown
             cur.execute(
-                """
+                f"""
                 SELECT weapon, count(*)::bigint AS kills
-                FROM public.biobase_cs2_game_event
+                FROM {GAME_EVENT}
                 WHERE session_id = %s AND event_type = 'kill' AND weapon IS NOT NULL
                 GROUP BY weapon
                 ORDER BY kills DESC
@@ -184,12 +194,12 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Movement samples
             cur.execute(
-                """
+                f"""
                 SELECT count(*)::bigint,
                        count(distinct player_name)::bigint,
                        min(coalesce(event_ts, sampled_at)),
                        max(coalesce(event_ts, sampled_at))
-                FROM public.biobase_cs2_movement_sample
+                FROM {MOVEMENT_SAMPLE}
                 WHERE session_id = %s
                 """,
                 (str(session_id),),
@@ -199,14 +209,14 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Round stats (from JSON_BEGIN/END blocks)
             cur.execute(
-                """
+                f"""
                 SELECT count(*)::bigint,
                        count(distinct round_number)::bigint,
                        max(round_number),
                        coalesce(sum(kills), 0)::bigint,
                        coalesce(sum(deaths), 0)::bigint,
                        coalesce(sum(dmg), 0)
-                FROM public.biobase_cs2_round_stats
+                FROM {ROUND_STATS}
                 WHERE session_id = %s
                 """,
                 (str(session_id),),
@@ -216,16 +226,16 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
 
             # Top players by kills across all rounds in round_stats
             cur.execute(
-                """
+                f"""
                 SELECT ps.player_name, rs.slot_index,
                        sum(rs.kills)::bigint AS total_kills,
                        sum(rs.deaths)::bigint AS total_deaths,
                        sum(rs.dmg) AS total_dmg,
                        round(avg(rs.adr)::numeric, 1) AS avg_adr
-                FROM public.biobase_cs2_round_stats rs
+                FROM {ROUND_STATS} rs
                 LEFT JOIN LATERAL (
                     SELECT DISTINCT ON (userid) player_name
-                    FROM public.biobase_cs2_player_snapshot
+                    FROM {PLAYER_SNAPSHOT}
                     WHERE session_id = rs.session_id AND userid = rs.slot_index
                     ORDER BY userid, sampled_at
                     LIMIT 1
@@ -271,7 +281,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
         "loki_window_ns": {"start": loki_start_ns, "end": loki_end_ns},
         "error_message": error_message,
         "rcon_samples": {
-            "table": "biobase_cs2_rcon_sample",
+            "table": RCON_SAMPLE,
             "row_count": int(n_r),
             "column_count": len(COLUMNS["biobase_cs2_rcon_sample"]) - 1,
             "column_names": [c for c in COLUMNS["biobase_cs2_rcon_sample"] if c != "id"],
@@ -281,7 +291,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
             "sampling_granularity": rcon_grain,
         },
         "player_snapshots": {
-            "table": "biobase_cs2_player_snapshot",
+            "table": PLAYER_SNAPSHOT,
             "row_count": int(n_ps),
             "column_count": len(COLUMNS["biobase_cs2_player_snapshot"]) - 1,
             "column_names": [c for c in COLUMNS["biobase_cs2_player_snapshot"] if c != "id"],
@@ -291,7 +301,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
             "note": "One row per player per RCON status poll; steamid='BOT' for bots",
         },
         "log_lines": {
-            "table": "biobase_cs2_log_line",
+            "table": LOG_LINE,
             "row_count": int(n_lines),
             "column_count": len(COLUMNS["biobase_cs2_log_line"]) - 1,
             "column_names": [c for c in COLUMNS["biobase_cs2_log_line"] if c != "id"],
@@ -304,7 +314,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
             ),
         },
         "game_events": {
-            "table": "biobase_cs2_game_event",
+            "table": GAME_EVENT,
             "row_count": int(n_ge),
             "column_count": len(COLUMNS["biobase_cs2_game_event"]) - 1,
             "column_names": [c for c in COLUMNS["biobase_cs2_game_event"] if c != "id"],
@@ -318,14 +328,14 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
             "top_killers": top_killers,
             "weapon_kill_counts": weapon_stats,
             "note": (
-                "Parsed from biobase_cs2_log_line; event_type includes: "
+                "Parsed from ops.biobase_cs2_log_line; event_type includes: "
                 "kill, damage, assist, round_start, round_end, team_score, connect, "
                 "disconnect, say, say_team, biobase_pos, biobase_event. "
                 "damage events include attacker/victim [x y z] positions and hitgroup."
             ),
         },
         "movement_samples": {
-            "table": "biobase_cs2_movement_sample",
+            "table": MOVEMENT_SAMPLE,
             "row_count": int(n_mv),
             "column_count": len(COLUMNS["biobase_cs2_movement_sample"]) - 1,
             "column_names": [c for c in COLUMNS["biobase_cs2_movement_sample"] if c != "id"],
@@ -337,7 +347,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
             ),
         },
         "round_stats": {
-            "table": "biobase_cs2_round_stats",
+            "table": ROUND_STATS,
             "row_count": int(n_rs),
             "column_count": len(ROUND_STAT_COLS) - 1,
             "column_names": [c for c in ROUND_STAT_COLS if c != "id"],
@@ -350,7 +360,7 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
             "note": (
                 "Per-player CUMULATIVE stats from CS2 JSON_BEGIN/END log blocks; "
                 "emitted at the start of each round. slot_index joins with "
-                "biobase_cs2_player_snapshot.userid to get player name. "
+                "ops.biobase_cs2_player_snapshot.userid to get player name. "
                 "Fields: kills, deaths, assists, dmg, hsp, kdr, adr, mvp, 3k/4k/5k, "
                 "clutchk, firstk, pistolk, sniperk, dinks, firedmg, etc."
             ),

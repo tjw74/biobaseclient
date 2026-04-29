@@ -1,0 +1,108 @@
+{
+  "annotations": { "list": [] },
+  "description": "Operations ingest in Postgres schema `ops`: RCON/status polls, per-poll player snapshots, raw Loki log lines. Gameplay parsing output is in schema `game`.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Game data (parsed + CS2KZ)",
+      "type": "link",
+      "url": "/d/bb-data-ingestion"
+    }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "content": "### Ops schema (`ops`)\nIngest **before** gameplay parsing:\n- **RCON samples** — each HTTP `/api/status` poll (map, bots, `raw_json`).\n- **Player snapshots** — one row per player per poll.\n- **Log lines** — raw Loki lines for the session window (`line` may be long).\n\nParsed rows (`game.biobase_cs2_*`) are on the **Game data** dashboard.",
+        "mode": "markdown"
+      },
+      "title": "Overview",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Time series of RCON / status JSON from bb_cs2_control.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 5 },
+      "id": 2,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sampled_at,\n       rcon_ok,\n       headline,\n       humans,\n       bots,\n       map,\n       hostname,\n       raw_json,\n       session_id\nFROM   ops.biobase_cs2_rcon_sample\nORDER BY sampled_at DESC, id DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "RCON / status samples",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Per-player row from each status poll.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 17 },
+      "id": 3,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sampled_at AS status_poll_time,\n       player_name,\n       steamid,\n       userid,\n       connected,\n       ping,\n       loss,\n       state,\n       session_id\nFROM   ops.biobase_cs2_player_snapshot\nORDER BY sampled_at DESC, id DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Player status (from RCON /status)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Raw container log text ingested from Loki for the session window.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 29 },
+      "id": 4,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ingested_at,\n       loki_ts_ns,\n       left(line, 2000) AS line_preview,\n       session_id,\n       id AS log_line_id\nFROM   ops.biobase_cs2_log_line\nORDER BY ingested_at DESC, id DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Raw log lines (preview)",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["biobase", "postgres", "ops", "ingestion"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Ops ingest (RCON & logs)",
+  "uid": "bb-ops-ingest",
+  "version": 1
+}

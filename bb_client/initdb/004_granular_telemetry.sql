@@ -1,12 +1,11 @@
--- Granular CS2 game telemetry tables
--- Per-player snapshots, parsed game events, and plugin-emitted movement data.
--- These are idempotent (IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
+-- Granular CS2 telemetry: ops = RCON-derived snapshots + raw log storage anchor;
+-- game = parsed gameplay derived from ops.biobase_cs2_log_line.
 
 -- Per-player data captured on every RCON status poll
-CREATE TABLE IF NOT EXISTS public.biobase_cs2_player_snapshot (
+CREATE TABLE IF NOT EXISTS ops.biobase_cs2_player_snapshot (
     id              bigserial PRIMARY KEY,
     session_id      uuid NOT NULL REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
-    rcon_sample_id  bigint REFERENCES public.biobase_cs2_rcon_sample (id) ON DELETE CASCADE,
+    rcon_sample_id  bigint REFERENCES ops.biobase_cs2_rcon_sample (id) ON DELETE CASCADE,
     sampled_at      timestamptz NOT NULL DEFAULT now(),
     userid          integer,
     player_name     text,
@@ -18,19 +17,19 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2_player_snapshot (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_player_snapshot_session_time
-    ON public.biobase_cs2_player_snapshot (session_id, sampled_at);
+    ON ops.biobase_cs2_player_snapshot (session_id, sampled_at);
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_player_snapshot_player
-    ON public.biobase_cs2_player_snapshot (player_name, steamid);
+    ON ops.biobase_cs2_player_snapshot (player_name, steamid);
 
 -- Parsed structured game events from CS2 server logs
 -- event_type: kill | round_start | round_end | team_score | connect |
 --             disconnect | say | say_team | game_over | game_commencing |
 --             world_<trigger> | biobase_pos | biobase_event
-CREATE TABLE IF NOT EXISTS public.biobase_cs2_game_event (
+CREATE TABLE IF NOT EXISTS game.biobase_cs2_game_event (
     id               bigserial PRIMARY KEY,
     session_id       uuid NOT NULL REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
-    log_line_id      bigint REFERENCES public.biobase_cs2_log_line (id) ON DELETE SET NULL,
+    log_line_id      bigint REFERENCES ops.biobase_cs2_log_line (id) ON DELETE SET NULL,
     event_ts         timestamptz,
     event_type       text NOT NULL,
     round_num        integer,
@@ -47,17 +46,17 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2_game_event (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_game_event_session_type
-    ON public.biobase_cs2_game_event (session_id, event_type);
+    ON game.biobase_cs2_game_event (session_id, event_type);
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_game_event_session_ts
-    ON public.biobase_cs2_game_event (session_id, event_ts);
+    ON game.biobase_cs2_game_event (session_id, event_ts);
 
 -- Plugin-emitted structured position / movement data
 -- Populated when a server plugin prints: BIOBASE_POS_JSON {"player":...,"pos":[x,y,z],...}
-CREATE TABLE IF NOT EXISTS public.biobase_cs2_movement_sample (
+CREATE TABLE IF NOT EXISTS game.biobase_cs2_movement_sample (
     id          bigserial PRIMARY KEY,
     session_id  uuid NOT NULL REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
-    log_line_id bigint REFERENCES public.biobase_cs2_log_line (id) ON DELETE SET NULL,
+    log_line_id bigint REFERENCES ops.biobase_cs2_log_line (id) ON DELETE SET NULL,
     sampled_at  timestamptz NOT NULL DEFAULT now(),
     event_ts    timestamptz,
     tick        bigint,
@@ -77,15 +76,15 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2_movement_sample (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_movement_sample_session_time
-    ON public.biobase_cs2_movement_sample (session_id, sampled_at);
+    ON game.biobase_cs2_movement_sample (session_id, sampled_at);
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_movement_sample_player
-    ON public.biobase_cs2_movement_sample (player_name, steamid);
+    ON game.biobase_cs2_movement_sample (player_name, steamid);
 
 -- Per-player cumulative stats at the END of each round.
 -- Populated from CS2 JSON_BEGIN...JSON_END round_stats log blocks.
--- The slot_index correlates with userid in biobase_cs2_player_snapshot.
-CREATE TABLE IF NOT EXISTS public.biobase_cs2_round_stats (
+-- The slot_index correlates with userid in ops.biobase_cs2_player_snapshot.
+CREATE TABLE IF NOT EXISTS game.biobase_cs2_round_stats (
     id           bigserial PRIMARY KEY,
     session_id   uuid NOT NULL REFERENCES public.biobase_cs2_match_session (id) ON DELETE CASCADE,
     recorded_at  timestamptz NOT NULL DEFAULT now(),
@@ -124,4 +123,4 @@ CREATE TABLE IF NOT EXISTS public.biobase_cs2_round_stats (
 );
 
 CREATE INDEX IF NOT EXISTS biobase_cs2_round_stats_session_round
-    ON public.biobase_cs2_round_stats (session_id, round_number);
+    ON game.biobase_cs2_round_stats (session_id, round_number);

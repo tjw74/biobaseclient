@@ -19,6 +19,15 @@ import psycopg2
 from psycopg2.extras import Json, execute_values
 
 from app.log_parser import parse_events_from_lines
+from app.pg_tables import (
+    GAME_EVENT,
+    LOG_LINE,
+    MATCH_SESSION,
+    MOVEMENT_SAMPLE,
+    PLAYER_SNAPSHOT,
+    RCON_SAMPLE,
+    ROUND_STATS,
+)
 from app.kz_sqlite_ingest import ingest_cs2kz_sqlite_for_session
 
 log = logging.getLogger(__name__)
@@ -61,8 +70,8 @@ def _insert_player_snapshots(
     ]
     execute_values(
         cur,
-        """
-        INSERT INTO public.biobase_cs2_player_snapshot
+        f"""
+        INSERT INTO {PLAYER_SNAPSHOT}
         (session_id, rcon_sample_id, sampled_at,
          userid, player_name, steamid, connected, ping, loss, state)
         VALUES %s
@@ -98,8 +107,8 @@ def _insert_game_events(
     ]
     execute_values(
         cur,
-        """
-        INSERT INTO public.biobase_cs2_game_event
+        f"""
+        INSERT INTO {GAME_EVENT}
         (session_id, event_ts, event_type, round_num,
          attacker_name, attacker_steamid, attacker_team,
          victim_name, victim_steamid, victim_team,
@@ -139,8 +148,8 @@ def _insert_movement_samples(
     ]
     execute_values(
         cur,
-        """
-        INSERT INTO public.biobase_cs2_movement_sample
+        f"""
+        INSERT INTO {MOVEMENT_SAMPLE}
         (session_id, event_ts, tick, player_name, steamid,
          pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,
          speed, yaw, pitch, on_ground, extra_json)
@@ -196,8 +205,8 @@ def _insert_round_stats(
     ]
     execute_values(
         cur,
-        """
-        INSERT INTO public.biobase_cs2_round_stats
+        f"""
+        INSERT INTO {ROUND_STATS}
         (session_id, event_ts, round_number, score_t, score_ct, map, slot_index,
          accountid, team, money, kills, deaths, assists,
          dmg, hsp, kdr, adr, mvp, ef, ud,
@@ -235,8 +244,8 @@ async def run_session(
             conn.autocommit = True
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    UPDATE public.biobase_cs2_match_session
+                    f"""
+                    UPDATE {MATCH_SESSION}
                     SET status = %s, started_at = %s, loki_start_ns = %s
                     WHERE id = %s
                     """,
@@ -250,8 +259,8 @@ async def run_session(
                     # Check for cancellation
                     with rconn.cursor() as cur:
                         cur.execute(
-                            """
-                            SELECT cancel_requested FROM public.biobase_cs2_match_session
+                            f"""
+                            SELECT cancel_requested FROM {MATCH_SESSION}
                             WHERE id = %s
                             """,
                             (sid_str,),
@@ -280,8 +289,8 @@ async def run_session(
                     with rconn.cursor() as cur:
                         # Insert RCON sample and get back its PK for the player FK
                         cur.execute(
-                            """
-                            INSERT INTO public.biobase_cs2_rcon_sample
+                            f"""
+                            INSERT INTO {RCON_SAMPLE}
                             (session_id, sampled_at, rcon_ok, headline, humans, bots,
                              map, hostname, raw_json)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -409,8 +418,8 @@ async def run_session(
                 if line_rows:
                     execute_values(
                         cur,
-                        """
-                        INSERT INTO public.biobase_cs2_log_line (session_id, loki_ts_ns, line)
+                        f"""
+                        INSERT INTO {LOG_LINE} (session_id, loki_ts_ns, line)
                         VALUES %s
                         """,
                         line_rows,
@@ -424,8 +433,8 @@ async def run_session(
                 _insert_round_stats(cur, round_stats_rows)
 
                 cur.execute(
-                    """
-                    UPDATE public.biobase_cs2_match_session
+                    f"""
+                    UPDATE {MATCH_SESSION}
                     SET loki_end_ns = %s, ended_at = %s, status = %s, error_message = %s,
                         cancel_requested = false
                     WHERE id = %s
@@ -440,8 +449,8 @@ async def run_session(
                 conn.autocommit = True
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
-                        UPDATE public.biobase_cs2_match_session
+                        f"""
+                        UPDATE {MATCH_SESSION}
                         SET status = %s, ended_at = %s, error_message = %s, loki_end_ns = %s
                         WHERE id = %s
                         """,

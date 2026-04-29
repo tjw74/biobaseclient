@@ -12,12 +12,12 @@ provenance:
   inferred: 0.10
   ambiguous: 0.05
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-28T00:00:00Z
+updated: 2026-04-26T12:00:00Z
 ---
 
 # Biobase Log Parsing and Plugin Protocol
 
-`bb_data_collection/app/log_parser.py` parses raw CS2 server log lines into structured dicts that map directly to Postgres tables.
+`bb_data_collection/app/log_parser.py` parses raw CS2 server log lines into structured dicts inserted into **`game`** schema tables in Postgres (see [[biobase-telemetry-schema]]). Source lines are stored first in **`ops.biobase_cs2_log_line`** during ingest.
 
 ## CS2 Log Format
 
@@ -29,7 +29,7 @@ Some entity-event lines (e.g., `OnPreResetRound`, `ChangeTeam`) lack this prefix
 
 Player entities appear as: `"Name<slot><steamid><team>"`
 
-## Supported Event Types (`biobase_cs2_game_event.event_type`)
+## Supported Event Types (`game.biobase_cs2_game_event.event_type`)
 
 | Type | Source pattern |
 |---|---|
@@ -49,14 +49,14 @@ Player entities appear as: `"Name<slot><steamid><team>"`
 
 ## BIOBASE Plugin Protocol
 
-CS2 server plugins can emit structured data by printing to console (which flows to Docker stdout → Loki → `biobase_cs2_log_line`). The parser recognizes two prefixes:
+CS2 server plugins can emit structured data by printing to console (which flows to Docker stdout → Loki → **`ops.biobase_cs2_log_line`**). The parser recognizes two prefixes:
 
 ```
 BIOBASE_POS_JSON  {"player":"Name","steamid":"BOT","tick":N,"pos":[x,y,z],"vel":[vx,vy,vz],"speed":s,"yaw":y,"pitch":p,"on_ground":bool}
 BIOBASE_EVENT_JSON {"type":"jump","player":"Name","steamid":"...", ...}
 ```
 
-`BIOBASE_POS_JSON` lines are parsed into both `biobase_cs2_game_event` (type=`biobase_pos`) **and** `biobase_cs2_movement_sample`. `BIOBASE_EVENT_JSON` lines go only to `game_event` using the `"type"` field as `event_type`.
+`BIOBASE_POS_JSON` lines are parsed into both **`game.biobase_cs2_game_event`** (type=`biobase_pos`) **and** **`game.biobase_cs2_movement_sample`**. `BIOBASE_EVENT_JSON` lines go only to **`game.biobase_cs2_game_event`** using the `"type"` field as `event_type`.
 
 This design avoids any direct network connection from the CS2 plugin to Biobase — the entire bridge is the server's log stream. ^[inferred]
 
@@ -68,16 +68,16 @@ JSON_BEGIN{
   ... (lines without commas — not valid JSON, parsed via regex)
 }}JSON_END
 ```
-The parser accumulates lines between markers and extracts: `round_number`, `score_t`, `score_ct`, `map`, and per-player rows keyed by `"player_N"`. Fields are mapped to `biobase_cs2_round_stats` columns.
+The parser accumulates lines between markers and extracts: `round_number`, `score_t`, `score_ct`, `map`, and per-player rows keyed by `"player_N"`. Fields are mapped to **`game.biobase_cs2_round_stats`** columns.
 
 **Note:** CS2 omits commas between lines in this block, so `json.loads()` would fail. The parser uses `re.search()` per field instead.
 
 ## Bulk Parse Entry Point
 
 `parse_events_from_lines([(session_id, raw_line), ...])` returns three lists:
-- `game_events` → `biobase_cs2_game_event`
-- `movement_samples` → `biobase_cs2_movement_sample`
-- `round_stats_rows` → `biobase_cs2_round_stats`
+- `game_events` → **`game.biobase_cs2_game_event`**
+- `movement_samples` → **`game.biobase_cs2_movement_sample`**
+- `round_stats_rows` → **`game.biobase_cs2_round_stats`**
 
 ## Related
 

@@ -27,6 +27,11 @@ echo "Committing with message: $1"
 git commit -m "$1"
 echo "Updating wiki..."
 $AGENT "/wiki-update"
-echo "Pushing to origin main..."
-git push origin main --force
+echo "Pushing to origin (current branch)..."
+BR="$(git rev-parse --abbrev-ref HEAD)"
+if ! git remote get-url origin >/dev/null 2>&1; then
+	echo "WARN: No git remote 'origin' configured — skip push. Add with: git remote add origin <url>"
+else
+	git push origin "$BR" --force
+fi
 echo "Done!"

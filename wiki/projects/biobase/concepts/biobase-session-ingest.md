@@ -19,6 +19,18 @@ updated: 2026-04-28T07:00:00Z
 
 All data collection in Biobase is scoped to a **session** — a time window anchored to a `biobase_cs2_match_session` UUID. Every telemetry row in every table has a `session_id` FK.
 
+## Gameplay data vs operations data
+
+When analysing sessions, treat these groups separately:
+
+| Kind | Postgres tables | What it is |
+|------|------------------|------------|
+| **Gameplay** | `biobase_cs2kz_*` (player, run, jumpstat, sqlite cursor), `biobase_cs2_game_event`, `biobase_cs2_movement_sample`, `biobase_cs2_round_stats` | CS2KZ local DB mirror and parsed **game** logs (kills, rounds, movement if emitted, KZ runs/jumpstats). |
+| **Operations** | `biobase_cs2_rcon_sample`, `biobase_cs2_player_snapshot` | RCON **`status` polling** — server/map/bot counts and snapshot lines from that command. Useful for ops, not KZ gameplay semantics. |
+| **Raw / both** | `biobase_cs2_log_line` | Raw Docker log text; may contain game events **or** ops noise — use parsers or keyword filters. |
+
+Session lifecycle and RCON/Loki mechanics below apply to **how** rows are ingested; use the table above to decide **which** tables answer gameplay questions.
+
 ## Session Lifecycle
 
 1. `POST /v1/sessions` (or `/v1/sessions/hub/start`) — creates a session row with `status=pending`, starts a background ingest loop.

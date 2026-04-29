@@ -152,7 +152,7 @@ def ready() -> dict[str, Any]:
 def root() -> dict[str, str | list[str]]:
     return {
         "service": "bb_data_collection",
-        "v1": "POST /v1/sessions  —  start a timed collection session (RCON + Loki from bb_cs2_server logs)",
+        "v1": "POST /v1/sessions — RCON + Loki + CS2KZ SQLite (if CS2KZ_SQLITE_PATH) → Postgres",
     }
 
 

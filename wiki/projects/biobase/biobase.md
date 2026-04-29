@@ -12,7 +12,7 @@ provenance:
   inferred: 0.12
   ambiguous: 0.03
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-28T00:00:00Z
+updated: 2026-04-28T07:00:00Z
 ---
 
 # Biobase
@@ -42,6 +42,7 @@ bb_cs2_control
 - [[biobase-telemetry-schema]] — all 6 Postgres tables and their roles
 - [[biobase-log-parsing]] — CS2 log format, BIOBASE plugin protocol, event types
 - [[biobase-hub-routing]] — nginx path routing, hub UI, GF_SERVER_ROOT_URL requirement
+- [[biobase-data-collection-prep]] — CS2 server prep for bot-deathmatch sessions (CS2KZ, logging cvars)
 
 ## Stacks and Services
 
@@ -59,6 +60,8 @@ All stacks share `biobase_internal` Docker network (and friends per compose).
 ## CLI Tools
 
 `tools/run_kz_session.sh` and `tools/run_ingest_session.sh` — start a fixed-duration ingest session from the CLI without the browser. Useful for reproducible runs. Defaults: `DATA_URL=http://127.0.0.1:28080`, `CS2_URL=http://127.0.0.1:8765`, `DURATION_SEC=300`.
+
+`bb_cs2_server/short_match_rcon.sh` — prepares `bb_cs2_server` for bot-deathmatch data collection: unloads CS2KZ plugin, switches game mode to casual, unfreezes bots, and enables game-event logging. Must be re-run after every map change. See [[biobase-data-collection-prep]].
 
 ## Key Constraint: RCON Gives Coarse Data
 

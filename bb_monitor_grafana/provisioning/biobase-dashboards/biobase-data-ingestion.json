@@ -1,28 +1,40 @@
 {
   "annotations": { "list": [] },
-  "description": "Postgres connection, CS2 session ingest (RCON + Loki log lines), table stats, and ad-hoc row peek.",
+  "description": "In-game player telemetry from Postgres: combat/events, movement, status snapshots, round stats. Rows sorted by game or engine-reported time.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "BioBase RCON",
+      "type": "link",
+      "url": "/d/bb-biobase-rcon"
+    }
+  ],
   "liveNow": false,
   "panels": [
     {
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "content": "**CS2 / KZ ingest** — `bb_data_collection` writes to:\n- `public.biobase_cs2_match_session` — one row per `POST /v1/sessions` run\n- `public.biobase_cs2_rcon_sample` — time series from `bb_cs2_control` `/api/status` during the window\n- `public.biobase_cs2_log_line` — lines from Loki for container `bb_cs2_server` in the session time range\n\nStart a run from the repo: `./tools/run_ingest_session.sh` or `DURATION_SEC=60 ./tools/run_kz_session.sh`. The stub `biobase_ingest_sample` may still have one row from app bootstrap.",
+        "content": "### In-game player data (Postgres)\nEach panel is a **table**. The **first column is time** (server log time where available, else ingest fallback).\n- **Game events** — kills, damage, chat, rounds, etc. from parsed logs.\n- **Movement** — only if the server prints `BIOBASE_POS_JSON` lines.\n- **Player status** — per-player fields from each RCON `status` poll (`status_poll_time` is when that snapshot was taken).\n- **Round stats** — CS2 JSON round blocks; time is the `JSON_BEGIN` log line.",
         "mode": "markdown"
       },
-      "title": "What is this page?",
+      "title": "Overview",
       "type": "text"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "If empty, check `bb_postgres` and that Grafana is on networks `bb_client` + `biobase_internal`.",
+      "description": "Parsed server log events (game time = engine log prefix on the line).",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 4 },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 5 },
       "id": 2,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -32,125 +44,20 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT current_database() AS database,\n       current_user     AS grafana_user,\n       now()            AS server_time_utc",
+          "rawSql": "SELECT event_ts AS game_time,\n       event_type,\n       round_num,\n       attacker_name,\n       attacker_steamid,\n       attacker_team,\n       victim_name,\n       victim_steamid,\n       victim_team,\n       weapon,\n       headshot,\n       extra_json\nFROM   public.biobase_cs2_game_event\nORDER BY event_ts DESC NULLS LAST, id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "Postgres connection",
+      "title": "Game events (players & combat)",
       "type": "table"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Row counts from CS2 match ingest. Run a session to see these increase.",
+      "description": "Position / velocity samples from BIOBASE_POS_JSON log lines only.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 8 },
-      "id": 5,
-      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
-      "pluginVersion": "11.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "postgres", "uid": "bb-postgres" },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT (SELECT count(*)::bigint FROM public.biobase_cs2_match_session)  AS match_sessions,\n       (SELECT count(*)::bigint FROM public.biobase_cs2_rcon_sample)   AS rcon_samples,\n       (SELECT count(*)::bigint FROM public.biobase_cs2_log_line)         AS log_lines,\n       (SELECT count(*)::bigint FROM public.biobase_ingest_sample)         AS stub_ingest_rows",
-          "refId": "A"
-        }
-      ],
-      "title": "CS2 ingest — row counts",
-      "type": "table"
-    },
-    {
-      "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Newest 5 rows, all columns.",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
-      "id": 6,
-      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
-      "pluginVersion": "11.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "postgres", "uid": "bb-postgres" },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT * FROM public.biobase_cs2_match_session\nORDER BY created_at DESC NULLS LAST\nLIMIT 5",
-          "refId": "A"
-        }
-      ],
-      "title": "Last 5 rows — biobase_cs2_match_session",
-      "type": "table"
-    },
-    {
-      "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Newest 5 rows, all columns.",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 23 },
-      "id": 7,
-      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
-      "pluginVersion": "11.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "postgres", "uid": "bb-postgres" },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT * FROM public.biobase_cs2_rcon_sample\nORDER BY id DESC\nLIMIT 5",
-          "refId": "A"
-        }
-      ],
-      "title": "Last 5 rows — biobase_cs2_rcon_sample",
-      "type": "table"
-    },
-    {
-      "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Newest 5 rows, all columns.",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 33 },
-      "id": 8,
-      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
-      "pluginVersion": "11.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "postgres", "uid": "bb-postgres" },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT * FROM public.biobase_cs2_log_line\nORDER BY id DESC\nLIMIT 5",
-          "refId": "A"
-        }
-      ],
-      "title": "Last 5 rows — biobase_cs2_log_line",
-      "type": "table"
-    },
-    {
-      "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Newest 5 rows, all columns (stub table).",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 44 },
-      "id": 9,
-      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
-      "pluginVersion": "11.0.0",
-      "targets": [
-        {
-          "datasource": { "type": "postgres", "uid": "bb-postgres" },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT * FROM public.biobase_ingest_sample\nORDER BY id DESC\nLIMIT 5",
-          "refId": "A"
-        }
-      ],
-      "title": "Last 5 rows — biobase_ingest_sample",
-      "type": "table"
-    },
-    {
-      "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "n_live_tup is approximate. Run `ANALYZE` for accuracy.",
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 51 },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 19 },
       "id": 3,
-      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true, "sortBy": [{ "displayName": "approx_live_rows", "desc": true }] },
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
       "targets": [
         {
@@ -158,18 +65,18 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT s.schemaname,\n       s.relname     AS table_name,\n       s.n_live_tup AS approx_live_rows,\n       s.n_tup_ins  AS total_inserts,\n       s.n_tup_upd  AS total_updates\nFROM   pg_stat_user_tables s\nORDER  BY s.n_live_tup DESC NULLS LAST, s.relname",
+          "rawSql": "SELECT COALESCE(event_ts, sampled_at) AS game_time,\n       tick,\n       player_name,\n       steamid,\n       pos_x,\n       pos_y,\n       pos_z,\n       vel_x,\n       vel_y,\n       vel_z,\n       speed,\n       yaw,\n       pitch,\n       on_ground,\n       extra_json\nFROM   public.biobase_cs2_movement_sample\nORDER BY COALESCE(event_ts, sampled_at) DESC NULLS LAST, id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "Public schema tables (approx. live row counts from stats)",
+      "title": "Movement (coordinates & velocity)",
       "type": "table"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Heuristic: ORDER BY first column DESC. Prefer `biobase_cs2_rcon_sample` or `biobase_cs2_log_line` for time-ish order. For `biobase_cs2_match_session` use the table above (UUID `id` order is not time order).",
+      "description": "One row per player per RCON status poll. Time = when that poll ran.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 62 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 33 },
       "id": 4,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -179,49 +86,44 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT * FROM public.${public_table:raw} ORDER BY 1 DESC NULLS LAST LIMIT 5",
+          "rawSql": "SELECT sampled_at AS status_poll_time,\n       player_name,\n       steamid,\n       userid,\n       connected,\n       ping,\n       loss,\n       state\nFROM   public.biobase_cs2_player_snapshot\nORDER BY sampled_at DESC, id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "Last 5 rows (selected public table)",
+      "title": "Player status (from RCON /status)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "Per-player cumulative stats when CS2 emits JSON_BEGIN … JSON_END round_stats.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 45 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(event_ts, recorded_at) AS game_time,\n       round_number,\n       map,\n       score_t,\n       score_ct,\n       slot_index,\n       accountid,\n       team,\n       money,\n       kills,\n       deaths,\n       assists,\n       dmg,\n       hsp,\n       kdr,\n       adr,\n       mvp,\n       ef,\n       ud,\n       kills_3k,\n       kills_4k,\n       kills_5k,\n       clutchk,\n       firstk,\n       pistolk,\n       sniperk,\n       blindk,\n       bombk,\n       firedmg,\n       uniquek,\n       dinks,\n       chickenk\nFROM   public.biobase_cs2_round_stats\nORDER BY COALESCE(event_ts, recorded_at) DESC NULLS LAST, id DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Round stats (per player)",
       "type": "table"
     }
   ],
-  "refresh": "10s",
+  "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["biobase", "postgres", "ingestion", "cs2"],
-  "templating": {
-    "list": [
-      {
-        "allValue": null,
-        "current": {
-          "selected": true,
-          "text": "biobase_cs2_rcon_sample",
-          "value": "biobase_cs2_rcon_sample"
-        },
-        "datasource": { "type": "postgres", "uid": "bb-postgres" },
-        "definition": "SELECT tablename AS __value, tablename AS __text FROM pg_tables WHERE schemaname = 'public' ORDER BY 1",
-        "description": "Public base tables only",
-        "hide": 0,
-        "includeAll": false,
-        "label": "public_table",
-        "multi": false,
-        "name": "public_table",
-        "options": [],
-        "query": "SELECT tablename AS __value, tablename AS __text FROM pg_tables WHERE schemaname = 'public' ORDER BY 1",
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
-      }
-    ]
-  },
-  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["biobase", "postgres", "players", "ingestion"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "BioBase Data Ingestion",
-  "uid": "bb-biobase-data-ingestion",
-  "version": 4
+  "title": "In-game player data",
+  "uid": "bb-data-ingestion",
+  "version": 1
 }

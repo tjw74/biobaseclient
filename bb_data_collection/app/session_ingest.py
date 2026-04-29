@@ -19,6 +19,7 @@ import psycopg2
 from psycopg2.extras import Json, execute_values
 
 from app.log_parser import parse_events_from_lines
+from app.kz_sqlite_ingest import ingest_cs2kz_sqlite_for_session
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ KZ_RE = re.compile(
 )
 
 MAX_LOKI_LINES = int(os.environ.get("BIOBASE_LOKI_LINE_LIMIT", "5000"))
+CS2KZ_SQLITE_PATH = os.environ.get("CS2KZ_SQLITE_PATH", "").strip()
 
 
 def _db(database_url: str) -> psycopg2.extensions.connection:
@@ -117,6 +119,7 @@ def _insert_movement_samples(
     rows = [
         (
             ms["session_id"],
+            ms.get("event_ts"),
             ms.get("tick"),
             ms.get("player_name"),
             ms.get("steamid"),
@@ -138,7 +141,7 @@ def _insert_movement_samples(
         cur,
         """
         INSERT INTO public.biobase_cs2_movement_sample
-        (session_id, tick, player_name, steamid,
+        (session_id, event_ts, tick, player_name, steamid,
          pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,
          speed, yaw, pitch, on_ground, extra_json)
         VALUES %s
@@ -156,6 +159,7 @@ def _insert_round_stats(
     rows = [
         (
             rs["session_id"],
+            rs.get("event_ts"),
             rs.get("round_number"),
             rs.get("score_t"),
             rs.get("score_ct"),
@@ -194,7 +198,7 @@ def _insert_round_stats(
         cur,
         """
         INSERT INTO public.biobase_cs2_round_stats
-        (session_id, round_number, score_t, score_ct, map, slot_index,
+        (session_id, event_ts, round_number, score_t, score_ct, map, slot_index,
          accountid, team, money, kills, deaths, assists,
          dmg, hsp, kdr, adr, mvp, ef, ud,
          kills_3k, kills_4k, kills_5k,
@@ -300,6 +304,33 @@ async def run_session(
                         # Per-player snapshots from the players list in the status response
                         players: list[dict[str, Any]] = j.get("players") or []
                         _insert_player_snapshots(cur, sid_str, rcon_sample_id, now_s, players)
+
+                    if CS2KZ_SQLITE_PATH:
+                        try:
+                            kz_st = await asyncio.to_thread(
+                                ingest_cs2kz_sqlite_for_session,
+                                database_url,
+                                session_id,
+                                CS2KZ_SQLITE_PATH,
+                            )
+                            if kz_st.get("error"):
+                                log.warning(
+                                    "Session %s: CS2KZ SQLite ingest: %s",
+                                    session_id,
+                                    kz_st["error"],
+                                )
+                            elif not kz_st.get("skipped") and (
+                                kz_st.get("runs_inserted") or kz_st.get("jumpstats_inserted")
+                            ):
+                                log.info(
+                                    "Session %s: CS2KZ gameplay → runs +%s jumpstats +%s (players synced %s)",
+                                    session_id,
+                                    kz_st.get("runs_inserted"),
+                                    kz_st.get("jumpstats_inserted"),
+                                    kz_st.get("players_upserted"),
+                                )
+                        except Exception:
+                            log.exception("Session %s: CS2KZ SQLite ingest failed", session_id)
 
                     sleep_t = rcon_interval_sec
                     remain = t_end - time.time()
@@ -420,4 +451,4 @@ async def run_session(
             pass
 
 
-__all__ = ["run_session", "KZ_RE", "MAX_LOKI_LINES"]
+__all__ = ["run_session", "KZ_RE", "MAX_LOKI_LINES", "CS2KZ_SQLITE_PATH"]

@@ -34,6 +34,10 @@ services:
       CS2_CONTROL_URL: ${CS2_CONTROL_URL:-http://bb_cs2_control:8765}
       CS2_CONTROL_TOKEN: ${CS2_CONTROL_TOKEN:-}
       BIOBASE_LOKI_LINE_LIMIT: ${BIOBASE_LOKI_LINE_LIMIT:-5000}
+      # CS2KZ gameplay DB (read-only): share bb_cs2_server named volume "cs2_data" (see bb_cs2_server compose)
+      CS2KZ_SQLITE_PATH: ${CS2KZ_SQLITE_PATH:-/cs2-dedicated/game/csgo/addons/cs2kz/data/cs2kz.sqlite3}
+    volumes:
+      - bb_cs2_server_cs2_data:/cs2-dedicated:ro
     depends_on:
       bb_postgres:
         condition: service_healthy
@@ -47,6 +51,8 @@ services:
 
 volumes:
   bb_postgres_data:
+  bb_cs2_server_cs2_data:
+    external: true
 
 networks:
   bb_client:

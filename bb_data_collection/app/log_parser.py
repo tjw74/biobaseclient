@@ -34,6 +34,8 @@ BIOBASE plugin protocol (CS2 plugin emits to console):
                       "pos":[x,y,z],"vel":[vx,vy,vz],"speed":s,
                       "yaw":y,"pitch":p,"on_ground":bool}
   BIOBASE_EVENT_JSON {"type":"jump","player":"...","steamid":"...", ...}
+Movement rows get event_ts from the HL log line timestamp (engine-reported time for that line).
+Round stats rows get event_ts from the JSON_BEGIN line timestamp.
 """
 from __future__ import annotations
 
@@ -590,6 +592,7 @@ def parse_events_from_lines(
                         prow["score_t"] = block["score_t"]
                         prow["score_ct"] = block["score_ct"]
                         prow["map"] = block["map"]
+                        prow["event_ts"] = block_ts
                         round_stats_rows.append(prow)
                 json_block_lines = []
             else:
@@ -612,6 +615,7 @@ def parse_events_from_lines(
             ms = parse_movement(raw_line)
             if ms:
                 ms["session_id"] = session_id_str
+                ms["event_ts"] = ev.get("event_ts")
                 movement_samples.append(ms)
         else:
             game_events.append(ev)

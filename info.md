@@ -46,10 +46,8 @@ Set **`GF_SERVER_ROOT_URL`** in `bb_monitor_grafana` to this hub’s origin plus
 - **Loki + Promtail:** Container logs (including **`bb_cs2_server`**) → Loki; ingest reads them back for the session window.
 - **Prometheus:** RCON exporter and related metrics (e.g. bot/human gauges) — see Grafana dashboards under folder **Biobase**.
 - **Grafana provisioned dashboards** (`bb_monitor_grafana/provisioning/biobase-dashboards/`):
-  - **BioBase Postgres spot-check** — `information_schema` for `biobase_%` columns/types + **last 5 rows** per ingest table.
-  - **BioBase Data Ingestion** — connection, row counts, same **last-5** table panels, pg stats, variable table picker.
-  - **BioBase CS2 bot game & ingest** — live Prometheus + Postgres session section (schema, row counts, **last 5** rows per table).
-  - Others: RCON, system, cs2-server, etc.
+  - **Grafana — In-game player data** (`uid` `bb-data-ingestion`): game events, movement (`BIOBASE_POS_JSON`), player status snapshots, round stats — **tables ordered by game/reported time** (not session/ops catalog).
+  - Others: **BioBase RCON**, **BioBase System**, **CS2 Server** (logs).
 
 ---
 

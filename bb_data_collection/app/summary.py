@@ -9,7 +9,7 @@ from uuid import UUID
 import psycopg2
 
 ROUND_STAT_COLS = [
-    "id", "session_id", "recorded_at", "round_number", "score_t", "score_ct", "map",
+    "id", "session_id", "recorded_at", "event_ts", "round_number", "score_t", "score_ct", "map",
     "slot_index", "accountid", "team", "money", "kills", "deaths", "assists",
     "dmg", "hsp", "kdr", "adr", "mvp", "ef", "ud",
     "kills_3k", "kills_4k", "kills_5k",
@@ -41,7 +41,7 @@ COLUMNS = {
         "weapon", "headshot", "extra_json", "raw_line",
     ],
     "biobase_cs2_movement_sample": [
-        "id", "session_id", "log_line_id", "sampled_at", "tick",
+        "id", "session_id", "log_line_id", "sampled_at", "event_ts", "tick",
         "player_name", "steamid",
         "pos_x", "pos_y", "pos_z", "vel_x", "vel_y", "vel_z",
         "speed", "yaw", "pitch", "on_ground", "extra_json",
@@ -187,7 +187,8 @@ def load_summary(database_url: str, session_id: UUID) -> dict[str, Any] | None:
                 """
                 SELECT count(*)::bigint,
                        count(distinct player_name)::bigint,
-                       min(sampled_at), max(sampled_at)
+                       min(coalesce(event_ts, sampled_at)),
+                       max(coalesce(event_ts, sampled_at))
                 FROM public.biobase_cs2_movement_sample
                 WHERE session_id = %s
                 """,

@@ -425,17 +425,14 @@
 
       <h2 class="section-title">Data</h2>
       <div class="cards cards--single">
-        <a class="card card--data" href="/bb/d/bb-biobase-postgres-spotcheck">
+        <a class="card card--data" href="/bb/d/bb-data-ingestion">
           <span class="card-kicker">Dashboard</span>
-          <span class="card-title">Postgres spot-check</span>
+          <span class="card-title">In-game player data</span>
           <p>
-            <strong>All columns and types</strong> for <code>public.biobase_%</code> tables (via
-            <code>information_schema</code>), plus the <strong>latest 5 rows</strong> per ingest table — match
-            sessions, RCON samples, log lines (plugin / KZ / engine text in the <code>line</code> column), and stub
-            ingest. For live Prometheus metrics, open <strong>CS2 bot &amp; ingest</strong> from the Grafana Biobase
-            folder.
+            <strong>Combat, movement, round stats, player status</strong> — tables sorted by <strong>game time</strong>
+            first column. (Movement requires <code>BIOBASE_POS_JSON</code> in server logs.)
           </p>
-          <span class="card-cta">Open Postgres spot-check →</span>
+          <span class="card-cta">Open dashboard →</span>
         </a>
       </div>
       <p class="cli-hint">

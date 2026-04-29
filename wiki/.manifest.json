@@ -2,14 +2,15 @@
   "projects": {
     "biobase": {
       "source_cwd": "/home/clearmined/code/prod/biobase",
-      "last_synced": "2026-04-28T00:00:00Z",
-      "last_commit_synced": "c4334b7e3795d907e157c17c8a19d36040e88568",
+      "last_synced": "2026-04-28T07:00:00Z",
+      "last_commit_synced": "fd85a3b75bd9ef05ade7823b1ebdcc1b23b3679c",
       "pages_in_vault": [
         "projects/biobase/biobase.md",
         "projects/biobase/concepts/biobase-session-ingest.md",
         "projects/biobase/concepts/biobase-telemetry-schema.md",
         "projects/biobase/concepts/biobase-log-parsing.md",
-        "projects/biobase/concepts/biobase-hub-routing.md"
+        "projects/biobase/concepts/biobase-hub-routing.md",
+        "projects/biobase/skills/biobase-data-collection-prep.md"
       ]
     }
   }

@@ -12,7 +12,7 @@ provenance:
   inferred: 0.15
   ambiguous: 0.05
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-28T00:00:00Z
+updated: 2026-04-28T07:00:00Z
 ---
 
 # Biobase Session Ingest
@@ -36,6 +36,14 @@ All data collection in Biobase is scoped to a **session** — a time window anch
 | **CLI** | `POST /v1/sessions` with `duration_seconds` | Fixed-duration. `cancel_requested` can still interrupt. |
 
 The hub stop path sets `cancel_requested=true` on the active hub session; the loop checks this flag each iteration.
+
+## Server Prerequisites
+
+Before starting a session on `bb_cs2_server`, run `short_match_rcon.sh` to:
+- Unload CS2KZ (otherwise `bot_stop 1` freezes bots and game-mode hooks interfere)
+- Enable game-event logging (`log on`, `sv_logecho 1`, `mp_logdetail 3`)
+
+Without this, Loki has no log lines for the session window and all event tables are empty. Must repeat after every map change. See [[biobase-data-collection-prep]] for full details.
 
 ## Loki Integration
 

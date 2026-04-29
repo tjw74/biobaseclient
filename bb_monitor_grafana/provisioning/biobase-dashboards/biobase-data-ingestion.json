@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "Gameplay-derived tables in Postgres schema `game`: parsed log events, movement, round stats, CS2KZ mirror. Raw RCON/Loki ingest lives in schema `ops` (separate dashboard).",
+  "description": "One table panel per Postgres `game` schema table: parsed logs + CS2KZ mirror. Raw ingest is in `ops` (separate dashboard).",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -35,7 +35,7 @@
       "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "content": "### Game schema (`game`)\n**Parsed** rows are written only **after** an ingest session **finishes** the Loki window (batch at end): `log_parser.py` fills `game.*` from **`ops.biobase_cs2_log_line`**. Nothing appears here while a session is still in the RCON loop.\n\nPanels query **`game.*`** only:\n- **Game events** — kills, chat, rounds, etc. (needs server logging; see prep docs).\n- **Movement** — only if the server prints `BIOBASE_POS_JSON`.\n- **Round stats** — CS2 `JSON_BEGIN` / `JSON_END` blocks.\n- **CS2KZ** — SQLite mirror when `CS2KZ_SQLITE_PATH` is configured.\n\nIf **Quick counts** shows `ops_log_lines > 0` but `game_event_rows = 0`, open **Ops ingest** to confirm lines exist, then check session completed (`complete`) and CS2 logging cvars.\n\nFor **RCON / raw logs** see **Ops ingest** in the link above.",
+        "content": "### Game schema (`game`)\nEach panel below maps **one** `game.*` table (`SELECT *`, latest rows first).\n\n**Parsed** log tables fill **after** a session completes the Loki batch + `log_parser.py`. **CS2KZ** tables fill when SQLite ingest is enabled.\n\nUse **Quick counts** to see whether `ops` has raw lines but `game` is still empty.",
         "mode": "markdown"
       },
       "title": "Overview",
@@ -43,7 +43,7 @@
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "If game_* rows are 0 but ops_log_lines is high, parsing may have failed or sessions never reached complete. If all zero, run an ingest session and wait for it to finish.",
+      "description": "Row counts per `game` table plus raw `ops` log lines.",
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "gridPos": { "h": 4, "w": 24, "x": 0, "y": 5 },
       "id": 8,
@@ -55,18 +55,18 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT (SELECT count(*)::bigint FROM game.biobase_cs2_game_event)      AS game_event_rows,\n       (SELECT count(*)::bigint FROM game.biobase_cs2_movement_sample)   AS movement_rows,\n       (SELECT count(*)::bigint FROM game.biobase_cs2_round_stats)      AS round_stats_rows,\n       (SELECT count(*)::bigint FROM ops.biobase_cs2_log_line)           AS ops_log_lines,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_run)            AS kz_run_rows,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_jumpstat)       AS kz_jumpstat_rows",
+          "rawSql": "SELECT (SELECT count(*)::bigint FROM game.biobase_cs2_game_event)           AS game_event,\n       (SELECT count(*)::bigint FROM game.biobase_cs2_movement_sample)        AS movement_sample,\n       (SELECT count(*)::bigint FROM game.biobase_cs2_round_stats)            AS round_stats,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_sqlite_cursor)       AS cs2kz_sqlite_cursor,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_player)              AS cs2kz_player,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_run)                 AS cs2kz_run,\n       (SELECT count(*)::bigint FROM game.biobase_cs2kz_jumpstat)           AS cs2kz_jumpstat,\n       (SELECT count(*)::bigint FROM ops.biobase_cs2_log_line)               AS ops_log_lines",
           "refId": "A"
         }
       ],
-      "title": "Quick counts (game vs ops raw lines)",
+      "title": "Quick counts",
       "type": "table"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Parsed server log events (game time = engine log prefix on the line).",
+      "description": "game.biobase_cs2_game_event",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 9 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 9 },
       "id": 2,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -76,18 +76,18 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT event_ts AS game_time,\n       event_type,\n       round_num,\n       attacker_name,\n       attacker_steamid,\n       attacker_team,\n       victim_name,\n       victim_steamid,\n       victim_team,\n       weapon,\n       headshot,\n       extra_json\nFROM   game.biobase_cs2_game_event\nORDER BY event_ts DESC NULLS LAST, id DESC\nLIMIT 200",
+          "rawSql": "SELECT *\nFROM   game.biobase_cs2_game_event\nORDER BY id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "Game events (players & combat)",
+      "title": "game.biobase_cs2_game_event",
       "type": "table"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Position / velocity samples from BIOBASE_POS_JSON log lines only.",
+      "description": "game.biobase_cs2_movement_sample",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 23 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 21 },
       "id": 3,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -97,18 +97,18 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_ts, sampled_at) AS game_time,\n       tick,\n       player_name,\n       steamid,\n       pos_x,\n       pos_y,\n       pos_z,\n       vel_x,\n       vel_y,\n       vel_z,\n       speed,\n       yaw,\n       pitch,\n       on_ground,\n       extra_json\nFROM   game.biobase_cs2_movement_sample\nORDER BY COALESCE(event_ts, sampled_at) DESC NULLS LAST, id DESC\nLIMIT 200",
+          "rawSql": "SELECT *\nFROM   game.biobase_cs2_movement_sample\nORDER BY id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "Movement (coordinates & velocity)",
+      "title": "game.biobase_cs2_movement_sample",
       "type": "table"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "Per-player cumulative stats when CS2 emits JSON_BEGIN … JSON_END round_stats.",
+      "description": "game.biobase_cs2_round_stats",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 37 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 33 },
       "id": 5,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -118,18 +118,60 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(event_ts, recorded_at) AS game_time,\n       round_number,\n       map,\n       score_t,\n       score_ct,\n       slot_index,\n       accountid,\n       team,\n       money,\n       kills,\n       deaths,\n       assists,\n       dmg,\n       hsp,\n       kdr,\n       adr,\n       mvp,\n       ef,\n       ud,\n       kills_3k,\n       kills_4k,\n       kills_5k,\n       clutchk,\n       firstk,\n       pistolk,\n       sniperk,\n       blindk,\n       bombk,\n       firedmg,\n       uniquek,\n       dinks,\n       chickenk\nFROM   game.biobase_cs2_round_stats\nORDER BY COALESCE(event_ts, recorded_at) DESC NULLS LAST, id DESC\nLIMIT 200",
+          "rawSql": "SELECT *\nFROM   game.biobase_cs2_round_stats\nORDER BY id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "Round stats (per player)",
+      "title": "game.biobase_cs2_round_stats",
       "type": "table"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "CS2KZ Times table mirrored from local SQLite (per ingest session).",
+      "description": "game.biobase_cs2kz_sqlite_cursor — incremental ingest cursors",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 51 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 45 },
+      "id": 9,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT *\nFROM   game.biobase_cs2kz_sqlite_cursor\nORDER BY session_id, table_name\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "game.biobase_cs2kz_sqlite_cursor",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "game.biobase_cs2kz_player",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 55 },
+      "id": 10,
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "bb-postgres" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT *\nFROM   game.biobase_cs2kz_player\nORDER BY id DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "game.biobase_cs2kz_player",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "bb-postgres" },
+      "description": "game.biobase_cs2kz_run",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 67 },
       "id": 6,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -139,18 +181,18 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ingested_at,\n       map_name,\n       course_name,\n       mode_name,\n       run_time,\n       teleports,\n       steamid64,\n       time_id,\n       metadata\nFROM   game.biobase_cs2kz_run\nORDER BY ingested_at DESC, id DESC\nLIMIT 200",
+          "rawSql": "SELECT *\nFROM   game.biobase_cs2kz_run\nORDER BY id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "CS2KZ runs (Times)",
+      "title": "game.biobase_cs2kz_run",
       "type": "table"
     },
     {
       "datasource": { "type": "postgres", "uid": "bb-postgres" },
-      "description": "CS2KZ Jumpstats mirrored from local SQLite.",
+      "description": "game.biobase_cs2kz_jumpstat",
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 63 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 79 },
       "id": 7,
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "reducers": [] }, "showHeader": true },
       "pluginVersion": "11.0.0",
@@ -160,11 +202,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ingested_at,\n       steamid64,\n       jump_type,\n       mode_name,\n       distance,\n       strafes,\n       sync,\n       pre,\n       jump_air_max,\n       airtime,\n       jumpstat_id\nFROM   game.biobase_cs2kz_jumpstat\nORDER BY ingested_at DESC, id DESC\nLIMIT 200",
+          "rawSql": "SELECT *\nFROM   game.biobase_cs2kz_jumpstat\nORDER BY id DESC\nLIMIT 200",
           "refId": "A"
         }
       ],
-      "title": "CS2KZ jumpstats",
+      "title": "game.biobase_cs2kz_jumpstat",
       "type": "table"
     }
   ],

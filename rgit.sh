@@ -1,5 +1,6 @@
 #!/bin/bash
 # Quick git workflow script
+# Origin for this repo should use Host alias: git@github.com-biobaselive:biobaselive/biobasecore.git
 # Usage: ./rgit.sh "Your commit message here"
 
 if [ $# -eq 0 ]; then

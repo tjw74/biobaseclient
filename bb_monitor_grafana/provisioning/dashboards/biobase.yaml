@@ -6,6 +6,7 @@ providers:
     type: file
     disableDeletion: false
     updateIntervalSeconds: 30
-    allowUiUpdates: true
+    # Keep repo JSON as source of truth so panels stay in sync (wrong table names → SQL errors / "No data").
+    allowUiUpdates: false
     options:
       path: /etc/grafana/provisioning/biobase-dashboards

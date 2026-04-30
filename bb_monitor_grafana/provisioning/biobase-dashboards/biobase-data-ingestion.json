@@ -35,7 +35,7 @@
       "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "content": "### Game schema (`game`)\nEach panel below maps **one** `game.*` table (`SELECT *`, latest rows first).\n\n**Parsed** log tables fill **after** a session completes the Loki batch + `log_parser.py`. **CS2KZ** tables fill when SQLite ingest is enabled.\n\nUse **Quick counts** to see whether `ops` has raw lines but `game` is still empty.",
+        "content": "### Game schema (`game`)\nEach panel below is **one** table: `SELECT * … ORDER BY id DESC LIMIT 200` (cursor table orders by session/table name).\n\n**Wrong panel titles?** Names must match exactly, e.g. `game.biobase_cs2_movement_sample` (not `movement_stats`), `game.biobase_cs2kz_sqlite_cursor` (note **`kz`**), `game.biobase_cs2kz_player` / `run` / `jumpstat` — not `kz_client`. Wrong names cause SQL errors (red warning). **Delete this dashboard → restart Grafana** so file provisioning recreates it (or pull latest and restart).\n\n**Sessions** live in **`public.biobase_cs2_match_session`**, not `game`.\n\n**Quick counts** = row counts + `ops` log lines; use **Ops ingest** dashboard for raw `ops.*` data.",
         "mode": "markdown"
       },
       "title": "Overview",
@@ -218,7 +218,7 @@
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Game data (parsed + CS2KZ)",
+  "title": "Game data (parsed) · CS2KZ",
   "uid": "bb-data-ingestion",
-  "version": 1
+  "version": 10
 }

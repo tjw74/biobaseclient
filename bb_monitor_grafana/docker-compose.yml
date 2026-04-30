@@ -15,6 +15,8 @@ services:
       # Optional: set when needed (e.g. production cookie domain). Omit for local use.
       # GF_SERVER_DOMAIN: clarionlab.dev
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Allow <style> in provisioned Text panels (Game data dashboard: table header color).
+      GF_PANELS_DISABLE_SANITIZE_HTML: "true"
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}

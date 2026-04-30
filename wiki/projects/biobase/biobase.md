@@ -13,7 +13,7 @@ provenance:
   inferred: 0.12
   ambiguous: 0.03
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-26T12:00:00Z
+updated: 2026-04-26T20:00:00Z
 ---
 
 # Biobase
@@ -52,7 +52,7 @@ bb_cs2_control
 | `bb_client` | Postgres + `bb_data_collection` |
 | `bb_cs2_server` | CS2 dedicated server |
 | `bb_monitor_loki` | Loki + Promtail (collects container logs) |
-| `bb_monitor_grafana` | Grafana (provisioned dashboards) |
+| `bb_monitor_grafana` | Grafana (provisioned dashboards; game dashboard sets `GF_PANELS_DISABLE_SANITIZE_HTML` for blue table headers in Overview HTML) |
 | `bb_monitor_prometheus` | Prometheus + RCON exporter |
 | `bb_biobase_local` | nginx hub, operator entry point |
 

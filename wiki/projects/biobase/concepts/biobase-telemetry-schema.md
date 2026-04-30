@@ -12,7 +12,7 @@ provenance:
   inferred: 0.08
   ambiguous: 0.02
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-26T12:00:00Z
+updated: 2026-04-26T20:00:00Z
 ---
 
 # Biobase Telemetry Schema
@@ -115,6 +115,8 @@ Provisioned dashboards query **qualified** names:
 
 - **Game data (parsed + CS2KZ)** — `game.*` panels (uid `bb-data-ingestion`).
 - **Ops ingest (RCON & logs)** — `ops.*` panels (uid `bb-ops-ingest`).
+
+On the **Game data** dashboard, table column headers use Grafana’s dark-theme primary blue (`#3d71d9`) via a `<style>` block in the **Overview** HTML text panel (react-data-grid `--rdg-header-*` variables). **`bb_monitor_grafana`** sets `GF_PANELS_DISABLE_SANITIZE_HTML=true` in `docker-compose.yml` so that provisioned `<style>` is not stripped. Styling applies only while that dashboard is open (the Overview panel mounts the rules).
 
 ## What RCON Cannot Provide
 

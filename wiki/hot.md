@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-04-26T12:00:00Z
+updated: 2026-04-26T20:00:00Z
 ---
 
 # Hot Cache
@@ -9,6 +9,7 @@ updated: 2026-04-26T12:00:00Z
 
 ## Recent Activity
 
+- [2026-04-26T20:00:00Z] WIKI_UPDATE project=biobase — Grafana **Game data** dashboard: blue table column headers (theme primary); `GF_PANELS_DISABLE_SANITIZE_HTML` + Overview HTML `<style>`; wiki telemetry + overview adjusted
 - [2026-04-26T12:00:00Z] WIKI_UPDATE project=biobase — Postgres **ops** vs **game** schemas documented (telemetry-schema, session-ingest, log-parsing, data-collection-prep, overview); session anchor stays in **public**
 - [2026-04-28T07:00:00Z] WIKI_UPDATE project=biobase — 1 page created (data-collection-prep skills page), 2 updated (biobase overview + session-ingest)
 - [2026-04-28T00:00:00Z] WIKI_UPDATE project=biobase — 5 pages created (overview + 4 concept pages)

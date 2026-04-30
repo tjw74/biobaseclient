@@ -35,8 +35,8 @@
       "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
       "id": 1,
       "options": {
-        "content": "### Game schema (`game`)\nEach panel below is **one** table: `SELECT * … ORDER BY id DESC LIMIT 200` (cursor table orders by session/table name).\n\n**Wrong panel titles?** Names must match exactly, e.g. `game.biobase_cs2_movement_sample` (not `movement_stats`), `game.biobase_cs2kz_sqlite_cursor` (note **`kz`**), `game.biobase_cs2kz_player` / `run` / `jumpstat` — not `kz_client`. Wrong names cause SQL errors (red warning). **Delete this dashboard → restart Grafana** so file provisioning recreates it (or pull latest and restart).\n\n**Sessions** live in **`public.biobase_cs2_match_session`**, not `game`.\n\n**Quick counts** = row counts + `ops` log lines; use **Ops ingest** dashboard for raw `ops.*` data.",
-        "mode": "markdown"
+        "content": "<style>\n/* Game data dashboard only (Overview panel): Grafana dark theme primary.blue (palette.blueDarkMain) */\n.rdg.rdg-dark {\n  --rdg-header-background-color: #3d71d9 !important;\n  --rdg-header-draggable-background-color: #325cbd !important;\n}\n</style>\n\n<h3>Game schema (<code>game</code>)</h3>\n<p>Each panel below is <strong>one</strong> table: <code>SELECT * … ORDER BY id DESC LIMIT 200</code> (cursor table orders by session/table name).</p>\n<p><strong>Wrong panel titles?</strong> Names must match exactly, e.g. <code>game.biobase_cs2_movement_sample</code> (not <code>movement_stats</code>), <code>game.biobase_cs2kz_sqlite_cursor</code> (note <strong><code>kz</code></strong>), <code>game.biobase_cs2kz_player</code> / <code>run</code> / <code>jumpstat</code> — not <code>kz_client</code>. Wrong names cause SQL errors (red warning). <strong>Delete this dashboard → restart Grafana</strong> so file provisioning recreates it (or pull latest and restart).</p>\n<p><strong>Sessions</strong> live in <strong><code>public.biobase_cs2_match_session</code></strong>, not <code>game</code>.</p>\n<p><strong>Quick counts</strong> = row counts + <code>ops</code> log lines; use <strong>Ops ingest</strong> dashboard for raw <code>ops.*</code> data.</p>",
+        "mode": "html"
       },
       "title": "Overview",
       "type": "text"
@@ -220,5 +220,5 @@
   "timezone": "browser",
   "title": "Game data (parsed) · CS2KZ",
   "uid": "bb-data-ingestion",
-  "version": 10
+  "version": 11
 }

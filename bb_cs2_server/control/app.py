@@ -1,5 +1,5 @@
 """
-Web UI API for CS2 bot game start/stop (RCON via mcrcon). Same commands as bots_*.sh.
+Web UI API for CS2 bot game start/stop and map change (RCON via mcrcon). Same commands as bots_*.sh.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 
 RCON_HOST = os.environ.get("RCON_HOST", "bb_cs2_server")
 RCON_PORT = int(os.environ.get("RCON_PORT", "27015"))
@@ -27,6 +28,8 @@ STATIC = Path(__file__).resolve().parent / "static"
 app = FastAPI(title="bb_cs2_control", version="1.0.0")
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_MAP_WORKSHOP_ID = re.compile(r"^[0-9]{6,20}$")
+_MAP_STOCK = re.compile(r"^[a-zA-Z0-9_]{1,64}$")
 
 # Matches CS2 `status` player rows (format differs from CS:GO).
 # Header:  id  time  ping  loss  state  rate  [adr]  name
@@ -56,6 +59,20 @@ def mcrcon_run(*command_parts: str) -> tuple[int, str]:
     )
     out = (p.stdout or "") + (p.stderr or "")
     return p.returncode, out.strip()
+
+
+def parse_map_target(raw: str) -> tuple[str, str]:
+    """Return (token, kind) where kind is 'stock' or 'workshop'."""
+    s = raw.strip()
+    if not s:
+        raise ValueError("empty map")
+    if _MAP_WORKSHOP_ID.fullmatch(s):
+        return s, "workshop"
+    if s.isdigit():
+        raise ValueError("workshop map id must be 6-20 digits")
+    if not _MAP_STOCK.fullmatch(s):
+        raise ValueError("map name must be alphanumeric/underscore or a workshop id")
+    return s, "stock"
 
 
 def require_token(authorization: str | None, x_api_key: str | None) -> None:
@@ -176,6 +193,9 @@ def api_bots_start(
         f"bot_difficulty {BOT_DIFF}",
         "log on",
         "sv_logecho 1",
+        # Required for HL combat lines with attacker/victim [x y z] + damage fields (Docker logs ingest).
+        "mp_logdetail 3",
+        "mp_warmup_end",
         "mp_restartgame 1",
     ]
     last_err = None
@@ -201,6 +221,52 @@ def api_bots_stop(
                 status_code=502,
             )
     return JSONResponse({"ok": True, "message": "Bots cleared."})
+
+
+class MapChangeBody(BaseModel):
+    map: str = Field(..., min_length=1, max_length=96)
+
+
+@app.post("/api/map")
+def api_change_map(
+    body: MapChangeBody,
+    authorization: str | None = Header(None),
+    x_api_key: str | None = Header(None, alias="X-Api-Key"),
+) -> JSONResponse:
+    require_token(authorization, x_api_key)
+    try:
+        target, kind = parse_map_target(body.map)
+    except ValueError as e:
+        return JSONResponse(
+            {"ok": False, "error": str(e)},
+            status_code=400,
+        )
+    if kind == "workshop":
+        code, out = mcrcon_run("host_workshop_map", target)
+        if code != 0:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": f"host_workshop_map {target!r} exit {code}: {out[:500]}",
+                },
+                status_code=502,
+            )
+        return JSONResponse({"ok": True, "message": f"Workshop map {target} requested."})
+
+    # Stock maps: try `map` first (reliable on many CS2 dedicated setups), then `changelevel`.
+    last_code, last_out = -1, ""
+    for verb in ("map", "changelevel"):
+        code, out = mcrcon_run(verb, target)
+        last_code, last_out = code, out
+        if code == 0:
+            return JSONResponse({"ok": True, "message": f"Changing map to {target} ({verb})."})
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": f"map/changelevel failed (last exit {last_code}): {last_out[:500]}",
+        },
+        status_code=502,
+    )
 
 
 @app.get("/")

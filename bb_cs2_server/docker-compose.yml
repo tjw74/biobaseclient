@@ -10,6 +10,8 @@ services:
       SRCDS_TOKEN: ${SRCDS_TOKEN:-}
       CS2_SERVERNAME: ${CS2_SERVERNAME:-biobase CS2 KZ}
       CS2_RCONPW: ${CS2_RCONPW:-changeme}
+      # joedwards32/cs2: CS2_CHEATS=1 → sv_cheats enabled at launch
+      CS2_CHEATS: ${CS2_CHEATS:-1}
       CS2_LAN: ${CS2_LAN:-0}
       CS2_MAXPLAYERS: ${CS2_MAXPLAYERS:-16}
       # Bots (joedwards32/cs2). bot_join_after_player is not a separate env; use ./start_bots_rcon.sh after boot if needed
@@ -17,12 +19,20 @@ services:
       CS2_BOT_QUOTA: ${CS2_BOT_QUOTA:-10}
       CS2_BOT_QUOTA_MODE: ${CS2_BOT_QUOTA_MODE:-fill}
       CS2_BOT_DIFFICULTY: ${CS2_BOT_DIFFICULTY:-1}
+      # joedwards32/cs2: default start map (+map …)
+      CS2_STARTMAP: ${CS2_STARTMAP:-de_mirage}
+      # CounterStrikeSharp / bundled .NET: avoids ICU requirement in slim images (CSS INSTALL.md).
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: ${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}
+      # Practice / dev: exec cheat bundle at launch (set CS2_ADDITIONAL_ARGS in .env only if overriding)
+      CS2_ADDITIONAL_ARGS: "+exec biobase_dev"
     ports:
       - "27015:27015/tcp"
       - "27015:27015/udp"
       - "27020:27020/udp"
     volumes:
       - cs2_data:/home/steam/cs2-dedicated
+      # joedwards runs STEAMAPPDIR/pre.sh from the data volume; bind so image /etc/pre.sh drift does not skip updates.
+      - ./pre.sh:/home/steam/cs2-dedicated/pre.sh:ro
     networks:
       - default
       - biobase_internal
@@ -51,10 +61,37 @@ services:
       - biobase_internal
     restart: unless-stopped
 
+  bb_cs2_dashboard:
+    build:
+      context: ../bb_cs2_dashboard
+      dockerfile: Dockerfile
+    image: bb-cs2-dashboard:local
+    container_name: bb_cs2_dashboard
+    environment:
+      CS2_CONTROL_URL: http://bb_cs2_control:8765
+      CS2_CONTROL_TOKEN: ${BB_CS2_CONTROL_TOKEN:-}
+      BB_CS2_DASHBOARD_TOKEN: ${BB_CS2_DASHBOARD_TOKEN:-biobase-cs2-dashboard-shared-key}
+      BB_CS2_DASHBOARD_USER: ${BB_CS2_DASHBOARD_USER:-}
+      BB_DASHBOARD_COOKIE_SECURE: ${BB_DASHBOARD_COOKIE_SECURE:-0}
+      CLIPS_DIR: /data/clips
+    ports:
+      - "${BB_CS2_DASHBOARD_PORT:-8780}:8780"
+    volumes:
+      - bb_cs2_dashboard_clips:/data/clips
+    depends_on:
+      - bb_cs2_control
+    networks:
+      - default
+      - biobase_internal
+    restart: unless-stopped
+
 volumes:
   cs2_data:
+  bb_cs2_dashboard_clips:
 
 networks:
+  # Named LAN for bb_postgres / bb_data_collection / Loki/etc. Compose creates this on first `up`;
+  # other projects can keep using `external: true` once it exists (or bring this stack up first).
   biobase_internal:
-    external: true
     name: biobase_internal
+    driver: bridge

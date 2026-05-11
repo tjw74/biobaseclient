@@ -1,8 +1,34 @@
 {
+  "version": 1,
+  "last_updated": "2026-05-11T12:00:00Z",
+  "sources": {
+    "/home/clearmined/code/prod/biobase/docs/llm-wiki-raw/karpathy-llm-wiki-gist.md": {
+      "ingested_at": "2026-05-11T12:00:00Z",
+      "size_bytes": 11985,
+      "modified_at": "2026-05-11T15:53:39Z",
+      "source_type": "document",
+      "project": "biobase",
+      "pages_created": [
+        "concepts/llm-wiki-pattern.md",
+        "entities/andrej-karpathy.md",
+        "references/karpathy-llm-wiki-gist.md"
+      ],
+      "pages_updated": []
+    },
+    "/home/clearmined/code/prod/biobase/info.md": {
+      "ingested_at": "2026-05-11T12:00:00Z",
+      "size_bytes": 9133,
+      "modified_at": "2026-05-08T04:34:49Z",
+      "source_type": "document",
+      "project": "biobase",
+      "pages_created": ["references/repo-info-md.md"],
+      "pages_updated": ["projects/biobase/biobase.md"]
+    }
+  },
   "projects": {
     "biobase": {
       "source_cwd": "/home/clearmined/code/prod/biobase",
-      "last_synced": "2026-04-28T07:00:00Z",
+      "last_synced": "2026-05-11T12:00:00Z",
       "last_commit_synced": "fd85a3b75bd9ef05ade7823b1ebdcc1b23b3679c",
       "pages_in_vault": [
         "projects/biobase/biobase.md",
@@ -10,7 +36,11 @@
         "projects/biobase/concepts/biobase-telemetry-schema.md",
         "projects/biobase/concepts/biobase-log-parsing.md",
         "projects/biobase/concepts/biobase-hub-routing.md",
-        "projects/biobase/skills/biobase-data-collection-prep.md"
+        "projects/biobase/skills/biobase-data-collection-prep.md",
+        "concepts/llm-wiki-pattern.md",
+        "entities/andrej-karpathy.md",
+        "references/karpathy-llm-wiki-gist.md",
+        "references/repo-info-md.md"
       ]
     }
   }

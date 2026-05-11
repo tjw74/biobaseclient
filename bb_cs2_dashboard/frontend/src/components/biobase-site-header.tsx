@@ -8,6 +8,7 @@ const titles: Record<DashboardSection, string> = {
   practice_tools: "Practice & tools",
   upload: "Upload",
   observability: "Observability",
+  demo_schema: "Demo extractable fields",
 }
 
 export function BiobaseSiteHeader({ section }: { section: DashboardSection }) {

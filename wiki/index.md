@@ -1,26 +1,37 @@
 ---
 title: Wiki Index
+updated: 2026-05-11T21:20:00Z
 ---
 
 # Wiki Index
 
-*This index is automatically maintained. Last updated: 2026-04-28T07:00:00Z*
+*Last updated: 2026-05-11T21:20:00Z*
+
+## LLM updates (attribution)
+
+Any **LLM** that changes this wiki must **name itself** on the edit, then apply the change:
+
+1. Add a **Recent Activity** line in [[hot]] with `agent=<who>` (e.g. `agent=Composer` for Cursor’s Composer, `agent=Claude`, `agent=GPT-5`, or `agent=human` for a person).
+2. Optionally set or bump `updated:` in the frontmatter of pages you touch.
+
+Format: `[ISO8601] WIKI_UPDATE agent=<id> project=<biobase|meta|…> — <one-line summary>`
 
 ## Concepts
 
-*No global concepts yet.*
+- [[llm-wiki-pattern]] — Karpathy LLM Wiki pattern; how raw sources, vault, and skills fit together ( #biobase #meta)
 
 ## Entities
 
-*No entities yet.*
+- [[andrej-karpathy]] — Author of the public LLM Wiki gist ( #person #llm-wiki)
 
 ## Skills
 
-*No skills yet.*
+*No global skills yet.*
 
 ## References
 
-*No references yet.*
+- [[karpathy-llm-wiki-gist]] — Raw mirror of Karpathy gist in `docs/llm-wiki-raw/` ( #llm-wiki #source)
+- [[repo-info-md]] — Distilled notes on repo `info.md` vs SQL schema layout ( #biobase #operators)
 
 ## Synthesis
 
@@ -36,7 +47,8 @@ title: Wiki Index
 
 - [Biobase](projects/biobase/biobase.md) — CS2 game analytics platform overview
 - [Session Ingest](projects/biobase/concepts/biobase-session-ingest.md) — session lifecycle, RCON polling, Loki query
-- [Telemetry Schema](projects/biobase/concepts/biobase-telemetry-schema.md) — all 6 Postgres tables
+- [Telemetry Schema](projects/biobase/concepts/biobase-telemetry-schema.md) — `public` / `ops` / `game` tables + CLI inspection
 - [Log Parsing & Plugin Protocol](projects/biobase/concepts/biobase-log-parsing.md) — CS2 log format, BIOBASE_POS_JSON, event types
 - [Hub Routing](projects/biobase/concepts/biobase-hub-routing.md) — nginx path routing, GF_SERVER_ROOT_URL, operator UI
 - [Data Collection Prep](projects/biobase/skills/biobase-data-collection-prep.md) — CS2KZ unload, logging cvars, re-run after changelevel
+- [CS2 Admin Dashboard](projects/biobase/concepts/biobase-cs2-admin-dashboard.md) — `/admin` UI, clips uploads, NFS/bind, ClarionCore paths

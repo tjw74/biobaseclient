@@ -17,6 +17,7 @@ import {
 import {
   ActivityIcon,
   LayoutDashboardIcon,
+  ListTreeIcon,
   ServerIcon,
   UploadIcon,
   WrenchIcon,
@@ -28,6 +29,7 @@ export type DashboardSection =
   | "practice_tools"
   | "upload"
   | "observability"
+  | "demo_schema"
 
 const navItems: {
   title: string
@@ -38,6 +40,7 @@ const navItems: {
   { title: "Match & server", section: "match_server", icon: ServerIcon },
   { title: "Practice & tools", section: "practice_tools", icon: WrenchIcon },
   { title: "Upload", section: "upload", icon: UploadIcon },
+  { title: "Demo fields", section: "demo_schema", icon: ListTreeIcon },
   { title: "Observability", section: "observability", icon: ActivityIcon },
 ]
 

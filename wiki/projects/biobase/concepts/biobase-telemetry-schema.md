@@ -12,7 +12,7 @@ provenance:
   inferred: 0.08
   ambiguous: 0.02
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-26T20:00:00Z
+updated: 2026-04-29T18:00:00Z
 ---
 
 # Biobase Telemetry Schema
@@ -108,6 +108,26 @@ Index: `(session_id, round_number)`.
 | `biobase_cs2kz_player` | Players from KZ SQLite |
 | `biobase_cs2kz_run` | Times (runs) |
 | `biobase_cs2kz_jumpstat` | Jumpstats |
+
+## Inspecting Postgres (CLI)
+
+Default stack: container **`bb_postgres`**, database **`biobase`**, user **`biobase`**.
+
+```bash
+docker exec -it bb_postgres psql -U biobase -d biobase
+```
+
+Inside **`psql`**: bare **`\dt`** lists only the **`public`** schema (usually just `biobase_cs2_match_session`). Use **`\dt *.*`** for all application tables, or **`\dt game.*`** / **`\dt ops.*`**. **`\dn`** lists schemas — expect `public`, `ops`, `game` after migrations / `bb_data_collection` startup DDL.
+
+**Movement** (plugin positions): `SELECT * FROM game.biobase_cs2_movement_sample ORDER BY id DESC LIMIT 20;`
+
+Check whether `game` exists:
+
+```sql
+SELECT to_regclass('game.biobase_cs2_movement_sample');
+```
+
+`NULL` means the table is missing: run **`bb_client/initdb/007_ops_game_schema_migration.sql`** (or equivalent) and/or restart **`bb_data_collection`** so schemas and tables are created; **`psql` as OS user `root` without `-U biobase` fails** with “role root does not exist”.
 
 ## Grafana
 

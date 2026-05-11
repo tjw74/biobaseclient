@@ -1,14 +1,18 @@
 ---
 title: Hot Cache
-updated: 2026-04-26T20:00:00Z
+updated: 2026-05-11T21:20:00Z
 ---
 
 # Hot Cache
 
-*A ~500-word semantic snapshot of recent activity. Updated after every major write operation.*
+*A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
 
+- [2026-05-11T21:20:00Z] WIKI_UPDATE agent=Composer project=biobase — **CS2 admin dashboard** (`bb_cs2_dashboard`): `/admin` FastAPI+Vite; **`POST /admin/api/uploads`** → `BB_CLIPS_HOST_DIR` (default `/mnt/backups/biobase/clips`) bind → `/data/clips`; NFS non-writable **`biobase/clips`** → **`apply-clips-bind.sh`** (bind **`biobase_clips_upload`**, `fstab` `bind,nofail`, legacy volume migrate) or **Proxmox** **`proxmox-chown-biobase-clips.sh`**; upload JSON **`vm_clips_path` + `host`**; docs: [[biobase-cs2-admin-dashboard]]
+- [2026-05-11T12:00:00Z] WIKI_UPDATE agent=Composer project=biobase+meta — Enabled Karpathy LLM Wiki at **repo root**: `.cursor/rules/biobase-llm-wiki.mdc`, `AGENTS.md`, `.cursor/skills` → `obsidian-wiki/.skills`; raw gist → `docs/llm-wiki-raw/`; vault pages [[llm-wiki-pattern]], [[andrej-karpathy]], [[karpathy-llm-wiki-gist]], [[repo-info-md]]; `obsidian-wiki/.env.biobase.example` (+ local `.env`); [[biobase]] links pattern + Postgres container name note (`bb_postgres` vs local `dc_postgres`)
+- [2026-04-29T18:00:00Z] WIKI_UPDATE agent=Composer (Cursor) project=biobase+meta — telemetry-schema: Postgres CLI (`psql`, `\dt *.*`, `\dn`); index blurb fix; movement in `game.biobase_cs2_movement_sample`; troubleshooting when only `public` exists
+- [2026-04-29T12:00:00Z] WIKI_UPDATE agent=Composer (Cursor) project=meta — LLM attribution convention: `agent=` required on hot lines; documented on wiki index
 - [2026-04-26T20:00:00Z] WIKI_UPDATE project=biobase — Grafana **Game data** dashboard: blue table column headers (theme primary); `GF_PANELS_DISABLE_SANITIZE_HTML` + Overview HTML `<style>`; wiki telemetry + overview adjusted
 - [2026-04-26T12:00:00Z] WIKI_UPDATE project=biobase — Postgres **ops** vs **game** schemas documented (telemetry-schema, session-ingest, log-parsing, data-collection-prep, overview); session anchor stays in **public**
 - [2026-04-28T07:00:00Z] WIKI_UPDATE project=biobase — 1 page created (data-collection-prep skills page), 2 updated (biobase overview + session-ingest)
@@ -28,4 +32,4 @@ updated: 2026-04-26T20:00:00Z
 
 ## Flagged Contradictions
 
-*None yet.*
+- Root **`info.md`** narrates some tables without `ops.` / `game.` qualifiers; **live DDL** is in `bb_client/initdb/`. Resolved in [[repo-info-md]] and [[biobase-telemetry-schema]] — treat SQL + those pages as authoritative for schema, **`info.md`** for operator URLs and product narrative.

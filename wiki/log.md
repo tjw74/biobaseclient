@@ -8,3 +8,4 @@ title: Wiki Log
 - [2026-04-28T00:00:00Z] WIKI_UPDATE project=biobase pages_updated=0 pages_created=5 source_cwd=/home/clearmined/code/prod/biobase
 - [2026-04-28T07:00:00Z] WIKI_UPDATE project=biobase pages_updated=2 pages_created=1 source_cwd=/home/clearmined/code/prod/biobase
 - [2026-04-28T07:25:28-06:00] QUERY query="look at the info.md file and the llm wiki. Then tell me how to see the data collection and game status." result_pages=5 mode=normal escalated=false
+- [2026-05-11T21:20:00Z] WIKI_UPDATE project=biobase pages_updated=4 pages_created=1 source_cwd=/home/clearmined/code/prod/biobase note="hot+index+biobase+log; new [[biobase-cs2-admin-dashboard]]"

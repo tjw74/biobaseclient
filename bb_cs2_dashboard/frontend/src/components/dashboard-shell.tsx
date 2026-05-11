@@ -7,6 +7,7 @@ import { BiobaseSiteHeader } from "@/components/biobase-site-header"
 import { ClipsUploadPanel } from "@/components/clips-upload-panel"
 import { MapAndPresetsPanel } from "@/components/map-and-presets-panel"
 import { MatchServerPanel } from "@/components/match-server-panel"
+import { DemoSchemaSection } from "@/components/demo-schema-section"
 import { ObservabilitySection } from "@/components/observability-section"
 import { OverviewSection } from "@/components/overview-section"
 import { PracticeToolsSection } from "@/components/practice-tools-section"
@@ -28,6 +29,8 @@ function renderSection(section: DashboardSection, onNavigate: (s: DashboardSecti
       return <PracticeToolsSection />
     case "upload":
       return <ClipsUploadPanel />
+    case "demo_schema":
+      return <DemoSchemaSection />
     case "observability":
       return <ObservabilitySection />
     default: {
@@ -50,9 +53,9 @@ export function DashboardShell() {
         showSignOut={showSignOut}
         onSignOut={() => void logout()}
       />
-      <SidebarInset>
+      <SidebarInset className="min-h-0">
         <BiobaseSiteHeader section={section} />
-        <div className="flex flex-1 flex-col gap-3 px-3 py-3 md:gap-4 md:px-5 md:py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3 md:gap-4 md:px-5 md:py-4">
           {renderSection(section, setSection)}
         </div>
       </SidebarInset>

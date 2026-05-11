@@ -13,7 +13,7 @@ provenance:
   inferred: 0.12
   ambiguous: 0.03
 created: 2026-04-28T00:00:00Z
-updated: 2026-04-26T20:00:00Z
+updated: 2026-05-11T21:20:00Z
 ---
 
 # Biobase
@@ -35,22 +35,27 @@ CS2 Server (bb_cs2_server)
 
 bb_cs2_control
   └── RCON (mcrcon) → CS2 server → bb_data_collection polls status
+
+bb_cs2_dashboard (bb_cs2_server compose)
+  └── FastAPI :8780 + Vite SPA under /admin → clips → VM path via BB_CLIPS_HOST_DIR (see [[biobase-cs2-admin-dashboard]])
 ```
 
 ## Key Concepts
 
+- [[llm-wiki-pattern]] — Karpathy **LLM Wiki** for this monorepo (`wiki/` vault; skills in `obsidian-wiki/`; raw gist copy under `docs/llm-wiki-raw/`)
 - [[biobase-session-ingest]] — session lifecycle, RCON polling, Loki query
 - [[biobase-telemetry-schema]] — `public` / `ops` / `game` schemas, tables, Grafana split
 - [[biobase-log-parsing]] — CS2 log format, BIOBASE plugin protocol, event types
 - [[biobase-hub-routing]] — nginx path routing, hub UI, GF_SERVER_ROOT_URL requirement
 - [[biobase-data-collection-prep]] — CS2 server prep for bot-deathmatch sessions (CS2KZ, logging cvars)
+- [[biobase-cs2-admin-dashboard]] — CS2 **admin** UI (`/admin`), map/bots/status, **clips uploads**, NFS/bind on ClarionCore
 
 ## Stacks and Services
 
 | Compose stack | Role |
 |---|---|
 | `bb_client` | Postgres + `bb_data_collection` |
-| `bb_cs2_server` | CS2 dedicated server |
+| `bb_cs2_server` | CS2 dedicated server + **bb_cs2_control** + **bb_cs2_dashboard** (admin UI :8780, `/admin`) |
 | `bb_monitor_loki` | Loki + Promtail (collects container logs) |
 | `bb_monitor_grafana` | Grafana (provisioned dashboards; game dashboard sets `GF_PANELS_DISABLE_SANITIZE_HTML` for blue table headers in Overview HTML) |
 | `bb_monitor_prometheus` | Prometheus + RCON exporter |
@@ -59,6 +64,8 @@ bb_cs2_control
 All stacks share `biobase_internal` Docker network (and friends per compose).
 
 ## CLI Tools
+
+Postgres shell (`bb_client/docker-compose.yml` uses container **`bb_postgres`**; substitute your local name if different, e.g. **`dc_postgres`**, when running `docker exec`): `docker exec -it bb_postgres psql -U biobase -d biobase`. Inside `psql`, `\dt` only shows `public`; use `\dt *.*` / `\dn` to see `ops` / `game`. Movement samples: `game.biobase_cs2_movement_sample`. See [[biobase-telemetry-schema#Inspecting Postgres (CLI)|telemetry schema → CLI]] for copy-paste queries and empty-`game` checks.
 
 `tools/run_kz_session.sh` and `tools/run_ingest_session.sh` — start a fixed-duration ingest session from the CLI without the browser. Useful for reproducible runs. Defaults: `DATA_URL=http://127.0.0.1:28080`, `CS2_URL=http://127.0.0.1:8765`, `DURATION_SEC=300`.
 

@@ -8,10 +8,12 @@ services:
     environment:
       # https://steamcommunity.com/dev/managegameservers — required for public listing; optional for LAN-only
       SRCDS_TOKEN: ${SRCDS_TOKEN:-}
-      CS2_SERVERNAME: ${CS2_SERVERNAME:-biobase CS2 KZ}
+      CS2_SERVERNAME: ${CS2_SERVERNAME:-Biobase CS2}
       CS2_RCONPW: ${CS2_RCONPW:-changeme}
-      # joedwards32/cs2: CS2_CHEATS=1 → sv_cheats enabled at launch
-      CS2_CHEATS: ${CS2_CHEATS:-1}
+      # joedwards32/cs2: CS2_CHEATS=1 → sv_cheats enabled at launch (practice profile often sets CS2_CHEATS=1 in .env)
+      CS2_CHEATS: ${CS2_CHEATS:-0}
+      # play = standard combat (no CS2KZ, biobase_play.cfg). practice|kz = legacy dev stack (CS2KZ + biobase_dev.cfg).
+      BB_CS2_SERVER_PROFILE: ${BB_CS2_SERVER_PROFILE:-play}
       CS2_LAN: ${CS2_LAN:-0}
       CS2_MAXPLAYERS: ${CS2_MAXPLAYERS:-16}
       # Bots (joedwards32/cs2). bot_join_after_player is not a separate env; use ./start_bots_rcon.sh after boot if needed
@@ -23,8 +25,8 @@ services:
       CS2_STARTMAP: ${CS2_STARTMAP:-de_mirage}
       # CounterStrikeSharp / bundled .NET: avoids ICU requirement in slim images (CSS INSTALL.md).
       DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: ${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}
-      # Practice / dev: exec cheat bundle at launch (set CS2_ADDITIONAL_ARGS in .env only if overriding)
-      CS2_ADDITIONAL_ARGS: "+exec biobase_dev"
+      # Default +exec overridden per-host via .env (same key).
+      CS2_ADDITIONAL_ARGS: "${CS2_ADDITIONAL_ARGS:-+exec biobase_startup}"
     ports:
       - "27015:27015/tcp"
       - "27015:27015/udp"
@@ -51,6 +53,9 @@ services:
       CS2_BOT_QUOTA: ${CS2_BOT_QUOTA:-10}
       CS2_BOT_QUOTA_MODE: ${CS2_BOT_QUOTA_MODE:-fill}
       CS2_BOT_DIFFICULTY: ${CS2_BOT_DIFFICULTY:-1}
+      # Mirrors bb_cs2_server (optional). When unset, dashboard capabilities show profile "unknown".
+      BB_CS2_SERVER_PROFILE: ${BB_CS2_SERVER_PROFILE:-}
+      CS2_CHEATS: ${CS2_CHEATS:-}
       BB_CS2_CONTROL_TOKEN: ${BB_CS2_CONTROL_TOKEN:-}
     ports:
       - "${BB_CS2_CONTROL_PORT:-8765}:8765"
@@ -65,6 +70,8 @@ services:
     build:
       context: ../bb_cs2_dashboard
       dockerfile: Dockerfile
+      args:
+        VITE_DASHBOARD_BASE: ${VITE_DASHBOARD_BASE:-/admin/}
     image: bb-cs2-dashboard:local
     container_name: bb_cs2_dashboard
     environment:
@@ -72,12 +79,18 @@ services:
       CS2_CONTROL_TOKEN: ${BB_CS2_CONTROL_TOKEN:-}
       BB_CS2_DASHBOARD_TOKEN: ${BB_CS2_DASHBOARD_TOKEN:-biobase-cs2-dashboard-shared-key}
       BB_CS2_DASHBOARD_USER: ${BB_CS2_DASHBOARD_USER:-}
+      BB_DASHBOARD_ROOT_PATH: ${BB_DASHBOARD_ROOT_PATH:-/admin}
       BB_DASHBOARD_COOKIE_SECURE: ${BB_DASHBOARD_COOKIE_SECURE:-0}
-      CLIPS_DIR: /data/clips
+      # VM (ClarionCore): bind ${BB_CLIPS_HOST_DIR} (default /mnt/backups/biobase/clips) → /data/clips. Proxmox storage: /srv/backups/biobase/clips.
+      BB_CLIPS_UPLOAD_DIR: ${BB_CLIPS_UPLOAD_DIR:-/data/clips}
+      # Shown in upload API + UI so operators can confirm compose bind vs this path (same as BB_CLIPS_HOST_DIR on the VM).
+      BB_CLIPS_VM_PATH: ${BB_CLIPS_HOST_DIR:-/mnt/backups/biobase/clips}
     ports:
       - "${BB_CS2_DASHBOARD_PORT:-8780}:8780"
     volumes:
-      - bb_cs2_dashboard_clips:/data/clips
+      # Bind only — no named volume for clips (a named volume would hide files from the VM path).
+      # Run ./scripts/apply-clips-bind.sh from bb_cs2_server after changing BB_CLIPS_HOST_DIR.
+      - ${BB_CLIPS_HOST_DIR:-/mnt/backups/biobase/clips}:/data/clips:rw
     depends_on:
       - bb_cs2_control
     networks:
@@ -87,7 +100,6 @@ services:
 
 volumes:
   cs2_data:
-  bb_cs2_dashboard_clips:
 
 networks:
   # Named LAN for bb_postgres / bb_data_collection / Loki/etc. Compose creates this on first `up`;

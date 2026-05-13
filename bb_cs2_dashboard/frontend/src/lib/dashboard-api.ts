@@ -107,6 +107,60 @@ export async function fetchStatus(): Promise<{
   return { httpStatus: r.status, data: d }
 }
 
+export type CapabilityTriState = "enabled" | "disabled" | "unknown"
+
+export type ServerCapabilitiesResponse = {
+  control_http_ok?: boolean
+  checked_at?: string
+  error?: string
+  detail?: string
+  server_profile?: { value: string; source: string }
+  rcon?: {
+    reachable?: boolean
+    status?: {
+      ok?: boolean
+      exit_code?: number
+      snippet?: string
+      headline?: string
+      humans?: number | null
+      bots?: number | null
+      map?: string | null
+      hostname?: string | null
+    }
+  }
+  cheats?: {
+    state?: string
+    source?: string
+    detail?: string | null
+    launch_env?: { value: string | null; known: boolean }
+  }
+  plugins?: Partial<
+    Record<
+      "metamod" | "counterstrikesharp" | "matchzy" | "kz" | "biobase_pos",
+      { state?: CapabilityTriState }
+    >
+  >
+  probes?: Record<string, { ok?: boolean; exit_code?: number; snippet?: string }>
+}
+
+export async function fetchServerCapabilities(): Promise<{
+  httpStatus: number
+  data: ServerCapabilitiesResponse
+}> {
+  const r = await fetch(apiUrl("/api/server-capabilities"), {
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as ServerCapabilitiesResponse
+  if (r.status === 401) {
+    return {
+      httpStatus: 401,
+      data: { ...d, error: "Unauthorized — sign in again", control_http_ok: false },
+    }
+  }
+  return { httpStatus: r.status, data: d }
+}
+
 export async function postChangeMap(map: string): Promise<{
   httpStatus: number
   ok?: boolean

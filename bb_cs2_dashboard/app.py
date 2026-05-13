@@ -22,14 +22,40 @@ import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
 CONTROL_URL = os.environ.get("CS2_CONTROL_URL", "http://bb_cs2_control:8765").rstrip("/")
-CONTROL_TOKEN = os.environ.get("CS2_CONTROL_TOKEN", "").strip()
+
+
+def _resolve_control_token() -> str:
+    """Prefer CS2_CONTROL_TOKEN; fall back to BB_CS2_CONTROL_TOKEN (same names bb_cs2_control reads)."""
+    return (
+        os.environ.get("CS2_CONTROL_TOKEN", "").strip()
+        or os.environ.get("BB_CS2_CONTROL_TOKEN", "").strip()
+    )
+
+
+# Accept either compose-style CS2_CONTROL_TOKEN or BB_CS2_CONTROL_TOKEN.
+CONTROL_TOKEN = _resolve_control_token()
 DASHBOARD_TOKEN = os.environ.get("BB_CS2_DASHBOARD_TOKEN", "").strip()
-DASHBOARD_USER = os.environ.get("BB_CS2_DASHBOARD_USER", "").strip()
+
+
+def _parse_allowed_dashboard_usernames() -> tuple[str, ...]:
+    raw = os.environ.get("BB_CS2_DASHBOARD_USER", "").strip()
+    if not raw:
+        return ()
+    parts: list[str] = []
+    for segment in raw.split(","):
+        name = segment.strip()
+        if name:
+            parts.append(name)
+    return tuple(parts)
+
+
+# When non-empty: login username must match one of these (after trim). Comma-separated list.
+DASHBOARD_ALLOWED_USERNAMES = _parse_allowed_dashboard_usernames()
 
 
 def _clips_upload_dir() -> Path:
@@ -171,6 +197,11 @@ class LoginBody(BaseModel):
 class MapChangeBody(BaseModel):
     map: str = Field(..., min_length=1, max_length=96)
 
+    @field_validator("map")
+    @classmethod
+    def map_trim(cls, v: str) -> str:
+        return v.strip()
+
 
 def _tokens_match(received: str, expected: str) -> bool:
     if len(received) != len(expected):
@@ -276,8 +307,9 @@ def auth_login(body: LoginBody) -> JSONResponse:
         return JSONResponse({"ok": True})
     pwd = body.effective_password()
     user_ok = True
-    if DASHBOARD_USER:
-        user_ok = _tokens_match(body.username.strip(), DASHBOARD_USER)
+    if DASHBOARD_ALLOWED_USERNAMES:
+        u_in = body.username.strip()
+        user_ok = any(_tokens_match(u_in, allowed) for allowed in DASHBOARD_ALLOWED_USERNAMES)
     pass_ok = bool(pwd) and _tokens_match(pwd, DASHBOARD_TOKEN)
     if not user_ok or not pass_ok:
         raise HTTPException(status_code=401, detail="Invalid username or password")
@@ -436,6 +468,52 @@ async def api_demo_parse_preview(
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
 
+
+@dashboard.get("/api/server-capabilities")
+def api_server_capabilities(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
+) -> JSONResponse:
+    """Aggregate CS2 server stack hints (RCON probes + env passthrough on bb_cs2_control)."""
+    require_dashboard_auth(request, authorization, x_dashboard_key)
+    try:
+        r = httpx.get(
+            f"{CONTROL_URL}/api/capabilities",
+            headers=_control_headers(),
+            timeout=25.0,
+        )
+    except httpx.RequestError as e:
+        return JSONResponse(
+            {
+                "error": "control_unreachable",
+                "control_http_ok": False,
+                "detail": str(e)[:500],
+                "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            },
+            status_code=502,
+        )
+    try:
+        data = r.json()
+    except Exception:
+        return JSONResponse(
+            {
+                "error": "bad_json",
+                "control_http_ok": False,
+                "raw": (r.text or "")[:2000],
+            },
+            status_code=502,
+        )
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"error": "bad_json", "control_http_ok": False},
+            status_code=502,
+        )
+    merged = {
+        **data,
+        "control_http_ok": 200 <= r.status_code < 400,
+    }
+    return JSONResponse(merged, status_code=r.status_code if r.status_code < 500 else 502)
 
 @dashboard.get("/api/status")
 def api_status(

@@ -10,12 +10,14 @@
     "build": "npm run build:main && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "npm run build && electron .",
-    "dist:win": "npm run build && electron-builder --win nsis portable",
+    "dist:win": "npm run dist:win:installer",
     "lint:config": "node scripts/validate-config.mjs",
     "test": "npm run build:main && node --test tests/*.test.mjs",
     "typecheck": "npm run build:main && tsc -p tsconfig.json --noEmit",
-    "dist:win:unsigned": "npm run build && electron-builder --win nsis portable --config.win.signAndEditExecutable=false",
-    "dist:win:dir": "npm run build && electron-builder --win dir --config.win.signAndEditExecutable=false"
+    "dist:win:unsigned": "npm run dist:win:installer:unsigned",
+    "dist:win:dir": "npm run build && electron-builder --win dir --config.win.signAndEditExecutable=false",
+    "dist:win:installer": "npm run build && electron-builder --win nsis",
+    "dist:win:installer:unsigned": "npm run build && electron-builder --win nsis --config.win.signAndEditExecutable=false"
   },
   "dependencies": {
     "@laihoe/demoparser2": "^0.41.3"
@@ -47,8 +49,7 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "artifactName": "Biobase-Client-${version}-${arch}.${ext}",
       "verifyUpdateCodeSignature": false
@@ -58,7 +59,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
     },
-    "afterSign": "scripts/after-sign.cjs"
+    "afterSign": "scripts/after-sign.cjs",
+    "artifactName": "Biobase-Client-Setup-${version}-${arch}.${ext}"
   },
   "author": "BioBase Live"
 }

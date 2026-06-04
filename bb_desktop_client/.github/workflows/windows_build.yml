@@ -1,4 +1,4 @@
-name: Windows Client Build
+name: Windows Installer Build
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  build-windows-installer:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,8 +21,15 @@ jobs:
       - run: npm run lint:config
       - run: npm run typecheck
       - run: npm test
-      - run: npm run dist:win:unsigned
+      - run: npm run dist:win:installer:unsigned
+      - name: Keep only the user installer executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer | Out-Null
+          $installer = Get-ChildItem release -Filter "Biobase-Client-Setup-*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Installer executable not found" }
+          Copy-Item $installer.FullName installer/Biobase-Client-Setup.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: biobase-windows-client
-          path: release/*
+          name: Biobase-Client-Setup
+          path: installer/Biobase-Client-Setup.exe

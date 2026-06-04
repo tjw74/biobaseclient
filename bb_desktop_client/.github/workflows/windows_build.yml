@@ -2,27 +2,27 @@ name: Windows Client Build
 
 on:
   push:
-    paths:
-      - 'bb_desktop_client/**'
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: bb_desktop_client
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: bb_desktop_client/package-lock.json
-      - run: npm install
+          cache-dependency-path: package-lock.json
+      - run: npm ci
       - run: npm run lint:config
-      - run: npm run dist:win
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dist:win:unsigned
       - uses: actions/upload-artifact@v4
         with:
           name: biobase-windows-client
-          path: bb_desktop_client/release/*
+          path: release/*

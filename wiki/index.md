@@ -1,11 +1,11 @@
 ---
 title: Wiki Index
-updated: 2026-05-11T21:20:00Z
+updated: 2026-06-04T15:54:47Z
 ---
 
 # Wiki Index
 
-*Last updated: 2026-05-11T21:20:00Z*
+*Last updated: 2026-06-04T15:54:47Z*
 
 ## LLM updates (attribution)
 
@@ -51,4 +51,5 @@ Format: `[ISO8601] WIKI_UPDATE agent=<id> project=<biobase|meta|…> — <one-li
 - [Log Parsing & Plugin Protocol](projects/biobase/concepts/biobase-log-parsing.md) — CS2 log format, BIOBASE_POS_JSON, event types
 - [Hub Routing](projects/biobase/concepts/biobase-hub-routing.md) — nginx path routing, GF_SERVER_ROOT_URL, operator UI
 - [Data Collection Prep](projects/biobase/skills/biobase-data-collection-prep.md) — CS2KZ unload, logging cvars, re-run after changelevel
-- [CS2 Admin Dashboard](projects/biobase/concepts/biobase-cs2-admin-dashboard.md) — `/admin` UI, clips uploads, NFS/bind, ClarionCore paths
+- [BioBase CS2 Telemetry + Reconciliation](projects/biobase/concepts/biobase-cs2-telemetry-and-reconciliation.md) — FACEIT/game-plane JSON v1 bundle, ZSTD drop, reconcile stub + parser notes
+- [Windows Client Primary UI](projects/biobase/concepts/biobase-windows-client-primary-ui.md) — Windows-first local Biobase client: CS2 desktop playback, overlay HUD, local demo parsing, stats dashboard, bio sensor capture, and central sync

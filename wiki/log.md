@@ -13,3 +13,5 @@ title: Wiki Log
 - [2026-06-04T15:54:47Z] WIKI_UPDATE agent=GPT-5.5 project=biobase pages_updated=4 pages_created=1 source_cwd=/home/clearmined/code/prod/biobase note="documented Windows client primary UI; scaffolded bb_desktop_client"
 - [2026-06-04T16:07:39Z] WIKI_UPDATE agent=GPT-5.5 project=biobase pages_updated=2 source_cwd=/home/clearmined/code/prod/biobase note="bb_desktop_client MVP: demo scan/import, demoparser2, HUD clock, upload stub"
 - [2026-06-04T16:25:00Z] WIKI_UPDATE agent=GPT-5.5 project=biobase pages_updated=2 source_cwd=/home/clearmined/code/prod/biobase note="bb_desktop_client final MVP: settings, upload queue, retry, local commit prep"
+
+- 2026-06-04T17:45:00Z — Finished Biobase desktop client release hardening except GitHub push: added device pairing/auth headers, persisted device credentials, Node test suite, production dependency audit clean, Electron 39 / electron-builder 26 updates, unsigned Windows dir packaging verification, and Windows QA checklist.

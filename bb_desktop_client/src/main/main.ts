@@ -1,14 +1,15 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import electron from 'electron';
+const { app, BrowserWindow, ipcMain, screen } = electron;
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { importDemo, parseDemo, scanLocalDemos, selectDemoFile } from './demoService.js';
-import { getSettings, getUploadQueue, saveSettings, syncUploadQueue, uploadParsedSummary } from './uploadService.js';
+import { getSettings, getUploadQueue, pairDevice, saveSettings, syncUploadQueue, uploadParsedSummary } from './uploadService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-let dashboardWindow: BrowserWindow | null = null;
-let overlayWindow: BrowserWindow | null = null;
+let dashboardWindow: InstanceType<typeof BrowserWindow> | null = null;
+let overlayWindow: InstanceType<typeof BrowserWindow> | null = null;
 
 const playbackState = {
   matchId: 'local-demo',
@@ -20,6 +21,11 @@ const playbackState = {
 
 function currentTimeSec() {
   return playbackState.offsetSec + (playbackState.playing ? (Date.now() - playbackState.startedAtMs) / 1000 : 0);
+}
+
+function publicSettings<T extends { deviceToken?: string }>(settings: T): Omit<T, 'deviceToken'> {
+  const { deviceToken: _deviceToken, ...safeSettings } = settings;
+  return safeSettings;
 }
 
 function rendererUrl(route: string) {
@@ -90,8 +96,12 @@ app.whenReady().then(async () => {
     playbackState.startedAtMs = Date.now();
     return { ...playbackState, currentTimeSec: currentTimeSec() };
   });
-  ipcMain.handle('biobase:get-settings', getSettings);
-  ipcMain.handle('biobase:save-settings', (_evt, patch: unknown) => saveSettings(patch as Record<string, string>));
+  ipcMain.handle('biobase:get-settings', async () => publicSettings(await getSettings()));
+  ipcMain.handle('biobase:save-settings', async (_evt, patch: unknown) => publicSettings(await saveSettings(patch as Record<string, string>)));
+  ipcMain.handle('biobase:pair-device', async (_evt, input: unknown) => {
+    const result = await pairDevice(input as { pairingCode: string });
+    return { ...result, settings: publicSettings(result.settings) };
+  });
   ipcMain.handle('biobase:get-upload-queue', getUploadQueue);
   ipcMain.handle('biobase:sync-upload-queue', syncUploadQueue);
   ipcMain.handle('biobase:upload-parsed-summary', (_evt, parsed: unknown) => uploadParsedSummary(parsed as never));

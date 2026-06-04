@@ -114,3 +114,16 @@ Related pages: [[biobase]], [[biobase-cs2-admin-dashboard]], [[biobase-cs2-telem
 - Windows GitHub Actions packaging workflow.
 
 Remaining product hardening: signed Windows installer, real Biobase central API endpoint/auth, sensor device drivers, better CS2 playback-state detection, and live Windows overlay QA against borderless CS2.
+
+## Release-hardening implementation status
+
+Updated 2026-06-04T17:45:00Z:
+
+- Added device pairing flow via `POST /api/client/device/pair`.
+- Uploads now include device auth headers when paired.
+- Added persisted client credentials/settings.
+- Added Node test suite for API URL/auth helpers and demo path sanitization.
+- Upgraded Electron/electron-builder and separated runtime/dev dependencies; production audit is clean.
+- Added Windows QA checklist and verified Linux-side Windows unpacked packaging (`dist:win:dir`).
+- GitHub push remains intentionally pending until deploy key access is added.
+

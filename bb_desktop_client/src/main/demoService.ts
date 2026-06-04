@@ -1,4 +1,5 @@
-import { app, dialog } from 'electron';
+import electron from 'electron';
+const { app, dialog } = electron;
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -54,9 +55,17 @@ function defaultScanRoots(): string[] {
   ]));
 }
 
+export function isLikelyDemoPath(filePath: string): boolean {
+  return path.resolve(filePath).toLowerCase().endsWith('.dem');
+}
+
+export function safeDemoStem(filePath: string): string {
+  return path.basename(filePath, '.dem').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+}
+
 async function statDemo(filePath: string, source: LocalDemoFile['source']): Promise<LocalDemoFile | null> {
   const resolved = path.resolve(filePath);
-  if (!resolved.toLowerCase().endsWith('.dem')) return null;
+  if (!isLikelyDemoPath(resolved)) return null;
   try {
     const stat = await fs.stat(resolved);
     if (!stat.isFile()) return null;
@@ -130,7 +139,7 @@ export async function sha256File(filePath: string): Promise<{ sha256: string; by
 async function copyDemoToUserData(source: LocalDemoFile, sha256: string): Promise<LocalDemoFile> {
   const dir = path.join(app.getPath('userData'), 'demos');
   await fs.mkdir(dir, { recursive: true });
-  const safeStem = path.basename(source.path, '.dem').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+  const safeStem = safeDemoStem(source.path);
   const dest = path.join(dir, `${safeStem}.${sha256.slice(0, 16)}.dem`);
   if (path.resolve(source.path) !== path.resolve(dest)) await fs.copyFile(source.path, dest);
   const item = await statDemo(dest, 'imported');

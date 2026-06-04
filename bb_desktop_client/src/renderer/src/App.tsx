@@ -99,6 +99,7 @@ function DashboardRoute() {
   const [settings, setSettings] = useState<ClientSettings>({ apiBaseUrl: '', deviceName: '', serverName: 'Biobase CS2' });
   const [queue, setQueue] = useState<UploadQueueItem[]>([]);
   const [syncStatus, setSyncStatus] = useState('not synced');
+  const [pairingCode, setPairingCode] = useState('');
 
   const base = usePlaybackClock();
   const frame = frameFromParsed(parsed, playback?.currentTimeSec ?? base.currentTimeSec);
@@ -147,6 +148,14 @@ function DashboardRoute() {
     setSyncStatus('settings saved');
   }
 
+  async function pairClientDevice() {
+    setSyncStatus('pairing device…');
+    const result = await window.biobaseDesktop?.pairDevice({ pairingCode });
+    if (!result) return;
+    setSettings(result.settings);
+    setSyncStatus(result.ok ? 'device paired' : result.error ?? 'pairing failed');
+  }
+
   async function uploadSummary() {
     if (!parsed) return;
     setSyncStatus('uploading…');
@@ -187,11 +196,14 @@ function DashboardRoute() {
         <input value={settings.deviceName} placeholder="Device name" onChange={(event) => setSettings({ ...settings, deviceName: event.target.value })} />
         <input value={settings.serverName} placeholder="Server name" onChange={(event) => setSettings({ ...settings, serverName: event.target.value })} />
         <button onClick={saveClientSettings}>Save settings</button>
+        <input value={pairingCode} placeholder="Pairing code" onChange={(event) => setPairingCode(event.target.value)} />
+        <button disabled={!settings.apiBaseUrl || !pairingCode.trim()} onClick={pairClientDevice}>Pair device</button>
         <div className="status-list">
           <span>Parser: {parsed?.parser ?? 'not run'}</span>
           <span>Samples: {parsed?.movementSamples.length ?? 0}</span>
           <span>Players: {parsed?.players.length ?? 0}</span>
           <span>Central sync: {syncStatus}</span>
+          <span>Device: {settings.deviceId ? `paired ${settings.deviceId.slice(0, 10)}…` : 'not paired'}</span>
           <span>Queue: {queue.filter((item) => item.status !== 'uploaded').length} pending / {queue.length} total</span>
           {parsed?.error && <span className="warn">Fallback: {parsed.error.slice(0, 80)}</span>}
         </div>

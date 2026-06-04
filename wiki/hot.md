@@ -37,3 +37,5 @@ updated: 2026-06-04T15:54:47Z
 ## Flagged Contradictions
 
 - Root **`info.md`** narrates some tables without `ops.` / `game.` qualifiers; **live DDL** is in `bb_client/initdb/`. Resolved in [[repo-info-md]] and [[biobase-telemetry-schema]] — treat SQL + those pages as authoritative for schema, **`info.md`** for operator URLs and product narrative.
+
+- Device pairing/auth headers and upload queue tests are implemented; remaining external step is GitHub deploy-key access/push plus real Windows CS2 QA.

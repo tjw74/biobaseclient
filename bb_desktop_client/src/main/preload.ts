@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('biobaseDesktop', {
   setPlayback: (patch: unknown) => ipcRenderer.invoke('biobase:set-playback', patch),
   getSettings: () => ipcRenderer.invoke('biobase:get-settings'),
   saveSettings: (patch: unknown) => ipcRenderer.invoke('biobase:save-settings', patch),
+  pairDevice: (input: unknown) => ipcRenderer.invoke('biobase:pair-device', input),
   getUploadQueue: () => ipcRenderer.invoke('biobase:get-upload-queue'),
   syncUploadQueue: () => ipcRenderer.invoke('biobase:sync-upload-queue'),
   uploadParsedSummary: (parsed: unknown) => ipcRenderer.invoke('biobase:upload-parsed-summary', parsed),

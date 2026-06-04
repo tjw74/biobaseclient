@@ -14,6 +14,7 @@ declare global {
       setPlayback: (patch: Partial<PlaybackState> & { currentTimeSec?: number }) => Promise<PlaybackState>;
       getSettings: () => Promise<ClientSettings>;
       saveSettings: (patch: Partial<ClientSettings>) => Promise<ClientSettings>;
+      pairDevice: (input: { pairingCode: string }) => Promise<{ ok: boolean; settings: ClientSettings; error?: string }>;
       getUploadQueue: () => Promise<UploadQueueItem[]>;
       syncUploadQueue: () => Promise<UploadQueueItem[]>;
       uploadParsedSummary: (parsed: ParsedDemoSummary) => Promise<{ item: UploadQueueItem; queue: UploadQueueItem[] }>;

@@ -1,11 +1,14 @@
-import { app } from 'electron';
+import electron from 'electron';
+const { app, safeStorage } = electron;
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { ParsedDemoSummary, UploadQueueItem, ClientSettings } from '../shared/types.js';
+import type { ParsedDemoSummary, UploadQueueItem, ClientSettings, PairDeviceResult } from '../shared/types.js';
+import { buildApiUrl, createAuthHeaders, normalizeApiBaseUrl, normalizePairingCode, sanitizeDeviceName } from '../shared/apiClient.js';
 
 const SETTINGS_FILE = 'settings.json';
 const QUEUE_FILE = 'upload_queue.json';
+type StoredClientSettings = Partial<ClientSettings> & { deviceTokenEncrypted?: string };
 
 function dataPath(name: string) {
   return path.join(app.getPath('userData'), name);
@@ -14,7 +17,7 @@ function dataPath(name: string) {
 function defaultSettings(): ClientSettings {
   return {
     apiBaseUrl: process.env.VITE_BIOBASE_API_URL ?? '',
-    deviceName: os.hostname(),
+    deviceName: sanitizeDeviceName(os.hostname()),
     serverName: process.env.VITE_BIOBASE_SERVER_NAME ?? 'Biobase CS2',
   };
 }
@@ -27,34 +30,46 @@ async function readJson<T>(file: string, fallback: T): Promise<T> {
   }
 }
 
-function normalizeApiBaseUrl(raw: string): string {
-  const value = raw.trim().replace(/\/$/, '');
-  if (!value) return '';
-  try {
-    const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid_protocol');
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    throw new Error('invalid_api_base_url');
-  }
-}
-
 async function writeJson(file: string, value: unknown): Promise<void> {
   await fs.mkdir(app.getPath('userData'), { recursive: true });
   await fs.writeFile(dataPath(file), JSON.stringify(value, null, 2));
 }
 
+function decryptStoredToken(saved: StoredClientSettings): string | undefined {
+  if (saved.deviceToken) return saved.deviceToken;
+  if (!saved.deviceTokenEncrypted) return undefined;
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return undefined;
+    return safeStorage.decryptString(Buffer.from(saved.deviceTokenEncrypted, 'base64'));
+  } catch {
+    return undefined;
+  }
+}
+
+function settingsForStorage(settings: ClientSettings): StoredClientSettings {
+  const stored: StoredClientSettings = { ...settings };
+  if (settings.deviceToken) {
+    if (safeStorage.isEncryptionAvailable()) {
+      stored.deviceTokenEncrypted = safeStorage.encryptString(settings.deviceToken).toString('base64');
+      delete stored.deviceToken;
+    }
+  }
+  return stored;
+}
+
 export async function getSettings(): Promise<ClientSettings> {
-  const saved = await readJson<Partial<ClientSettings>>(SETTINGS_FILE, {});
-  return { ...defaultSettings(), ...saved };
+  const saved = await readJson<StoredClientSettings>(SETTINGS_FILE, {});
+  const deviceToken = decryptStoredToken(saved);
+  const { deviceTokenEncrypted: _deviceTokenEncrypted, ...publicSaved } = saved;
+  return { ...defaultSettings(), ...publicSaved, ...(deviceToken ? { deviceToken } : {}) };
 }
 
 export async function saveSettings(patch: Partial<ClientSettings>): Promise<ClientSettings> {
   const next = { ...(await getSettings()), ...patch };
   next.apiBaseUrl = normalizeApiBaseUrl(next.apiBaseUrl ?? '');
-  next.deviceName = (next.deviceName ?? '').trim() || os.hostname();
+  next.deviceName = sanitizeDeviceName(next.deviceName ?? os.hostname());
   next.serverName = (next.serverName ?? '').trim() || 'Biobase CS2';
-  await writeJson(SETTINGS_FILE, next);
+  await writeJson(SETTINGS_FILE, settingsForStorage(next));
   return next;
 }
 
@@ -112,9 +127,9 @@ export async function syncUploadQueue(): Promise<UploadQueueItem[]> {
     const now = new Date().toISOString();
     const updated: UploadQueueItem = { ...item, status: 'uploading', attempts: item.attempts + 1, updatedAt: now };
     try {
-      const response = await fetch(`${settings.apiBaseUrl}/api/client/sessions`, {
+      const response = await fetch(buildApiUrl(settings.apiBaseUrl, '/api/client/sessions'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...createAuthHeaders(settings) },
         body: JSON.stringify({
           kind: 'biobase-client-demo-summary',
           version: 1,
@@ -137,4 +152,35 @@ export async function uploadParsedSummary(parsed: ParsedDemoSummary): Promise<{ 
   const item = await enqueueParsedSummary(parsed);
   const queue = await syncUploadQueue();
   return { item: queue.find((q) => q.id === item.id) ?? item, queue };
+}
+
+
+export async function pairDevice(input: { pairingCode: string }): Promise<PairDeviceResult> {
+  try {
+    const settings = await getSettings();
+    const pairingCode = normalizePairingCode(input.pairingCode ?? '');
+    if (!pairingCode) throw new Error('missing_pairing_code');
+    const response = await fetch(buildApiUrl(settings.apiBaseUrl, '/api/client/device/pair'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pairingCode,
+        deviceName: sanitizeDeviceName(settings.deviceName),
+        serverName: settings.serverName,
+        appVersion: '0.1.0',
+      }),
+    });
+    if (!response.ok) throw new Error(`http_${response.status}`);
+    const payload = await response.json() as { deviceId?: string; deviceToken?: string; accountName?: string };
+    if (!payload.deviceId || !payload.deviceToken) throw new Error('invalid_pairing_response');
+    const next = await saveSettings({
+      deviceId: payload.deviceId,
+      deviceToken: payload.deviceToken,
+      accountName: payload.accountName,
+      pairedAt: new Date().toISOString(),
+    });
+    return { ok: true, settings: next };
+  } catch (err) {
+    return { ok: false, settings: await getSettings(), error: err instanceof Error ? err.message : String(err) };
+  }
 }

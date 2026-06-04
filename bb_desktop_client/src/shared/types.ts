@@ -86,6 +86,20 @@ export interface ClientSettings {
   apiBaseUrl: string;
   deviceName: string;
   serverName: string;
+  deviceId?: string;
+  deviceToken?: string;
+  accountName?: string;
+  pairedAt?: string;
+}
+
+export interface PairDeviceInput {
+  pairingCode: string;
+}
+
+export interface PairDeviceResult {
+  ok: boolean;
+  settings: ClientSettings;
+  error?: string;
 }
 
 export interface UploadQueueItem {

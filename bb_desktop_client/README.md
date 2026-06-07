@@ -2,19 +2,15 @@
 
 Windows desktop client for Biobase CS2 demo review.
 
-## Install on Windows
+## Download for Windows
 
-The test user should install Biobase with a single downloadable file.
+[Download Biobase-Client-Setup.exe](https://github.com/biobaselive/biobaseclient/releases/latest/download/Biobase-Client-Setup.exe)
 
-1. Open this repo's **Actions** tab.
-2. Open the latest successful **Windows Installer Build** run.
-3. Download the artifact named **Biobase-Client-Setup**.
-4. Unzip the artifact.
-5. Double-click **Biobase-Client-Setup.exe**.
-6. Follow the installer prompts.
-7. Launch **Biobase Client** from the Start Menu or desktop shortcut.
+Double-click the downloaded file, follow the installer prompts, then launch **Biobase Client** from the Start Menu or desktop shortcut.
 
 No command line, Node.js, npm, or developer tools are required for the test user.
+
+If the release asset is not available yet, open this repo's **Actions** tab, open the latest successful **Windows Installer Build** run, download **Biobase-Client-Setup**, unzip it, and double-click **Biobase-Client-Setup.exe**.
 
 ### Windows security warning
 

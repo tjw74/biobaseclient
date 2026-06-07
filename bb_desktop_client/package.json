@@ -51,7 +51,6 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "Biobase-Client-${version}-${arch}.${ext}",
       "verifyUpdateCodeSignature": false
     },
     "nsis": {

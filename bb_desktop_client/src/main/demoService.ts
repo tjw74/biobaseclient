@@ -4,9 +4,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import type { Dirent } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { defaultScanRoots } from './scanRoots.js';
 
 const require = createRequire(import.meta.url);
 
@@ -43,16 +43,6 @@ export interface ParsedDemoSummary {
     pathEfficiency: number;
   }>;
   error?: string;
-}
-
-function defaultScanRoots(): string[] {
-  const home = os.homedir();
-  return Array.from(new Set([
-    path.join(process.env['PROGRAMFILES(X86)'] ?? 'C:/Program Files (x86)', 'Steam', 'steamapps', 'common', 'Counter-Strike Global Offensive', 'game', 'csgo'),
-    path.join(process.env.PROGRAMFILES ?? 'C:/Program Files', 'Steam', 'steamapps', 'common', 'Counter-Strike Global Offensive', 'game', 'csgo'),
-    path.join(home, 'Documents'),
-    path.join(home, 'Downloads'),
-  ]));
 }
 
 export function isLikelyDemoPath(filePath: string): boolean {

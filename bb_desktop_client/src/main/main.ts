@@ -53,6 +53,7 @@ async function createOverlayWindow() {
     return;
   }
   const display = screen.getPrimaryDisplay();
+  const isMac = process.platform === 'darwin';
   overlayWindow = new BrowserWindow({
     x: display.workArea.x,
     y: display.workArea.y,
@@ -60,14 +61,20 @@ async function createOverlayWindow() {
     height: display.workArea.height,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     hasShadow: false,
     alwaysOnTop: true,
-    skipTaskbar: true,
+    skipTaskbar: !isMac,
+    focusable: false,
+    ...(isMac ? { type: 'panel' as const, visibleOnAllWorkspaces: true } : {}),
     title: 'Biobase HUD Overlay',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  overlayWindow.setAlwaysOnTop(true, isMac ? 'floating' : 'screen-saver');
+  if (isMac) {
+    overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow.on('closed', () => {
     overlayWindow = null;
@@ -106,6 +113,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('biobase:sync-upload-queue', syncUploadQueue);
   ipcMain.handle('biobase:upload-parsed-summary', (_evt, parsed: unknown) => uploadParsedSummary(parsed as never));
   await createDashboardWindow();
+});
+
+app.on('activate', () => {
+  if (process.platform === 'darwin' && !dashboardWindow) {
+    void createDashboardWindow();
+  }
 });
 
 app.on('window-all-closed', () => {

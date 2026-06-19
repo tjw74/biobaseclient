@@ -181,6 +181,7 @@ function DashboardRoute() {
         <div className="brand">Biobase</div>
         <button className="primary" onClick={() => window.biobaseDesktop?.showOverlay()}>Show HUD Overlay</button>
         <button onClick={() => window.biobaseDesktop?.hideOverlay()}>Hide HUD</button>
+        <button onClick={() => window.biobaseDesktop?.scanDemos().then(setDemos).catch(() => setDemos([]))}>Scan demo folders</button>
         <button onClick={chooseDemo}>Import .dem</button>
         <button disabled={!selected || busy} onClick={parseSelectedDemo}>{busy ? 'Parsing…' : 'Parse selected demo'}</button>
         <button disabled={!parsed} onClick={uploadSummary}>Upload summary</button>
@@ -210,7 +211,7 @@ function DashboardRoute() {
       </aside>
       <section className="content">
         <header className="page-header">
-          <div><p className="eyebrow">Windows desktop client</p><h1>Movement Review</h1></div>
+          <div><p className="eyebrow">Desktop client</p><h1>Movement Review</h1></div>
           <div className="match-pill">{selected?.name ?? 'No demo selected'}</div>
         </header>
         <section className="hero-grid">

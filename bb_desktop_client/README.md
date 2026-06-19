@@ -28,6 +28,19 @@ More info -> Run anyway
 
 For public release we should add a Windows code-signing certificate so this warning goes away.
 
+
+## Mac dev setup
+
+Develop on a Mac (dashboard + in-game overlay over local CS2) while Windows test hardware is unavailable:
+
+```bash
+cd bb_desktop_client
+npm ci
+npm run dev
+```
+
+Full steps: `docs/mac_dev_setup.md`. Production releases remain **Windows-only** (`.exe` installer).
+
 ## First-run setup
 
 1. Keep CS2 installed and logged into Steam normally.

@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-04T15:54:47Z
+updated: 2026-06-21T23:00:00Z
 ---
 
 # Hot Cache
@@ -9,6 +9,7 @@ updated: 2026-06-04T15:54:47Z
 
 ## Recent Activity
 
+- [2026-06-21T23:00:00Z] WIKI_UPDATE agent=Claude project=biobase — **Zero-inference labeling + roadmap + v0.1.44 state capture** — Created [[zero-inference-labeling]] concept page (Review→Playback case study, inference gap analysis, word categories). Created [[biobase-product-roadmap]] with phased roadmap, shipped checklist, architecture diagram. Updated [[biobase-windows-client-primary-ui]] with v0.1.42–0.1.44 redesign (companion fix, compact top-bar, movement-dominant layout). Updated [[biobase]] hub with design philosophy. Renamed Review→Playback in desktop client.
 - [2026-06-04T16:25:00Z] WIKI_UPDATE agent=GPT-5.5 project=biobase — **Desktop client MVP finalization** — added persisted settings, upload queue/retry, clean TS build layout, and README release notes before local commit.
 - [2026-06-04T16:07:39Z] WIKI_UPDATE agent=GPT-5.5 project=biobase — **Desktop client MVP implementation** — `bb_desktop_client` now includes local `.dem` scan/import, `@laihoe/demoparser2` parser integration, shared playback clock, HUD play/seek controls, parsed movement sample display, and structured upload stub to central Biobase API.
 - [2026-06-04T15:54:47Z] WIKI_UPDATE agent=GPT-5.5 project=biobase — **Windows client primary UI** — Biobase user product pivots to local Windows client beside Steam/CS2: `.dem` detection/parsing, transparent overlay HUD, movement dashboard, future bio/EMG capture, and central structured-data sync; scaffolded `bb_desktop_client` and documented [[biobase-windows-client-primary-ui]]
@@ -24,7 +25,7 @@ updated: 2026-06-04T15:54:47Z
 
 ## Active Threads
 
-**Biobase** — CS2 game analytics platform in active development. Product direction is now **Windows desktop client first** for users: local CS2 replay, local `.dem` parsing, overlay HUD, movement stats dashboard, future bio/EMG sensor capture, and central upload/sync. Core server/admin ingest pipeline (RCON status + Loki log lines → Postgres **ops**; parsed gameplay + CS2KZ mirror → **game**) remains the operator/backend layer.
+**Biobase** — CS2 performance analytics platform at v0.1.44. Three UI surfaces: **desktop Electron client** (primary, movement stats dominant, compact top-bar controls), **phone companion** (responsive QR mirror), **admin dashboard** (operator tools + scrollytelling roadmap). Design philosophy: **extreme friction reduction** + **[[zero-inference-labeling]]**. Currently shipping Phase 1 (client + companion + auto-update); Phase 2 (performance dashboards, bio-sensors) is planned.
 
 ## Key Takeaways
 

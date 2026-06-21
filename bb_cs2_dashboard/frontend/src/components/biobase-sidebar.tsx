@@ -18,8 +18,11 @@ import {
   ActivityIcon,
   LayoutDashboardIcon,
   ListTreeIcon,
+  MapIcon,
+  RouteIcon,
   ServerIcon,
   UploadIcon,
+  VideoIcon,
   WrenchIcon,
 } from "lucide-react"
 
@@ -28,8 +31,11 @@ export type DashboardSection =
   | "match_server"
   | "practice_tools"
   | "upload"
+  | "tiktok_clips"
   | "observability"
   | "demo_schema"
+  | "pro_movement"
+  | "roadmap"
 
 const navItems: {
   title: string
@@ -40,8 +46,11 @@ const navItems: {
   { title: "Match & server", section: "match_server", icon: ServerIcon },
   { title: "Practice & tools", section: "practice_tools", icon: WrenchIcon },
   { title: "Upload", section: "upload", icon: UploadIcon },
+  { title: "TikTok clips", section: "tiktok_clips", icon: VideoIcon },
   { title: "Demo fields", section: "demo_schema", icon: ListTreeIcon },
+  { title: "Pro movement", section: "pro_movement", icon: RouteIcon },
   { title: "Observability", section: "observability", icon: ActivityIcon },
+  { title: "Roadmap", section: "roadmap", icon: MapIcon },
 ]
 
 type BiobaseSidebarProps = React.ComponentProps<typeof Sidebar> & {

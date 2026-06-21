@@ -2,12 +2,13 @@
 title: >-
   Biobase
 category: projects
-tags: [cs2, game-analytics, postgres, grafana, docker]
+tags: [cs2, game-analytics, postgres, grafana, docker, electron, desktop-client]
 sources: [projects/biobase]
 summary: >-
-  CS2 game analytics platform: collects server telemetry into Postgres
-  (public session + ops ingest + game parsed/KZ data) and exposes it through
-  Grafana dashboards.
+  CS2 performance analytics platform: desktop Electron client (primary UI),
+  phone companion via QR, admin dashboard, auto-update pipeline, and CS2
+  server data pipeline. Design philosophy: extreme friction reduction and
+  zero-inference labeling.
 provenance:
   extracted: 0.85
   inferred: 0.12
@@ -44,8 +45,15 @@ bb_cs2_dashboard (bb_cs2_server compose)
   └── FastAPI :8780 + Vite SPA under /admin → clips → VM path via BB_CLIPS_HOST_DIR (see [[biobase-cs2-admin-dashboard]])
 ```
 
+## Design Philosophy
+
+- [[zero-inference-labeling]] — Every label communicates with zero cognitive inference from the user. If the name makes you ask "what's that?", it has failed.
+- **Extreme friction reduction** — Every interaction that can be eliminated, is eliminated. No unnecessary inputs, no learning curves, controls live where users are already looking.
+
 ## Key Concepts
 
+- [[biobase-product-roadmap]] — Phased delivery plan, progress tracking, current state (v0.1.44)
+- [[biobase-windows-client-primary-ui]] — Desktop client architecture, three UI surfaces, design decisions
 - [[llm-wiki-pattern]] — Karpathy **LLM Wiki** for this monorepo (`wiki/` vault; skills in `obsidian-wiki/`; raw gist copy under `docs/llm-wiki-raw/`)
 - [[biobase-session-ingest]] — session lifecycle, RCON polling, Loki query
 - [[biobase-telemetry-schema]] — `public` / `ops` / `game` schemas, tables, Grafana split

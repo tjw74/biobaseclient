@@ -1,11 +1,11 @@
 ---
 title: Wiki Index
-updated: 2026-06-04T15:54:47Z
+updated: 2026-06-21T23:00:00Z
 ---
 
 # Wiki Index
 
-*Last updated: 2026-06-04T15:54:47Z*
+*Last updated: 2026-06-21T23:00:00Z*
 
 ## LLM updates (attribution)
 
@@ -19,6 +19,7 @@ Format: `[ISO8601] WIKI_UPDATE agent=<id> project=<biobase|meta|…> — <one-li
 ## Concepts
 
 - [[llm-wiki-pattern]] — Karpathy LLM Wiki pattern; how raw sources, vault, and skills fit together ( #biobase #meta)
+- [[zero-inference-labeling]] — Naming philosophy: every label communicates with zero cognitive inference from the user ( #design #ux #biobase)
 
 ## Entities
 
@@ -53,3 +54,4 @@ Format: `[ISO8601] WIKI_UPDATE agent=<id> project=<biobase|meta|…> — <one-li
 - [Data Collection Prep](projects/biobase/skills/biobase-data-collection-prep.md) — CS2KZ unload, logging cvars, re-run after changelevel
 - [BioBase CS2 Telemetry + Reconciliation](projects/biobase/concepts/biobase-cs2-telemetry-and-reconciliation.md) — FACEIT/game-plane JSON v1 bundle, ZSTD drop, reconcile stub + parser notes
 - [Windows Client Primary UI](projects/biobase/concepts/biobase-windows-client-primary-ui.md) — Windows-first local Biobase client: CS2 desktop playback, overlay HUD, local demo parsing, stats dashboard, bio sensor capture, and central sync
+- [Product Roadmap](projects/biobase/concepts/biobase-product-roadmap.md) — Phased delivery plan (Phase 1–3), progress tracking, current state v0.1.44

@@ -7,8 +7,11 @@ const titles: Record<DashboardSection, string> = {
   match_server: "Match & server",
   practice_tools: "Practice & tools",
   upload: "Upload",
+  tiktok_clips: "TikTok clips",
   observability: "Observability",
   demo_schema: "Demo extractable fields",
+  pro_movement: "Pro movement review",
+  roadmap: "BioBase Live Roadmap",
 }
 
 export function BiobaseSiteHeader({ section }: { section: DashboardSection }) {

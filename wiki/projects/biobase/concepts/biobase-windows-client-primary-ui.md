@@ -127,3 +127,56 @@ Updated 2026-06-04T17:45:00Z:
 - Added Windows QA checklist and verified Linux-side Windows unpacked packaging (`dist:win:dir`).
 - GitHub push remains intentionally pending until deploy key access is added.
 
+## v0.1.42–0.1.44 UI redesign (2026-06-21)
+
+Three major changes shipped in rapid succession:
+
+### v0.1.42: Companion onboarding fix
+- Removed player name requirement from companion QR code generation.
+- Users can now generate the companion link with one click — no name input needed.
+- Player tracking auto-detects from Steam or can be set by clicking a player in the server list.
+
+### v0.1.43: Architecture redesign
+- Desktop client established as the **primary rich UI** with 2-column grid layout.
+- Phone companion rebuilt as a **responsive phone mirror** — same data, optimized for glancing.
+- Companion web app reduced from swipeable multi-page to single scrollable view.
+- Shared design language between desktop and companion (same CSS class names, color tokens, component patterns).
+
+### v0.1.44: Compact top-bar UI
+- **Server panel removed as standalone card** → compact server pill in top bar showing map name + player count. Click expands dropdown with player list (click-to-track) and "Launch CS2" button.
+- **Companion panel removed as standalone card** → phone icon button in top bar. Click opens floating popover with auto-generated QR code and copy link.
+- **Session panel removed** ("Play on Biobase" button confused users — it just launched CS2 via steam:// protocol). Launch CS2 moved to server dropdown. Player tracking and share stats moved to Advanced.
+- **Overlay toggle** added to top bar as compact on/off pill.
+- **Movement panel now full-width and dominant** — larger stat numbers (26px), bigger WASD keys. This is what users care about most.
+- **"Review" tab renamed to "Playback"** per [[zero-inference-labeling]] — "Review" required users to infer purpose ("review what?"), "Playback" states it directly.
+
+### Current UI layout (v0.1.44)
+
+```
+Top bar: [Biobase v0.1.44] [Live] [Playback]  ...  [server-pill ▾] [📱] [Overlay] [●]
+─────────────────────────────────────────────────────────────────────────
+Main area (Live tab):
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ MOVEMENT                                                 LIVE  │
+  │ ┌──────────┬───────────────┬────────────────┬──────────┐       │
+  │ │   250    │     0.55      │      0.70      │ 5190887  │       │
+  │ │  SPEED   │ COUNTER-STRAFE│ PATH EFFICIENCY│   TICK   │       │
+  │ └──────────┴───────────────┴────────────────┴──────────┘       │
+  │ [W] [A] [S] [D] [JUMP] [DUCK]                                  │
+  └─────────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ SHOOTING                                                 SOON  │
+  │ Coming in a future update.                                      │
+  └─────────────────────────────────────────────────────────────────┘
+  ▸ Advanced
+  ─────────────────────────────────────────────────────────────────
+  status line
+```
+
+### Design decisions documented
+
+- [[zero-inference-labeling]] — naming philosophy applied to all UI labels
+- [[biobase-product-roadmap]] — full roadmap with progress tracking
+
+Related pages: [[biobase]], [[biobase-cs2-admin-dashboard]], [[biobase-cs2-telemetry-and-reconciliation]].
+

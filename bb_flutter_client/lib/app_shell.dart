@@ -39,6 +39,7 @@ class _AppShellState extends State<AppShell> {
   UpdateInfo? _updateInfo;
   StreamSubscription? _statusSub;
   StreamSubscription? _movementSub;
+  final List<LiveMovementSample> _movementHistory = [];
 
   @override
   void initState() {
@@ -52,7 +53,16 @@ class _AppShellState extends State<AppShell> {
       if (mounted) setState(() => _serverStatus = s);
     });
     _movementSub = _api.movementStream.listen((m) {
-      if (mounted) setState(() => _movementStatus = m);
+      if (mounted) {
+        final tracked = m.tracked ?? m.samples.firstOrNull;
+        if (tracked != null) {
+          _movementHistory.add(tracked);
+          if (_movementHistory.length > 120) {
+            _movementHistory.removeAt(0);
+          }
+        }
+        setState(() => _movementStatus = m);
+      }
     });
     _api.startPolling(trackedPlayer: _settings.trackedPlayerName);
     if (Platform.isWindows) _connectToServer();
@@ -101,6 +111,24 @@ class _AppShellState extends State<AppShell> {
         _syncStatus = 'Updating to v${info.version}…';
       });
       await _updater.downloadAndInstall(info.downloadUrl);
+    }
+  }
+
+  Future<void> _checkForUpdateManual() async {
+    setState(() => _syncStatus = 'Checking…');
+    final info = await _updater.checkForUpdate();
+    if (!mounted) return;
+    if (info.available) {
+      setState(() {
+        _updateInfo = info;
+        _syncStatus = 'Updating to v${info.version}…';
+      });
+      await _updater.downloadAndInstall(info.downloadUrl);
+    } else {
+      setState(() => _syncStatus = 'Up to date');
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _syncStatus = 'polling');
+      });
     }
   }
 
@@ -158,6 +186,7 @@ class _AppShellState extends State<AppShell> {
                 syncStatus: _syncStatus,
                 onSyncStatusChanged: (s) => setState(() => _syncStatus = s),
                 onOpenNav: () => setState(() => _drawerOpen = true),
+                onCheckUpdate: _checkForUpdateManual,
               ),
               Expanded(
                 child: Padding(
@@ -198,7 +227,7 @@ class _AppShellState extends State<AppShell> {
     final frame = _liveFrame;
     final live = _movementStatus?.ok ?? false;
     return switch (_section) {
-      Section.live => LiveScreen(frame: frame, live: live),
+      Section.live => LiveScreen(frame: frame, live: live, history: _movementHistory),
       Section.shadow => ShadowScreen(frame: frame, live: live),
       Section.replay => const ReplayScreen(),
       Section.profile => const ProfileScreen(),
@@ -368,6 +397,7 @@ class _ContentHeader extends StatelessWidget {
   final String syncStatus;
   final ValueChanged<String> onSyncStatusChanged;
   final VoidCallback onOpenNav;
+  final VoidCallback onCheckUpdate;
 
   const _ContentHeader({
     required this.serverStatus,
@@ -379,6 +409,7 @@ class _ContentHeader extends StatelessWidget {
     required this.syncStatus,
     required this.onSyncStatusChanged,
     required this.onOpenNav,
+    required this.onCheckUpdate,
   });
 
   @override
@@ -423,9 +454,15 @@ class _ContentHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Text('v$currentVersion',
-              style: const TextStyle(
-                  fontSize: 11, color: BiobaseColors.textTertiary)),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: onCheckUpdate,
+              child: Text('v$currentVersion',
+                  style: const TextStyle(
+                      fontSize: 11, color: BiobaseColors.textTertiary)),
+            ),
+          ),
           const Spacer(),
           _ServerPill(
             status: serverStatus,

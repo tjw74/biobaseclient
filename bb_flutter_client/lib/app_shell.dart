@@ -15,7 +15,7 @@ import 'screens/shadow_screen.dart';
 import 'screens/replay_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/insights_screen.dart';
-import 'services/update_service.dart';
+import 'services/update_service.dart' show UpdateService, UpdateInfo, currentVersion;
 
 enum Section { live, shadow, replay, profile, insights }
 
@@ -255,9 +255,15 @@ class _NavDrawer extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Image.asset('assets/logo.png',
-                        height: 28, alignment: Alignment.centerLeft),
+                  const Icon(Icons.biotech, size: 18, color: BiobaseColors.accent),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text('BIOBASE',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                            color: BiobaseColors.text)),
                   ),
                   MouseRegion(
                     cursor: SystemMouseCursors.click,
@@ -430,7 +436,23 @@ class _ContentHeader extends StatelessWidget {
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: onOpenNav,
-              child: Image.asset('assets/logo.png', height: 32),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.biotech, size: 22, color: BiobaseColors.accent),
+                  const SizedBox(width: 8),
+                  const Text('BIOBASE',
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                          color: BiobaseColors.text)),
+                  const SizedBox(width: 8),
+                  Text('v$currentVersion',
+                      style: const TextStyle(
+                          fontSize: 11, color: BiobaseColors.textTertiary)),
+                ],
+              ),
             ),
           ),
           const Spacer(),

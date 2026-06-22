@@ -5,6 +5,10 @@ permissions:
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'bb_flutter_client/**'
+      - '.github/workflows/flutter_windows_build.yml'
 
 jobs:
   build:

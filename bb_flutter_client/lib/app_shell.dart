@@ -96,7 +96,11 @@ class _AppShellState extends State<AppShell> {
   Future<void> _checkForUpdate() async {
     final info = await _updater.checkForUpdate();
     if (mounted && info.available) {
-      setState(() => _updateInfo = info);
+      setState(() {
+        _updateInfo = info;
+        _syncStatus = 'Updating to v${info.version}…';
+      });
+      await _updater.downloadAndInstall(info.downloadUrl);
     }
   }
 

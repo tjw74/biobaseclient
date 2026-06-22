@@ -2,9 +2,13 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
-const String _updateFeedUrl = 'https://cs2.clarionlab.dev/client/latest.yml';
 const String _downloadBaseUrl = 'https://cs2.clarionlab.dev/client/';
-const String currentVersion = '0.2.1';
+const String currentVersion = '0.2.2';
+
+String get _updateFeedUrl {
+  if (Platform.isMacOS) return '${_downloadBaseUrl}latest-mac.yml';
+  return '${_downloadBaseUrl}latest.yml';
+}
 
 class UpdateInfo {
   final String version;
@@ -55,24 +59,66 @@ class UpdateService {
   }
 
   Future<String?> downloadAndInstall(String url) async {
-    if (!Platform.isWindows) return 'Auto-update is Windows-only';
-
     try {
-      final tempDir = Directory.systemTemp;
-      final installerPath =
-          p.join(tempDir.path, 'biobase-client-setup.exe');
-
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode != 200) return 'Download failed';
-
-      final file = File(installerPath);
-      await file.writeAsBytes(response.bodyBytes);
-
-      await Process.start(installerPath, ['/SILENT'], mode: ProcessStartMode.detached);
-      exit(0);
+      if (Platform.isWindows) {
+        return _installWindows(url);
+      } else if (Platform.isMacOS) {
+        return _installMac(url);
+      }
+      return 'Auto-update not supported on this platform';
     } catch (e) {
       return e.toString();
     }
+  }
+
+  Future<String?> _installWindows(String url) async {
+    final tempDir = Directory.systemTemp;
+    final installerPath = p.join(tempDir.path, 'biobase-client-setup.exe');
+
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode != 200) return 'Download failed';
+
+    final file = File(installerPath);
+    await file.writeAsBytes(response.bodyBytes);
+
+    await Process.start(installerPath, ['/SILENT'],
+        mode: ProcessStartMode.detached);
+    exit(0);
+  }
+
+  Future<String?> _installMac(String url) async {
+    final tempDir = Directory.systemTemp;
+    final zipPath = p.join(tempDir.path, 'biobase-client-mac.zip');
+    final extractDir = p.join(tempDir.path, 'biobase-update');
+
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode != 200) return 'Download failed';
+
+    final file = File(zipPath);
+    await file.writeAsBytes(response.bodyBytes);
+
+    final extract = Directory(extractDir);
+    if (extract.existsSync()) extract.deleteSync(recursive: true);
+    extract.createSync();
+
+    final appPath = Platform.resolvedExecutable;
+    // resolvedExecutable is inside .app/Contents/MacOS/biobase_client
+    // Walk up to the .app bundle
+    final appBundle = File(appPath).parent.parent.parent.path;
+
+    await Process.run('unzip', ['-o', zipPath, '-d', extractDir]);
+
+    final newApp = p.join(extractDir, 'biobase_client.app');
+    if (!Directory(newApp).existsSync()) return 'Extracted app not found';
+
+    // Replace the running app bundle
+    await Process.run('rm', ['-rf', appBundle]);
+    await Process.run('mv', [newApp, appBundle]);
+
+    // Relaunch
+    await Process.start('open', ['-n', appBundle],
+        mode: ProcessStartMode.detached);
+    exit(0);
   }
 
   bool _isNewer(String remote, String local) {

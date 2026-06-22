@@ -1,0 +1,50 @@
+name: Flutter Windows Build
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: bb_flutter_client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: flutter pub get
+
+      - run: flutter build windows --release
+
+      - name: Create installer with Inno Setup
+        shell: pwsh
+        run: |
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer\biobase_setup.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: biobase-client-setup
+          path: bb_flutter_client/installer/output/biobase-client-setup.exe
+
+      - name: Publish release asset
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $asset = "installer\output\biobase-client-setup.exe"
+          if (-not (Test-Path $asset)) { throw "Installer not found: $asset" }
+          $tag = "flutter-v0.2.0"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $asset --title "Biobase Client v0.2.0" --notes "Flutter-based Biobase Performance Lab client for Windows." --latest
+          } else {
+            gh release upload $tag $asset --clobber
+          }

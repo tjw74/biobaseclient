@@ -7,7 +7,18 @@ __pycache__/
 .Python
 *.so
 .venv/
+.venv-awpy/
 venv/
+tools/awpy-demo/*.dem
 .idea/
 .DS_Store
 *.log
+bb_cs2_server/biobase_pos_emitter/bin/
+bb_cs2_server/biobase_pos_emitter/obj/
+
+# Flutter
+bb_flutter_client/build/
+bb_flutter_client/.dart_tool/
+bb_flutter_client/.flutter-plugins
+bb_flutter_client/.flutter-plugins-dependencies
+bb_flutter_client/installer/output/

@@ -11,6 +11,7 @@ import 'theme.dart';
 import 'widgets.dart';
 import 'services/api_service.dart';
 import 'services/settings_service.dart';
+import 'services/session_stats_service.dart';
 import 'screens/live_screen.dart';
 import 'screens/shadow_screen.dart';
 import 'screens/replay_screen.dart';
@@ -31,6 +32,7 @@ class _AppShellState extends State<AppShell> {
   final ApiService _api = ApiService();
   final SettingsService _settings = SettingsService();
   final UpdateService _updater = UpdateService();
+  final SessionStatsService _sessionStats = SessionStatsService();
 
   Section _section = Section.live;
   bool _drawerOpen = false;
@@ -61,6 +63,7 @@ class _AppShellState extends State<AppShell> {
           if (_movementHistory.length > 120) {
             _movementHistory.removeAt(0);
           }
+          _sessionStats.processSample(tracked);
         }
         setState(() => _movementStatus = m);
       }
@@ -229,7 +232,7 @@ class _AppShellState extends State<AppShell> {
       Section.live => LiveScreen(frame: frame, live: live, history: _movementHistory),
       Section.shadow => ShadowScreen(frame: frame, live: live),
       Section.replay => const ReplayScreen(),
-      Section.profile => const ProfileScreen(),
+      Section.profile => ProfileScreen(stats: _sessionStats.stats),
       Section.insights => const InsightsScreen(),
     };
   }

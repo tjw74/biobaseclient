@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'models.dart';
 import 'theme.dart';
@@ -150,7 +151,7 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isMac = Platform.isMacOS;
-    final topPad = isMac ? 38.0 : 0.0;
+    final topPad = isMac ? 38.0 : 6.0;
 
     return Scaffold(
       backgroundColor: BiobaseColors.bg,
@@ -158,11 +159,7 @@ class _AppShellState extends State<AppShell> {
         children: [
           Column(
             children: [
-              // Drag region for window title bar
-              GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                child: SizedBox(height: topPad),
-              ),
+              DragToMoveArea(child: SizedBox(height: topPad)),
               if (_updateInfo != null)
                 _UpdateBanner(
                   info: _updateInfo!,
@@ -176,17 +173,19 @@ class _AppShellState extends State<AppShell> {
                   },
                   onDismiss: () => setState(() => _updateInfo = null),
                 ),
-              _ContentHeader(
-                serverStatus: _serverStatus,
-                statusLevel: _statusLevel,
-                trackedPlayer: _settings.trackedPlayerName,
-                onPickPlayer: _pickPlayer,
-                onConnect: _connectToServer,
-                api: _api,
-                syncStatus: _syncStatus,
-                onSyncStatusChanged: (s) => setState(() => _syncStatus = s),
-                onOpenNav: () => setState(() => _drawerOpen = true),
-                onCheckUpdate: _checkForUpdateManual,
+              DragToMoveArea(
+                child: _ContentHeader(
+                  serverStatus: _serverStatus,
+                  statusLevel: _statusLevel,
+                  trackedPlayer: _settings.trackedPlayerName,
+                  onPickPlayer: _pickPlayer,
+                  onConnect: _connectToServer,
+                  api: _api,
+                  syncStatus: _syncStatus,
+                  onSyncStatusChanged: (s) => setState(() => _syncStatus = s),
+                  onOpenNav: () => setState(() => _drawerOpen = true),
+                  onCheckUpdate: _checkForUpdateManual,
+                ),
               ),
               Expanded(
                 child: Padding(

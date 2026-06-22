@@ -2,7 +2,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models.dart';
 import '../theme.dart';
-import '../widgets.dart';
 
 class LiveScreen extends StatelessWidget {
   final LiveFrame frame;
@@ -19,64 +18,81 @@ class LiveScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(0),
+      padding: EdgeInsets.zero,
       children: [
-        _SpeedPanel(frame: frame, live: live, history: history),
-        const SizedBox(height: 8),
-        _VelocityTracePanel(history: history, frame: frame),
+        _SpeedSection(frame: frame, live: live, history: history),
         const SizedBox(height: 8),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: _KeysAndStatePanel(frame: frame)),
+            Expanded(
+                child: _VelocitySection(history: history, frame: frame)),
             const SizedBox(width: 8),
-            Expanded(child: _MovementRadarPanel(history: history)),
+            Expanded(child: _RadarSection(history: history)),
           ],
         ),
-        const SizedBox(height: 8),
-        _BhopPanel(frame: frame),
+        const SizedBox(height: 12),
+        _InputRow(frame: frame),
       ],
     );
   }
 }
 
-// ── Speed panel with real-time trace ──
+class _Card extends StatelessWidget {
+  final Widget child;
+  const _Card({required this.child});
 
-class _SpeedPanel extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: BiobaseColors.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: child,
+    );
+  }
+}
+
+// ── Speed ──
+
+class _SpeedSection extends StatelessWidget {
   final LiveFrame frame;
   final bool live;
   final List<LiveMovementSample> history;
 
-  const _SpeedPanel(
-      {required this.frame, required this.live, required this.history});
+  const _SpeedSection({
+    required this.frame,
+    required this.live,
+    required this.history,
+  });
 
-  String _speedGrade(int speed) {
-    if (speed >= 250) return 'MAX';
-    if (speed >= 220) return 'FAST';
-    if (speed >= 150) return 'RUN';
-    if (speed >= 80) return 'WALK';
-    if (speed > 5) return 'CREEP';
+  String _grade(int s) {
+    if (s >= 250) return 'MAX';
+    if (s >= 220) return 'FAST';
+    if (s >= 150) return 'RUN';
+    if (s >= 80) return 'WALK';
+    if (s > 5) return 'CREEP';
     return 'STILL';
   }
 
-  Color _speedColor(int speed) {
-    if (speed >= 250) return BiobaseColors.live;
-    if (speed >= 220) return BiobaseColors.accent;
-    if (speed >= 150) return BiobaseColors.text;
+  Color _color(int s) {
+    if (s >= 250) return BiobaseColors.live;
+    if (s >= 220) return BiobaseColors.accent;
+    if (s >= 150) return BiobaseColors.text;
     return BiobaseColors.textTertiary;
   }
 
   @override
   Widget build(BuildContext context) {
-    final grade = _speedGrade(frame.speed);
-    final speedPct = (frame.speed / 250).clamp(0.0, 1.0);
+    final c = _color(frame.speed);
     final speeds = history.map((s) => s.speed).toList();
     final grounds = history.map((s) => s.onGround).toList();
 
-    return Panel(
-      title: 'Speed',
-      badge: StatusBadge(status: live ? StatusLevel.live : StatusLevel.offline),
+    return _Card(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -84,87 +100,75 @@ class _SpeedPanel extends StatelessWidget {
               Text(
                 '${frame.speed}',
                 style: TextStyle(
-                  fontSize: 48,
+                  fontSize: 56,
                   fontWeight: FontWeight.w700,
-                  color: _speedColor(frame.speed),
-                  letterSpacing: -2,
+                  color: c,
+                  letterSpacing: -3,
                   height: 1,
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 12),
               Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text('u/s',
-                    style: TextStyle(
-                        fontSize: 13, color: BiobaseColors.textTertiary)),
-              ),
-              const SizedBox(width: 16),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: _speedColor(frame.speed).withAlpha(26),
-                    borderRadius: BorderRadius.circular(4),
+                    color: c.withAlpha(20),
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(grade,
+                  child: Text(_grade(frame.speed),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: _speedColor(frame.speed),
+                        color: c,
                         letterSpacing: 0.5,
                       )),
                 ),
               ),
               const Spacer(),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text('${frame.yaw.toStringAsFixed(1)}° yaw',
-                    style: TextStyle(
-                        fontSize: 12, color: BiobaseColors.textTertiary)),
-              ),
+              if (live)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: BiobaseColors.live,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                            color: BiobaseColors.live.withAlpha(100),
+                            blurRadius: 6),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 16),
           ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: speedPct,
-              minHeight: 4,
-              backgroundColor: BiobaseColors.surfaceRaised,
-              valueColor: AlwaysStoppedAnimation(_speedColor(frame.speed)),
+            borderRadius: BorderRadius.circular(2),
+            child: SizedBox(
+              height: 2,
+              child: LinearProgressIndicator(
+                value: (frame.speed / 250).clamp(0.0, 1.0),
+                backgroundColor: BiobaseColors.surfaceRaised,
+                valueColor: AlwaysStoppedAnimation(c.withAlpha(120)),
+              ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Container(
-              height: 100,
-              color: BiobaseColors.bg,
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              height: 140,
               child: CustomPaint(
-                size: const Size(double.infinity, 100),
-                painter:
-                    _SpeedTracePainter(speeds: speeds, onGround: grounds),
+                size: const Size(double.infinity, 140),
+                painter: _SpeedTracePainter(
+                    speeds: speeds, onGround: grounds),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('60s ago',
-                  style: TextStyle(
-                      fontSize: 9, color: BiobaseColors.textTertiary)),
-              Text('SPEED TRACE',
-                  style: TextStyle(
-                      fontSize: 9,
-                      color: BiobaseColors.textTertiary,
-                      letterSpacing: 0.5)),
-              Text('now',
-                  style: TextStyle(
-                      fontSize: 9, color: BiobaseColors.textTertiary)),
-            ],
           ),
         ],
       ),
@@ -181,75 +185,63 @@ class _SpeedTracePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     const maxSpeed = 300.0;
-    const regionHeight = 3.0;
+    const barH = 3.0;
 
-    final gridPaint = Paint()
-      ..color = BiobaseColors.surfaceRaised
+    final grid = Paint()
+      ..color = BiobaseColors.surfaceRaised.withAlpha(80)
       ..strokeWidth = 0.5;
-    for (int i = 0; i <= 4; i++) {
+    for (int i = 1; i < 4; i++) {
       final y = size.height * (i / 4);
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    final thresholdY = size.height * (1 - 250 / maxSpeed);
-    final dashPaint = Paint()
-      ..color = BiobaseColors.accent.withAlpha(40)
-      ..strokeWidth = 0.5;
-    for (double x = 0; x < size.width; x += 6) {
-      canvas.drawLine(Offset(x, thresholdY),
-          Offset(min(x + 3, size.width), thresholdY), dashPaint);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
 
     if (speeds.isEmpty) return;
-
     final n = speeds.length;
-    final div = max(1, n - 1).toDouble();
+    final d = max(1, n - 1).toDouble();
 
     for (int i = 0; i < n && i < onGround.length; i++) {
-      final x = (i / div) * size.width;
-      final nextX = ((i + 1) / div) * size.width;
+      final x = (i / d) * size.width;
+      final nx = ((i + 1) / d) * size.width;
       canvas.drawRect(
-        Rect.fromLTWH(
-            x, size.height - regionHeight, nextX - x, regionHeight),
+        Rect.fromLTWH(x, size.height - barH, nx - x, barH),
         Paint()
           ..color = onGround[i]
-              ? BiobaseColors.textTertiary.withAlpha(30)
-              : BiobaseColors.warning.withAlpha(50),
+              ? BiobaseColors.textTertiary.withAlpha(20)
+              : BiobaseColors.warning.withAlpha(40),
       );
     }
 
     final path = Path();
-    final fillPath = Path();
+    final fill = Path();
     for (int i = 0; i < n; i++) {
-      final x = (i / div) * size.width;
+      final x = (i / d) * size.width;
       final y = size.height -
           (speeds[i] / maxSpeed).clamp(0.0, 1.0) *
-              (size.height - regionHeight);
+              (size.height - barH);
       if (i == 0) {
         path.moveTo(x, y);
-        fillPath.moveTo(x, size.height - regionHeight);
-        fillPath.lineTo(x, y);
+        fill.moveTo(x, size.height - barH);
+        fill.lineTo(x, y);
       } else {
         path.lineTo(x, y);
-        fillPath.lineTo(x, y);
+        fill.lineTo(x, y);
       }
     }
+    fill.lineTo(((n - 1) / d) * size.width, size.height - barH);
+    fill.close();
 
-    fillPath.lineTo(((n - 1) / div) * size.width, size.height - regionHeight);
-    fillPath.close();
     canvas.drawPath(
-      fillPath,
+      fill,
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            BiobaseColors.accent.withAlpha(35),
-            BiobaseColors.accent.withAlpha(5),
+            BiobaseColors.accent.withAlpha(30),
+            BiobaseColors.accent.withAlpha(3),
           ],
         ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
     );
-
     canvas.drawPath(
       path,
       Paint()
@@ -260,14 +252,14 @@ class _SpeedTracePainter extends CustomPainter {
         ..strokeCap = StrokeCap.round,
     );
 
-    final lastX = ((n - 1) / div) * size.width;
-    final lastY = size.height -
+    final lx = ((n - 1) / d) * size.width;
+    final ly = size.height -
         (speeds.last / maxSpeed).clamp(0.0, 1.0) *
-            (size.height - regionHeight);
-    canvas.drawCircle(Offset(lastX, lastY), 4,
-        Paint()..color = BiobaseColors.accent.withAlpha(60));
+            (size.height - barH);
+    canvas.drawCircle(Offset(lx, ly), 3,
+        Paint()..color = BiobaseColors.accent.withAlpha(50));
     canvas.drawCircle(
-        Offset(lastX, lastY), 2, Paint()..color = BiobaseColors.accent);
+        Offset(lx, ly), 1.5, Paint()..color = BiobaseColors.accent);
   }
 
   @override
@@ -275,27 +267,25 @@ class _SpeedTracePainter extends CustomPainter {
       speeds.length != old.speeds.length;
 }
 
-// ── Velocity trace ──
+// ── Velocity ──
 
-class _VelocityTracePanel extends StatelessWidget {
+class _VelocitySection extends StatelessWidget {
   final List<LiveMovementSample> history;
   final LiveFrame frame;
 
-  const _VelocityTracePanel({required this.history, required this.frame});
+  const _VelocitySection({required this.history, required this.frame});
 
   @override
   Widget build(BuildContext context) {
-    return Panel(
-      title: 'Velocity',
+    return _Card(
       child: Column(
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Container(
-              height: 80,
-              color: BiobaseColors.bg,
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              height: 100,
               child: CustomPaint(
-                size: const Size(double.infinity, 80),
+                size: const Size(double.infinity, 100),
                 painter: _VelocityTracePainter(
                   velX: history.map((s) => s.velX).toList(),
                   velY: history.map((s) => s.velY).toList(),
@@ -307,17 +297,11 @@ class _VelocityTracePanel extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              _velLegend(
-                  'X', const Color(0xFF3B82F6),
-                  frame.vel.isNotEmpty ? frame.vel[0] : 0),
-              const SizedBox(width: 16),
-              _velLegend(
-                  'Y', const Color(0xFF10B981),
-                  frame.vel.length > 1 ? frame.vel[1] : 0),
-              const SizedBox(width: 16),
-              _velLegend(
-                  'Z', const Color(0xFFF59E0B),
-                  frame.vel.length > 2 ? frame.vel[2] : 0),
+              _leg(const Color(0xFF3B82F6), _fv(0)),
+              const SizedBox(width: 12),
+              _leg(const Color(0xFF10B981), _fv(1)),
+              const SizedBox(width: 12),
+              _leg(const Color(0xFFF59E0B), _fv(2)),
             ],
           ),
         ],
@@ -325,20 +309,24 @@ class _VelocityTracePanel extends StatelessWidget {
     );
   }
 
-  Widget _velLegend(String axis, Color color, double val) {
+  String _fv(int i) =>
+      (frame.vel.length > i ? frame.vel[i] : 0.0).toStringAsFixed(0);
+
+  Widget _leg(Color c, String val) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 8, height: 2, color: color),
+        Container(
+            width: 8,
+            height: 2,
+            decoration: BoxDecoration(
+                color: c, borderRadius: BorderRadius.circular(1))),
         const SizedBox(width: 4),
-        Text('$axis ',
-            style: TextStyle(
-                fontSize: 10, fontWeight: FontWeight.w600, color: color)),
-        Text(val.toStringAsFixed(1),
+        Text(val,
             style: const TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 fontFamily: 'monospace',
-                color: BiobaseColors.text)),
+                color: BiobaseColors.textTertiary)),
       ],
     );
   }
@@ -352,52 +340,47 @@ class _VelocityTracePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = BiobaseColors.surfaceRaised
+    final grid = Paint()
+      ..color = BiobaseColors.surfaceRaised.withAlpha(80)
       ..strokeWidth = 0.5;
-
     canvas.drawLine(Offset(0, size.height / 2),
-        Offset(size.width, size.height / 2), gridPaint);
-    for (final f in [0.25, 0.75]) {
-      final y = size.height * f;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
+        Offset(size.width, size.height / 2), grid);
 
     if (velX.isEmpty) return;
 
-    double maxVal = 1;
-    for (final list in [velX, velY, velZ]) {
-      for (final v in list) {
-        if (v.abs() > maxVal) maxVal = v.abs();
+    double mx = 1;
+    for (final l in [velX, velY, velZ]) {
+      for (final v in l) {
+        if (v.abs() > mx) mx = v.abs();
       }
     }
-    maxVal *= 1.1;
+    mx *= 1.1;
 
-    void drawTrace(List<double> vals, Color color) {
-      if (vals.isEmpty) return;
-      final path = Path();
-      final div = max(1, vals.length - 1).toDouble();
-      for (int i = 0; i < vals.length; i++) {
-        final x = (i / div) * size.width;
-        final y = size.height / 2 - (vals[i] / maxVal) * (size.height / 2);
+    void trace(List<double> v, Color c) {
+      if (v.isEmpty) return;
+      final p = Path();
+      final d = max(1, v.length - 1).toDouble();
+      for (int i = 0; i < v.length; i++) {
+        final x = (i / d) * size.width;
+        final y = size.height / 2 - (v[i] / mx) * (size.height / 2);
         if (i == 0) {
-          path.moveTo(x, y);
+          p.moveTo(x, y);
         } else {
-          path.lineTo(x, y);
+          p.lineTo(x, y);
         }
       }
       canvas.drawPath(
-          path,
+          p,
           Paint()
-            ..color = color
+            ..color = c
             ..strokeWidth = 1.2
             ..style = PaintingStyle.stroke
             ..strokeJoin = StrokeJoin.round);
     }
 
-    drawTrace(velX, const Color(0xFF3B82F6));
-    drawTrace(velY, const Color(0xFF10B981));
-    drawTrace(velZ, const Color(0xFFF59E0B));
+    trace(velX, const Color(0xFF3B82F6));
+    trace(velY, const Color(0xFF10B981));
+    trace(velZ, const Color(0xFFF59E0B));
   }
 
   @override
@@ -405,59 +388,53 @@ class _VelocityTracePainter extends CustomPainter {
       velX.length != old.velX.length;
 }
 
-// ── Movement quality radar ──
+// ── Radar ──
 
-class _MovementRadarPanel extends StatelessWidget {
+class _RadarSection extends StatelessWidget {
   final List<LiveMovementSample> history;
 
-  const _MovementRadarPanel({required this.history});
+  const _RadarSection({required this.history});
 
   List<double> _compute() {
     if (history.length < 2) return [0, 0, 0, 0, 0];
-
     final speeds = history.map((s) => s.speed).toList();
-    final avgSpeed = speeds.reduce((a, b) => a + b) / speeds.length;
-    final avgCS =
+    final avg = speeds.reduce((a, b) => a + b) / speeds.length;
+    final cs =
         history.map((s) => s.counterStrafeScore).reduce((a, b) => a + b) /
             history.length;
-    final avgPE =
+    final pe =
         history.map((s) => s.pathEfficiency).reduce((a, b) => a + b) /
             history.length;
-
     final air = history.where((s) => !s.onGround);
-    final airCtrl = air.isNotEmpty
+    final ac = air.isNotEmpty
         ? air.where((s) => s.speed > 200).length / air.length
         : 0.0;
-
-    double consistency = 0;
-    if (avgSpeed > 0) {
-      final variance = speeds
-              .map((s) => (s - avgSpeed) * (s - avgSpeed))
-              .reduce((a, b) => a + b) /
-          speeds.length;
-      consistency = (1 - sqrt(variance) / avgSpeed).clamp(0.0, 1.0);
+    double con = 0;
+    if (avg > 0) {
+      final v =
+          speeds.map((s) => (s - avg) * (s - avg)).reduce((a, b) => a + b) /
+              speeds.length;
+      con = (1 - sqrt(v) / avg).clamp(0.0, 1.0);
     }
-
     return [
-      (avgSpeed / 250).clamp(0.0, 1.0),
-      avgCS.clamp(0.0, 1.0),
-      avgPE.clamp(0.0, 1.0),
-      airCtrl.clamp(0.0, 1.0),
-      consistency,
+      (avg / 250).clamp(0.0, 1.0),
+      cs.clamp(0.0, 1.0),
+      pe.clamp(0.0, 1.0),
+      ac.clamp(0.0, 1.0),
+      con,
     ];
   }
 
   @override
   Widget build(BuildContext context) {
-    return Panel(
-      title: 'Movement Quality',
+    return _Card(
       child: SizedBox(
-        height: 160,
+        height: 168,
         child: CustomPaint(
-          size: const Size(double.infinity, 160),
+          size: const Size(double.infinity, 168),
           painter: _RadarPainter(
             values: _compute(),
-            labels: const ['Speed', 'Strafe', 'Path', 'Air Ctrl', 'Consist.'],
+            labels: const ['Speed', 'Strafe', 'Path', 'Air', 'Consist.'],
           ),
         ),
       ),
@@ -474,26 +451,27 @@ class _RadarPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = min(size.width, size.height) / 2 - 24;
+    final radius = min(size.width, size.height) / 2 - 20;
     final axes = values.length;
 
     for (int ring = 1; ring <= 3; ring++) {
       final r = radius * (ring / 3);
-      final webPath = Path();
+      final p = Path();
       for (int i = 0; i <= axes; i++) {
         final a = -pi / 2 + (2 * pi / axes) * (i % axes);
         final pt =
             Offset(center.dx + r * cos(a), center.dy + r * sin(a));
         if (i == 0) {
-          webPath.moveTo(pt.dx, pt.dy);
+          p.moveTo(pt.dx, pt.dy);
         } else {
-          webPath.lineTo(pt.dx, pt.dy);
+          p.lineTo(pt.dx, pt.dy);
         }
       }
       canvas.drawPath(
-          webPath,
+          p,
           Paint()
             ..color = BiobaseColors.surfaceRaised
+                .withAlpha(ring == 3 ? 100 : 60)
             ..strokeWidth = 0.5
             ..style = PaintingStyle.stroke);
     }
@@ -502,14 +480,14 @@ class _RadarPainter extends CustomPainter {
       final a = -pi / 2 + (2 * pi / axes) * i;
       canvas.drawLine(
           center,
-          Offset(
-              center.dx + radius * cos(a), center.dy + radius * sin(a)),
+          Offset(center.dx + radius * cos(a),
+              center.dy + radius * sin(a)),
           Paint()
-            ..color = BiobaseColors.surfaceRaised
+            ..color = BiobaseColors.surfaceRaised.withAlpha(60)
             ..strokeWidth = 0.5);
     }
 
-    final dataPath = Path();
+    final dp = Path();
     for (int i = 0; i <= axes; i++) {
       final idx = i % axes;
       final a = -pi / 2 + (2 * pi / axes) * idx;
@@ -517,15 +495,15 @@ class _RadarPainter extends CustomPainter {
       final pt =
           Offset(center.dx + r * cos(a), center.dy + r * sin(a));
       if (i == 0) {
-        dataPath.moveTo(pt.dx, pt.dy);
+        dp.moveTo(pt.dx, pt.dy);
       } else {
-        dataPath.lineTo(pt.dx, pt.dy);
+        dp.lineTo(pt.dx, pt.dy);
       }
     }
     canvas.drawPath(
-        dataPath, Paint()..color = BiobaseColors.accent.withAlpha(40));
+        dp, Paint()..color = BiobaseColors.accent.withAlpha(30));
     canvas.drawPath(
-        dataPath,
+        dp,
         Paint()
           ..color = BiobaseColors.accent
           ..strokeWidth = 1.5
@@ -537,20 +515,22 @@ class _RadarPainter extends CustomPainter {
       final r = radius * values[i].clamp(0.0, 1.0);
       canvas.drawCircle(
           Offset(center.dx + r * cos(a), center.dy + r * sin(a)),
-          2.5,
+          2,
           Paint()..color = BiobaseColors.accent);
     }
 
     for (int i = 0; i < axes; i++) {
       final a = -pi / 2 + (2 * pi / axes) * i;
-      final lr = radius + 14;
-      final pt =
-          Offset(center.dx + lr * cos(a), center.dy + lr * sin(a));
+      final lr = radius + 12;
+      final pt = Offset(
+          center.dx + lr * cos(a), center.dy + lr * sin(a));
       final tp = TextPainter(
         text: TextSpan(
             text: labels[i],
-            style: const TextStyle(
-                fontSize: 9, color: BiobaseColors.textTertiary)),
+            style: TextStyle(
+                fontSize: 8,
+                color: BiobaseColors.textTertiary.withAlpha(180),
+                letterSpacing: 0.3)),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas,
@@ -562,143 +542,78 @@ class _RadarPainter extends CustomPainter {
   bool shouldRepaint(covariant _RadarPainter old) => true;
 }
 
-// ── Input & state ──
+// ── Input row ──
 
-class _KeysAndStatePanel extends StatelessWidget {
+class _InputRow extends StatelessWidget {
   final LiveFrame frame;
 
-  const _KeysAndStatePanel({required this.frame});
+  const _InputRow({required this.frame});
 
   @override
   Widget build(BuildContext context) {
-    return Panel(
-      title: 'Input & State',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
         children: [
-          Wrap(
-            spacing: 4,
-            runSpacing: 4,
-            children: [
-              KeyIndicator(label: 'W', active: frame.keys.w),
-              KeyIndicator(label: 'A', active: frame.keys.a),
-              KeyIndicator(label: 'S', active: frame.keys.s),
-              KeyIndicator(label: 'D', active: frame.keys.d),
-              KeyIndicator(label: 'JUMP', active: frame.keys.jump),
-              KeyIndicator(label: 'DUCK', active: frame.keys.crouch),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _chip(
-                frame.onGround ? 'GROUNDED' : 'AIRBORNE',
-                frame.onGround
+          _k('W', frame.keys.w),
+          const SizedBox(width: 3),
+          _k('A', frame.keys.a),
+          const SizedBox(width: 3),
+          _k('S', frame.keys.s),
+          const SizedBox(width: 3),
+          _k('D', frame.keys.d),
+          const SizedBox(width: 6),
+          _k('JUMP', frame.keys.jump),
+          const SizedBox(width: 3),
+          _k('DUCK', frame.keys.crouch),
+          const Spacer(),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: frame.onGround
+                  ? Colors.transparent
+                  : BiobaseColors.warning.withAlpha(20),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              frame.onGround ? 'GROUND' : 'AIR',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: frame.onGround
                     ? BiobaseColors.textTertiary
                     : BiobaseColors.warning,
-                !frame.onGround,
+                letterSpacing: 0.5,
               ),
-              const SizedBox(width: 6),
-              _chip(
-                '${frame.pitch.toStringAsFixed(1)}° pitch',
-                BiobaseColors.textTertiary,
-                false,
-              ),
-            ],
+            ),
           ),
+          const SizedBox(width: 8),
+          Text('${frame.pitch.toStringAsFixed(0)}°',
+              style: const TextStyle(
+                  fontSize: 11, color: BiobaseColors.textTertiary)),
         ],
       ),
     );
   }
 
-  Widget _chip(String label, Color color, bool active) {
+  Widget _k(String label, bool on) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      constraints: const BoxConstraints(minWidth: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withAlpha(active ? 26 : 13),
+        color: on ? BiobaseColors.live : BiobaseColors.surface,
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: color,
-              letterSpacing: 0.3)),
-    );
-  }
-}
-
-// ── Bhop analysis ──
-
-class _BhopPanel extends StatelessWidget {
-  final LiveFrame frame;
-
-  const _BhopPanel({required this.frame});
-
-  @override
-  Widget build(BuildContext context) {
-    final bhopReady = !frame.onGround && frame.speed > 200;
-    final perfectBhop = !frame.onGround && frame.speed >= 250;
-
-    return Panel(
-      title: 'Bhop Analysis',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                  child: StatCell(
-                      label: 'air speed',
-                      value: frame.isAirborne ? '${frame.speed}' : '—',
-                      accent: bhopReady)),
-              const SizedBox(width: 6),
-              Expanded(
-                  child: StatCell(
-                      label: 'vertical vel',
-                      value: frame.velZ.toStringAsFixed(1),
-                      accent: frame.velZ > 200)),
-              const SizedBox(width: 6),
-              Expanded(
-                  child: StatCell(
-                      label: 'state',
-                      value: frame.isAirborne
-                          ? (perfectBhop ? 'PERFECT' : 'AIR')
-                          : 'GROUND')),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _mini('Counter-strafe',
-                  frame.counterStrafeScore.toStringAsFixed(2)),
-              const SizedBox(width: 16),
-              _mini('Path efficiency',
-                  frame.pathEfficiency.toStringAsFixed(2)),
-              const SizedBox(width: 16),
-              _mini('Tick', '${frame.tick}'),
-            ],
-          ),
-        ],
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
+          color: on ? Colors.white : BiobaseColors.textTertiary,
+        ),
       ),
-    );
-  }
-
-  Widget _mini(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(value,
-            style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: BiobaseColors.text)),
-        Text(label.toUpperCase(),
-            style: const TextStyle(
-                fontSize: 9,
-                color: BiobaseColors.textTertiary,
-                letterSpacing: 0.3)),
-      ],
     );
   }
 }

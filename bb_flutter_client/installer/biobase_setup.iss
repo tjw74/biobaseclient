@@ -1,6 +1,6 @@
 [Setup]
 AppName=Biobase Client
-AppVersion=0.4.1
+AppVersion=0.5.0
 AppPublisher=BioBase Live
 DefaultDirName={autopf}\Biobase Client
 DefaultGroupName=Biobase Client
@@ -14,6 +14,11 @@ UninstallDisplayIcon={app}\biobase_client.exe
 WizardStyle=modern
 DisableProgramGroupPage=yes
 DisableDirPage=yes
+
+[InstallDelete]
+Type: filesandordirs; Name: "{localappdata}\Programs\biobase-client"
+Type: filesandordirs; Name: "{localappdata}\biobase-client"
+Type: filesandordirs; Name: "{localappdata}\biobase-client-updater"
 
 [Files]
 Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs

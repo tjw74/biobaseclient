@@ -1,6 +1,6 @@
 [Setup]
 AppName=Biobase Client
-AppVersion=0.5.0
+AppVersion=0.5.1
 AppPublisher=BioBase Live
 DefaultDirName={autopf}\Biobase Client
 DefaultGroupName=Biobase Client

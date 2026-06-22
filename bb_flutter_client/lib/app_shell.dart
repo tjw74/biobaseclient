@@ -172,23 +172,20 @@ class _AppShellState extends State<AppShell> {
               ),
             ],
           ),
-          // Nav drawer overlay
           if (_drawerOpen) ...[
             Positioned.fill(
               child: GestureDetector(
                 onTap: () => setState(() => _drawerOpen = false),
-                child: Container(color: Colors.black45),
+                behavior: HitTestBehavior.opaque,
               ),
             ),
             Positioned(
-              top: topPad,
-              left: 0,
-              bottom: 0,
-              child: _NavDrawer(
+              top: topPad + 44,
+              left: isMac ? 80.0 : 20.0,
+              child: _NavPopup(
                 section: _section,
                 statusLevel: _statusLevel,
                 onNav: _navigateTo,
-                onClose: () => setState(() => _drawerOpen = false),
               ),
             ),
           ],
@@ -210,19 +207,17 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-// ── Nav drawer (floating overlay) ──
+// ── Nav popup (floating menu) ──
 
-class _NavDrawer extends StatelessWidget {
+class _NavPopup extends StatelessWidget {
   final Section section;
   final StatusLevel statusLevel;
   final ValueChanged<Section> onNav;
-  final VoidCallback onClose;
 
-  const _NavDrawer({
+  const _NavPopup({
     required this.section,
     required this.statusLevel,
     required this.onNav,
-    required this.onClose,
   });
 
   static const _navItems = [
@@ -238,86 +233,50 @@ class _NavDrawer extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Container(
-        width: 220,
+        width: 200,
         decoration: BoxDecoration(
-          color: BiobaseColors.surface,
-          border: Border(
-            right: BorderSide(color: BiobaseColors.borderHover),
-          ),
+          color: BiobaseColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: BiobaseColors.borderHover),
           boxShadow: const [
             BoxShadow(
-                color: Colors.black54, blurRadius: 40, offset: Offset(4, 0)),
+                color: Colors.black54, blurRadius: 30, offset: Offset(0, 8)),
           ],
         ),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-              child: Row(
-                children: [
-                  const Icon(Icons.biotech, size: 18, color: BiobaseColors.accent),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text('BIOBASE',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                            color: BiobaseColors.text)),
-                  ),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: onClose,
-                      child: const Icon(Icons.close,
-                          size: 14, color: BiobaseColors.textTertiary),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(height: 1, color: BiobaseColors.borderSubtle),
-            // Nav items
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                child: Column(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final item in _navItems)
+                _NavItem(
+                  icon: item.$3,
+                  label: item.$2,
+                  active: section == item.$1,
+                  onTap: () => onNav(item.$1),
+                ),
+              Container(height: 1, color: BiobaseColors.borderSubtle,
+                  margin: const EdgeInsets.symmetric(vertical: 4)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                child: Row(
                   children: [
-                    for (final item in _navItems)
-                      _NavItem(
-                        icon: item.$3,
-                        label: item.$2,
-                        active: section == item.$1,
-                        onTap: () => onNav(item.$1),
-                      ),
+                    StatusDot(level: statusLevel),
+                    const SizedBox(width: 8),
+                    Text(
+                      switch (statusLevel) {
+                        StatusLevel.live => 'Live',
+                        StatusLevel.online => 'Ready',
+                        StatusLevel.offline => 'Offline',
+                      },
+                      style: const TextStyle(
+                          fontSize: 11, color: BiobaseColors.textTertiary),
+                    ),
                   ],
                 ),
               ),
-            ),
-            // Footer
-            Container(
-              decoration: BoxDecoration(
-                border:
-                    Border(top: BorderSide(color: BiobaseColors.borderSubtle)),
-              ),
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  StatusDot(level: statusLevel),
-                  const SizedBox(width: 8),
-                  Text(
-                    switch (statusLevel) {
-                      StatusLevel.live => 'Live',
-                      StatusLevel.online => 'Ready',
-                      StatusLevel.offline => 'Offline',
-                    },
-                    style: const TextStyle(
-                        fontSize: 11, color: BiobaseColors.textTertiary),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -439,7 +398,19 @@ class _ContentHeader extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.biotech, size: 22, color: BiobaseColors.accent),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: BiobaseColors.accent, width: 1.5),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('B',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: BiobaseColors.accent,
+                            height: 1)),
+                  ),
                   const SizedBox(width: 8),
                   const Text('BIOBASE',
                       style: TextStyle(
@@ -447,14 +418,14 @@ class _ContentHeader extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           letterSpacing: 1.2,
                           color: BiobaseColors.text)),
-                  const SizedBox(width: 8),
-                  Text('v$currentVersion',
-                      style: const TextStyle(
-                          fontSize: 11, color: BiobaseColors.textTertiary)),
                 ],
               ),
             ),
           ),
+          const SizedBox(width: 10),
+          Text('v$currentVersion',
+              style: const TextStyle(
+                  fontSize: 11, color: BiobaseColors.textTertiary)),
           const Spacer(),
           _ServerPill(
             status: serverStatus,

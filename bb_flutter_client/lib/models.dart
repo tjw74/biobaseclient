@@ -126,6 +126,9 @@ class LiveMovementSample {
   final MovementKeys keys;
   final List<double> pos;
   final List<double> vel;
+  final double yaw;
+  final double pitch;
+  final String? observedAt;
 
   const LiveMovementSample({
     this.player,
@@ -138,7 +141,18 @@ class LiveMovementSample {
     this.keys = const MovementKeys(),
     this.pos = const [0, 0, 0],
     this.vel = const [0, 0, 0],
+    this.yaw = 0,
+    this.pitch = 0,
+    this.observedAt,
   });
+
+  double get velX => vel.isNotEmpty ? vel[0] : 0;
+  double get velY => vel.length > 1 ? vel[1] : 0;
+  double get velZ => vel.length > 2 ? vel[2] : 0;
+  double get horizontalSpeed {
+    final vx = velX, vy = velY;
+    return (vx * vx + vy * vy).clamp(0, double.infinity);
+  }
 
   factory LiveMovementSample.fromJson(Map<String, dynamic> json) {
     final posList = (json['pos'] as List<dynamic>?)
@@ -161,6 +175,9 @@ class LiveMovementSample {
       keys: MovementKeys.fromJson(json['keys'] as Map<String, dynamic>?),
       pos: posList,
       vel: velList,
+      yaw: (json['yaw'] as num?)?.toDouble() ?? 0,
+      pitch: (json['pitch'] as num?)?.toDouble() ?? 0,
+      observedAt: json['observedAt'] as String?,
     );
   }
 }
@@ -205,6 +222,11 @@ class LiveFrame {
   final double counterStrafeScore;
   final double pathEfficiency;
   final MovementKeys keys;
+  final double yaw;
+  final double pitch;
+  final bool onGround;
+  final List<double> vel;
+  final List<double> pos;
 
   const LiveFrame({
     this.mapName = 'offline',
@@ -215,7 +237,16 @@ class LiveFrame {
     this.counterStrafeScore = 0,
     this.pathEfficiency = 0,
     this.keys = const MovementKeys(),
+    this.yaw = 0,
+    this.pitch = 0,
+    this.onGround = true,
+    this.vel = const [0, 0, 0],
+    this.pos = const [0, 0, 0],
   });
+
+  double get velZ => vel.length > 2 ? vel[2] : 0;
+  bool get isAirborne => !onGround;
+  bool get isMoving => speed > 5;
 
   factory LiveFrame.fromServerData(
     LiveServerStatus? status,
@@ -240,6 +271,11 @@ class LiveFrame {
       keys: movement.keys.w || movement.keys.a || movement.keys.s || movement.keys.d
           ? movement.keys
           : MovementKeys(jump: !movement.onGround),
+      yaw: movement.yaw,
+      pitch: movement.pitch,
+      onGround: movement.onGround,
+      vel: movement.vel,
+      pos: movement.pos,
     );
   }
 }

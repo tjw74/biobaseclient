@@ -19,14 +19,6 @@ import 'services/update_service.dart';
 
 enum Section { live, shadow, replay, profile, insights }
 
-const _sectionMeta = {
-  Section.live: ('LIVE DASHBOARD', 'Live Dashboard'),
-  Section.shadow: ('SHADOW', 'Shadow'),
-  Section.replay: ('REPLAY', 'Replay'),
-  Section.profile: ('PLAYER PROFILE', 'Player Profile'),
-  Section.insights: ('INSIGHTS', 'Insights'),
-};
-
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -153,7 +145,6 @@ class _AppShellState extends State<AppShell> {
                   onDismiss: () => setState(() => _updateInfo = null),
                 ),
               _ContentHeader(
-                section: _section,
                 serverStatus: _serverStatus,
                 statusLevel: _statusLevel,
                 trackedPlayer: _settings.trackedPlayerName,
@@ -256,34 +247,13 @@ class _NavDrawer extends StatelessWidget {
         ),
         child: Column(
           children: [
-            // Brand
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 children: [
-                  const Text('⌘',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: BiobaseColors.accent)),
-                  const SizedBox(width: 10),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text('BIOBASE',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.8,
-                                color: BiobaseColors.text,
-                                height: 1.1)),
-                        Text('Performance Lab',
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: BiobaseColors.textTertiary)),
-                      ],
-                    ),
+                    child: Image.asset('assets/logo.png',
+                        height: 28, alignment: Alignment.centerLeft),
                   ),
                   MouseRegion(
                     cursor: SystemMouseCursors.click,
@@ -420,7 +390,6 @@ class _NavItemState extends State<_NavItem> {
 // ── Content header ──
 
 class _ContentHeader extends StatelessWidget {
-  final Section section;
   final LiveServerStatus? serverStatus;
   final StatusLevel statusLevel;
   final String trackedPlayer;
@@ -432,7 +401,6 @@ class _ContentHeader extends StatelessWidget {
   final VoidCallback onOpenNav;
 
   const _ContentHeader({
-    required this.section,
     required this.serverStatus,
     required this.statusLevel,
     required this.trackedPlayer,
@@ -446,9 +414,7 @@ class _ContentHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final meta = _sectionMeta[section]!;
     final isMac = Platform.isMacOS;
-    // On macOS, leave room for traffic light buttons (about 78px from left)
     final leftPad = isMac ? 80.0 : 20.0;
 
     return Padding(
@@ -456,34 +422,14 @@ class _ContentHeader extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Nav trigger
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: onOpenNav,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Icon(Icons.menu,
-                    size: 18, color: BiobaseColors.textTertiary),
-              ),
+              child: Image.asset('assets/logo.png', height: 32),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: SectionHeader(
-              label: meta.$1,
-              title: meta.$2,
-              trailing: Text(
-                'v0.2.0',
-                style: TextStyle(
-                    fontSize: 11, color: BiobaseColors.textTertiary),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
+          const Spacer(),
           _ServerPill(
             status: serverStatus,
             statusLevel: statusLevel,

@@ -45,10 +45,10 @@ jobs:
         run: |
           $asset = "installer\output\biobase-client-setup.exe"
           if (-not (Test-Path $asset)) { throw "Installer not found: $asset" }
-          $tag = "flutter-v0.2.0"
+          $tag = "flutter-v0.2.1"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $asset --title "Biobase Client v0.2.0" --notes "Flutter-based Biobase Performance Lab client for Windows." --latest
+            gh release create $tag $asset --title "Biobase Client v0.2.1" --notes "Flutter-based Biobase Performance Lab client for Windows." --latest
           } else {
             gh release upload $tag $asset --clobber
           }

@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 
 const String _updateFeedUrl = 'https://cs2.clarionlab.dev/client/latest.yml';
 const String _downloadBaseUrl = 'https://cs2.clarionlab.dev/client/';
-const String currentVersion = '0.2.0';
+const String currentVersion = '0.2.1';
 
 class UpdateInfo {
   final String version;

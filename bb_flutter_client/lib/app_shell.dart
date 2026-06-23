@@ -17,7 +17,7 @@ import 'screens/shadow_screen.dart';
 import 'screens/replay_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/insights_screen.dart';
-import 'services/update_service.dart' show UpdateService, UpdateInfo, currentVersion;
+import 'services/update_service.dart' show UpdateService, currentVersion;
 
 enum Section { live, shadow, replay, profile, insights }
 
@@ -39,7 +39,8 @@ class _AppShellState extends State<AppShell> {
   LiveServerStatus? _serverStatus;
   LiveMovementStatus? _movementStatus;
   String _syncStatus = 'starting…';
-  UpdateInfo? _updateInfo;
+  _UpdatePhase _updatePhase = _UpdatePhase.idle;
+  String? _updateVersion;
   StreamSubscription? _statusSub;
   StreamSubscription? _movementSub;
   final List<LiveMovementSample> _movementHistory = [];
@@ -109,29 +110,40 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _checkForUpdate() async {
     final info = await _updater.checkForUpdate();
-    if (mounted && info.available) {
-      setState(() {
-        _updateInfo = info;
-        _syncStatus = 'Updating to v${info.version}…';
+    if (!mounted || !info.available) return;
+    setState(() { _updatePhase = _UpdatePhase.downloading; _updateVersion = info.version; });
+    final err = await _updater.downloadAndInstall(info.downloadUrl);
+    if (!mounted) return;
+    if (err != null) {
+      setState(() => _updatePhase = _UpdatePhase.idle);
+    } else {
+      setState(() => _updatePhase = _UpdatePhase.done);
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _updatePhase = _UpdatePhase.idle);
       });
-      await _updater.downloadAndInstall(info.downloadUrl);
     }
   }
 
   Future<void> _checkForUpdateManual() async {
-    setState(() => _syncStatus = 'Checking…');
+    setState(() => _updatePhase = _UpdatePhase.checking);
     final info = await _updater.checkForUpdate();
     if (!mounted) return;
     if (info.available) {
-      setState(() {
-        _updateInfo = info;
-        _syncStatus = 'Updating to v${info.version}…';
-      });
-      await _updater.downloadAndInstall(info.downloadUrl);
+      setState(() { _updatePhase = _UpdatePhase.downloading; _updateVersion = info.version; });
+      final err = await _updater.downloadAndInstall(info.downloadUrl);
+      if (!mounted) return;
+      if (err != null) {
+        setState(() => _updatePhase = _UpdatePhase.idle);
+      } else {
+        setState(() => _updatePhase = _UpdatePhase.done);
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _updatePhase = _UpdatePhase.idle);
+        });
+      }
     } else {
-      setState(() => _syncStatus = 'Up to date');
+      setState(() => _updatePhase = _UpdatePhase.current);
       Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) setState(() => _syncStatus = 'polling');
+        if (mounted) setState(() => _updatePhase = _UpdatePhase.idle);
       });
     }
   }
@@ -163,19 +175,6 @@ class _AppShellState extends State<AppShell> {
           Column(
             children: [
               DragToMoveArea(child: SizedBox(height: topPad)),
-              if (_updateInfo != null)
-                _UpdateBanner(
-                  info: _updateInfo!,
-                  onInstall: () async {
-                    setState(() => _syncStatus = 'Downloading update…');
-                    final err = await _updater
-                        .downloadAndInstall(_updateInfo!.downloadUrl);
-                    if (err != null && mounted) {
-                      setState(() => _syncStatus = err);
-                    }
-                  },
-                  onDismiss: () => setState(() => _updateInfo = null),
-                ),
               DragToMoveArea(
                 child: _ContentHeader(
                   serverStatus: _serverStatus,
@@ -188,6 +187,8 @@ class _AppShellState extends State<AppShell> {
                   onSyncStatusChanged: (s) => setState(() => _syncStatus = s),
                   onOpenNav: () => setState(() => _drawerOpen = true),
                   onCheckUpdate: _checkForUpdateManual,
+                  updatePhase: _updatePhase,
+                  updateVersion: _updateVersion,
                 ),
               ),
               Expanded(
@@ -229,8 +230,8 @@ class _AppShellState extends State<AppShell> {
     final frame = _liveFrame;
     final live = _movementStatus?.ok ?? false;
     return switch (_section) {
-      Section.live => LiveScreen(frame: frame, live: live, history: _movementHistory),
-      Section.shadow => ShadowScreen(frame: frame, live: live),
+      Section.live => LiveScreen(frame: frame, live: live, history: _movementHistory, sessionStats: _sessionStats.stats),
+      Section.shadow => ShadowScreen(api: _api, mapName: _serverStatus?.map ?? '', live: live),
       Section.replay => const ReplayScreen(),
       Section.profile => ProfileScreen(stats: _sessionStats.stats),
       Section.insights => const InsightsScreen(),
@@ -252,10 +253,10 @@ class _NavPopup extends StatelessWidget {
   });
 
   static const _navItems = [
-    (Section.live, 'Live Dashboard', Icons.show_chart),
+    (Section.live, 'Live', Icons.show_chart),
     (Section.shadow, 'Shadow', Icons.people_outline),
     (Section.replay, 'Replay', Icons.replay),
-    (Section.profile, 'Player Profile', Icons.person_outline),
+    (Section.profile, 'Performance Review', Icons.assessment_outlined),
     (Section.insights, 'Insights', Icons.layers_outlined),
   ];
 
@@ -400,6 +401,8 @@ class _ContentHeader extends StatelessWidget {
   final ValueChanged<String> onSyncStatusChanged;
   final VoidCallback onOpenNav;
   final VoidCallback onCheckUpdate;
+  final _UpdatePhase updatePhase;
+  final String? updateVersion;
 
   const _ContentHeader({
     required this.serverStatus,
@@ -412,6 +415,8 @@ class _ContentHeader extends StatelessWidget {
     required this.onSyncStatusChanged,
     required this.onOpenNav,
     required this.onCheckUpdate,
+    required this.updatePhase,
+    required this.updateVersion,
   });
 
   @override
@@ -428,43 +433,11 @@ class _ContentHeader extends StatelessWidget {
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: onOpenNav,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: BiobaseColors.accent, width: 1.5),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text('B',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: BiobaseColors.accent,
-                            height: 1)),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text('BIOBASE',
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.2,
-                          color: BiobaseColors.text)),
-                ],
-              ),
+              child: Image.asset('assets/logo.png', height: 22, filterQuality: FilterQuality.high),
             ),
           ),
           const SizedBox(width: 10),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: onCheckUpdate,
-              child: Text('v$currentVersion',
-                  style: const TextStyle(
-                      fontSize: 11, color: BiobaseColors.textTertiary)),
-            ),
-          ),
+          _VersionIndicator(phase: updatePhase, updateVersion: updateVersion, onTap: onCheckUpdate),
           const Spacer(),
           _ServerPill(
             status: serverStatus,
@@ -917,63 +890,44 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
   }
 }
 
-// ── Update banner ──
+// ── Update indicator (inline on version number) ──
 
-class _UpdateBanner extends StatelessWidget {
-  final UpdateInfo info;
-  final VoidCallback onInstall;
-  final VoidCallback onDismiss;
+enum _UpdatePhase { idle, checking, downloading, done, current }
 
-  const _UpdateBanner({
-    required this.info,
-    required this.onInstall,
-    required this.onDismiss,
-  });
+class _VersionIndicator extends StatelessWidget {
+  final _UpdatePhase phase;
+  final String? updateVersion;
+  final VoidCallback onTap;
+
+  const _VersionIndicator({required this.phase, required this.updateVersion, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      color: BiobaseColors.liveDim,
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'v${info.version} available',
-              style: const TextStyle(
-                  fontSize: 12, color: BiobaseColors.text),
+    final showNewVersion = phase == _UpdatePhase.downloading || phase == _UpdatePhase.done;
+    final versionText = showNewVersion && updateVersion != null ? 'v$updateVersion' : 'v$currentVersion';
+    final showSpinner = phase == _UpdatePhase.checking || phase == _UpdatePhase.downloading;
+    final showCheck = phase == _UpdatePhase.done || phase == _UpdatePhase.current;
+    final color = phase == _UpdatePhase.done ? BiobaseColors.live
+        : phase == _UpdatePhase.downloading ? BiobaseColors.accent
+        : BiobaseColors.textTertiary;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: phase == _UpdatePhase.idle || phase == _UpdatePhase.current ? onTap : null,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (showSpinner)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: color)),
             ),
-          ),
-          if (Platform.isWindows)
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: onInstall,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: BiobaseColors.live,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text('Install',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white)),
-                ),
-              ),
+          if (showCheck)
+            Padding(
+              padding: const EdgeInsets.only(right: 3),
+              child: Icon(Icons.check, size: 11, color: color),
             ),
-          const SizedBox(width: 8),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: onDismiss,
-              child: const Icon(Icons.close,
-                  size: 14, color: BiobaseColors.textTertiary),
-            ),
-          ),
-        ],
+          Text(versionText, style: TextStyle(fontSize: 11, color: color)),
+        ]),
       ),
     );
   }

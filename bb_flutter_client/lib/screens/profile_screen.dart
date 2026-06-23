@@ -3,6 +3,21 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../models/session_stats.dart';
 
+const _cats = [
+  'Movement',
+  'Aim',
+  'Combat',
+  'Utility',
+  'Positioning',
+  'Decision Making',
+  'Economy',
+  'Teamplay',
+  'Round Performance',
+  'Consistency',
+  'Mechanical Execution',
+  'BioBase Biometrics',
+];
+
 class ProfileScreen extends StatefulWidget {
   final SessionStats stats;
   const ProfileScreen({super.key, required this.stats});
@@ -11,79 +26,65 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tab;
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _scroll = ScrollController();
+  final Set<int> _expanded = {};
+  final List<GlobalKey> _keys = List.generate(12, (_) => GlobalKey());
 
-  static const _tabs = [
-    'Movement',
-    'Jumping',
-    'Strafing',
-    'Peeking',
-    'Combat',
-    'Accuracy',
-    'Utility',
-    'Economy',
-    'Performance',
-  ];
+  void _scrollTo(int i) {
+    setState(() => _expanded.add(i));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _keys[i].currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut);
+      }
+    });
+  }
 
-  @override
-  void initState() {
-    super.initState();
-    _tab = TabController(length: _tabs.length, vsync: this);
+  void _toggle(int i) {
+    setState(() {
+      if (_expanded.contains(i)) {
+        _expanded.remove(i);
+      } else {
+        _expanded.add(i);
+      }
+    });
   }
 
   @override
   void dispose() {
-    _tab.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = widget.stats;
     return Column(
       children: [
-        SizedBox(
-          height: 32,
-          child: TabBar(
-            controller: _tab,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            indicatorColor: BiobaseColors.accent,
-            indicatorWeight: 2,
-            indicatorSize: TabBarIndicatorSize.label,
-            labelColor: BiobaseColors.text,
-            unselectedLabelColor: BiobaseColors.textTertiary,
-            labelStyle: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3),
-            unselectedLabelStyle: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-                letterSpacing: 0.3),
-            dividerColor: Colors.transparent,
-            padding: EdgeInsets.zero,
-            labelPadding:
-                const EdgeInsets.symmetric(horizontal: 10),
-            tabs: _tabs.map((t) => Tab(text: t)).toList(),
-          ),
-        ),
-        const SizedBox(height: 12),
+        _TopSummary(stats: s),
+        const SizedBox(height: 6),
+        _CategoryRail(scores: s.categoryScores, onTap: _scrollTo),
+        const SizedBox(height: 6),
         Expanded(
-          child: TabBarView(
-            controller: _tab,
-            children: [
-              _MovementTab(s: widget.stats),
-              _JumpingTab(s: widget.stats),
-              _StrafingTab(s: widget.stats),
-              _PeekingTab(s: widget.stats),
-              _CombatTab(s: widget.stats),
-              _AccuracyTab(s: widget.stats),
-              _UtilityTab(s: widget.stats),
-              _EconomyTab(s: widget.stats),
-              _PerformanceTab(s: widget.stats),
-            ],
+          child: ListView.builder(
+            controller: _scroll,
+            padding: EdgeInsets.zero,
+            itemCount: _cats.length,
+            itemBuilder: (_, i) => Padding(
+              key: _keys[i],
+              padding: const EdgeInsets.only(bottom: 3),
+              child: _Section(
+                name: _cats[i],
+                index: i,
+                score: s.categoryScores[i],
+                expanded: _expanded.contains(i),
+                onToggle: () => _toggle(i),
+                stats: s,
+              ),
+            ),
           ),
         ),
       ],
@@ -92,1183 +93,925 @@ class _ProfileScreenState extends State<ProfileScreen>
 }
 
 // ════════════════════════════════════════
-// MOVEMENT TAB
+// TOP SUMMARY
 // ════════════════════════════════════════
 
-class _MovementTab extends StatelessWidget {
-  final SessionStats s;
-  const _MovementTab({required this.s});
+class _TopSummary extends StatelessWidget {
+  final SessionStats stats;
+  const _TopSummary({required this.stats});
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
+    final overall = stats.overallScore;
+    final scores = stats.categoryScores;
+    String strongest = '—', weakest = '—';
+    double hi = 0, lo = 101;
+    for (int i = 0; i < scores.length; i++) {
+      if (scores[i] > hi) {
+        hi = scores[i];
+        strongest = _cats[i];
+      }
+      if (scores[i] > 0 && scores[i] < lo) {
+        lo = scores[i];
+        weakest = _cats[i];
+      }
+    }
+    if (hi == 0) strongest = '—';
+    if (lo > 100) weakest = '—';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: BiobaseColors.surface,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 44,
+            height: 44,
+            child: CustomPaint(
+                painter: _ArcGaugePainter(
+                    value: (overall / 100).clamp(0.0, 1.0), fontSize: 16)),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('PERFORMANCE REVIEW',
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                        color: BiobaseColors.textTertiary,
+                        letterSpacing: 0.8)),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    _chip('Strength', strongest, BiobaseColors.live),
+                    const SizedBox(width: 20),
+                    _chip('Weakness', weakest, BiobaseColors.warning),
+                    const SizedBox(width: 20),
+                    _chip('Samples', '${stats.totalSamples}',
+                        BiobaseColors.textSecondary),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, String value, Color c) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Velocity hero
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text('${s.speedCurrent.toInt()}',
-                      style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.w700,
-                          color: BiobaseColors.text,
-                          letterSpacing: -2,
-                          height: 1)),
-                  const SizedBox(width: 8),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: _StatePill(s.movementState),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  _MiniStat('MAX', s.speedMax.toInt().toString()),
-                  const SizedBox(width: 20),
-                  _MiniStat(
-                      'AVG', s.speedAvgSafe.toInt().toString()),
-                  const SizedBox(width: 20),
-                  _MiniStat(
-                      'MIN', s.speedMinSafe.toInt().toString()),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _Spark(data: s.speedHistory, maxVal: 300, height: 60),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _StatCard(
-                    'Distance',
-                    '${s.distanceTraveled.toInt()}',
-                    'units')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Path Efficiency',
-                    s.pathEfficiency * 100)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Air Time', s.airTimePercent)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _StatCard('Ground Samples',
-                    '${s.groundSamples}', 'ticks')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('Air Samples',
-                    '${s.airSamples}', 'ticks')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('Total Samples',
-                    '${s.totalSamples}', 'ticks')),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('SPEED TREND'),
-              const SizedBox(height: 8),
-              _Spark(
-                  data: s.speedHistory,
-                  maxVal: 300,
-                  height: 80,
-                  color: BiobaseColors.accent),
-            ],
-          ),
-        ),
+        Text(value,
+            style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w600, color: c)),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 9, color: BiobaseColors.textTertiary)),
       ],
     );
   }
 }
 
 // ════════════════════════════════════════
-// JUMPING TAB
+// CATEGORY RAIL
 // ════════════════════════════════════════
 
-class _JumpingTab extends StatelessWidget {
-  final SessionStats s;
-  const _JumpingTab({required this.s});
+class _CategoryRail extends StatelessWidget {
+  final List<double> scores;
+  final ValueChanged<int> onTap;
+  const _CategoryRail({required this.scores, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        Row(
-          children: [
-            Expanded(
-                child: _BigStatCard(
-                    'Jumps', '${s.jumpCount}')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _BigStatCard(
-                    'Perfect', '${s.perfectJumps}')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Perfect %', s.perfectJumpPercent)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'Bhop Rate', s.bhopSuccessRate)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _BigStatCard('Bhop Chain',
-                    '${s.consecutiveBhopsMax}')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _BigStatCard('Current Chain',
-                    '${s.consecutiveBhopsCurrent}')),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _StatCard('Bhop Attempts',
-                    '${s.bhopAttemptCount}', '')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('Bhop Success',
-                    '${s.bhopSuccessCount}', '')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard('Jump Timing',
-                    s.jumpTimingConsistency * 100)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _StatCard('Landing Retention',
-                    '${(s.landingSpeedRetention * 100).toInt()}%',
-                    '')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('Speed Loss',
-                    s.speedLossOnLanding.toInt().toString(),
-                    'on landing')),
-          ],
-        ),
-      ],
+    return SizedBox(
+      height: 28,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _cats.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 4),
+        itemBuilder: (_, i) {
+          final s = scores[i];
+          final live = s > 0;
+          return MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => onTap(i),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: BiobaseColors.surface,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_cats[i],
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: live
+                                ? BiobaseColors.text
+                                : BiobaseColors.textTertiary)),
+                    const SizedBox(width: 6),
+                    Text(live ? '${s.toInt()}' : '—',
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: _scoreColor(s))),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
 
 // ════════════════════════════════════════
-// STRAFING TAB
+// EXPANDABLE SECTION
 // ════════════════════════════════════════
 
-class _StrafingTab extends StatelessWidget {
-  final SessionStats s;
-  const _StrafingTab({required this.s});
+class _Section extends StatelessWidget {
+  final String name;
+  final int index;
+  final double score;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final SessionStats stats;
 
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'Strafe Sync', s.strafeSyncPercent)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard('Air Strafe Eff.',
-                    s.airStrafeEfficiency)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard('Counter-Strafe',
-                    s.counterStrafeAccuracy)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('STRAFE SYNC TREND'),
-              const SizedBox(height: 8),
-              _Spark(
-                  data: s.strafeSyncHistory,
-                  maxVal: 100,
-                  height: 60,
-                  color: BiobaseColors.live),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _StatCard('Air Accel Gained',
-                    '+${s.airAccelerationGained.toInt()}',
-                    'u/s²')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('Air Accel Lost',
-                    '-${s.airAccelerationLost.toInt()}',
-                    'u/s²')),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('COUNTER-STRAFE TREND'),
-              const SizedBox(height: 8),
-              _Spark(
-                  data: s.counterStrafeHistory,
-                  maxVal: 100,
-                  height: 60,
-                  color: BiobaseColors.warning),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _StatCard('Stop Time',
-                    s.counterStrafeStopTime.toStringAsFixed(0),
-                    'ms')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('Full Accuracy',
-                    s.timeToFullAccuracy.toStringAsFixed(0),
-                    'ms')),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-// ════════════════════════════════════════
-// PEEKING TAB
-// ════════════════════════════════════════
-
-class _PeekingTab extends StatelessWidget {
-  final SessionStats s;
-  const _PeekingTab({required this.s});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('PEEK BREAKDOWN'),
-              const SizedBox(height: 12),
-              _BarRow('Total Peeks', s.peekCount, 100),
-              const SizedBox(height: 6),
-              _BarRow('Wide', s.widePeekCount,
-                  max(1, s.peekCount)),
-              const SizedBox(height: 6),
-              _BarRow('Jiggle', s.jigglePeekCount,
-                  max(1, s.peekCount)),
-              const SizedBox(height: 6),
-              _BarRow('Shoulder', s.shoulderPeekCount,
-                  max(1, s.peekCount)),
-              const SizedBox(height: 6),
-              _BarRow('Re-peek', s.rePeekCount,
-                  max(1, s.peekCount)),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'Peek Success', s.peekSuccessRate)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('Exposed Time',
-                    s.timeExposed.toStringAsFixed(1), 's')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _StatCard('In Cover',
-                    s.timeInCover.toStringAsFixed(1), 's')),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-// ════════════════════════════════════════
-// COMBAT TAB
-// ════════════════════════════════════════
-
-class _CombatTab extends StatelessWidget {
-  final SessionStats s;
-  const _CombatTab({required this.s});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('ENTRY FRAGGING'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Attempts',
-                          '${s.entryAttempts}')),
-                  Expanded(
-                      child: _InlineStat('Success',
-                          '${s.entrySuccesses}')),
-                  Expanded(
-                      child: _InlineStat('Rate',
-                          '${s.entrySuccessRate.toInt()}%')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('TRADES'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Opportunities',
-                          '${s.tradeOpportunities}')),
-                  Expanded(
-                      child: _InlineStat('Successful',
-                          '${s.successfulTrades}')),
-                  Expanded(
-                      child: _InlineStat('Trade Deaths',
-                          '${s.tradeDeaths}')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Trade Time',
-                          '${s.tradeTime.toStringAsFixed(1)}s')),
-                  Expanded(
-                      child: _InlineStat('Time Alive',
-                          '${s.timeAlive.toStringAsFixed(0)}s')),
-                  Expanded(
-                      child: _InlineStat('Survival',
-                          '${s.survivalRate.toInt()}%')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('DAMAGE'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Dealt',
-                          '${s.damageDealt}')),
-                  Expanded(
-                      child: _InlineStat('Received',
-                          '${s.damageReceived}')),
-                  Expanded(
-                      child: _InlineStat('Per Round',
-                          s.damagePerRound.toStringAsFixed(1))),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Utility DMG',
-                          '${s.utilityDamage}')),
-                  const Expanded(child: SizedBox()),
-                  const Expanded(child: SizedBox()),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _NeedsGameEvents(),
-      ],
-    );
-  }
-}
-
-// ════════════════════════════════════════
-// ACCURACY TAB
-// ════════════════════════════════════════
-
-class _AccuracyTab extends StatelessWidget {
-  final SessionStats s;
-  const _AccuracyTab({required this.s});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'Headshot %', s.headshotPercent)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    '1st Bullet', s.firstBulletAccuracy)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Spray', s.sprayAccuracy)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'Burst', s.burstAccuracy)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Tap', s.tapAccuracy)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard('Spray Transfer',
-                    s.sprayTransferSuccess)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('CROSSHAIR'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Head Level',
-                          '${s.crosshairHeadLevelPercent.toInt()}%')),
-                  Expanded(
-                      child: _InlineStat('Travel',
-                          '${s.crosshairTravelDistance.toInt()}°')),
-                  Expanded(
-                      child: _InlineStat('Placement Error',
-                          '${s.crosshairPlacementError.toInt()}°')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Flick Dist',
-                          '${s.flickDistance.toInt()}°')),
-                  Expanded(
-                      child: _InlineStat('Flick Acc',
-                          '${s.flickAccuracy.toInt()}%')),
-                  Expanded(
-                      child: _InlineStat('Pre-aim',
-                          '${s.preAimAccuracy.toInt()}%')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('TIMING'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Reaction',
-                          '${s.reactionTime.toInt()}ms')),
-                  Expanded(
-                      child: _InlineStat('→ 1st Shot',
-                          '${s.timeToFirstShot.toStringAsFixed(1)}s')),
-                  Expanded(
-                      child: _InlineStat('→ 1st DMG',
-                          '${s.timeToFirstDamage.toStringAsFixed(1)}s')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('→ 1st Kill',
-                          '${s.timeToFirstKill.toStringAsFixed(1)}s')),
-                  Expanded(
-                      child: _InlineStat('TTK',
-                          '${s.timeToKill.toStringAsFixed(2)}s')),
-                  Expanded(
-                      child: _InlineStat('TTD',
-                          '${s.timeToDeath.toStringAsFixed(2)}s')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('ANGLES'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Hold Duration',
-                          '${s.angleHoldDuration.toStringAsFixed(1)}s')),
-                  Expanded(
-                      child: _InlineStat('Win Rate',
-                          '${s.angleWinRate.toInt()}%')),
-                  Expanded(
-                      child: _InlineStat('Enemy Vis.',
-                          '${s.enemyVisibleBeforeFiring.toInt()}ms')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Idle Time',
-                          '${s.crosshairIdleTime.toStringAsFixed(1)}s')),
-                  Expanded(
-                      child: _InlineStat('Off-target',
-                          '${s.crosshairOffTargetTime.toStringAsFixed(1)}s')),
-                  Expanded(
-                      child: _InlineStat('Missed',
-                          '${s.missedShots}')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _NeedsGameEvents(),
-      ],
-    );
-  }
-}
-
-// ════════════════════════════════════════
-// UTILITY TAB
-// ════════════════════════════════════════
-
-class _UtilityTab extends StatelessWidget {
-  final SessionStats s;
-  const _UtilityTab({required this.s});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'Flash Eff.', s.flashEffectiveness)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Smoke Eff.', s.smokeEffectiveness)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Molly Eff.', s.molotovEffectiveness)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'HE Eff.', s.heEffectiveness)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard('Utility Usage',
-                    s.utilityUsageEfficiency)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard('Lineup Acc.',
-                    s.grenadeLineupSuccess)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('FLASH STATS'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Enemies Flashed',
-                          '${s.enemiesFlashed}')),
-                  Expanded(
-                      child: _InlineStat('Team Flashed',
-                          '${s.teammatesFlashed}')),
-                  Expanded(
-                      child: _InlineStat('Blind Duration',
-                          '${s.flashBlindnessDuration.toStringAsFixed(1)}s')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('SOUND & TIMING'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Footsteps',
-                          '${s.footstepCount}')),
-                  Expanded(
-                      child: _InlineStat('Wep Switches',
-                          '${s.weaponSwitchCount}')),
-                  Expanded(
-                      child: _InlineStat('Reload Cancels',
-                          '${s.reloadCancelCount}')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _NeedsGameEvents(),
-      ],
-    );
-  }
-}
-
-// ════════════════════════════════════════
-// ECONOMY TAB
-// ════════════════════════════════════════
-
-class _EconomyTab extends StatelessWidget {
-  final SessionStats s;
-  const _EconomyTab({required this.s});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        Row(
-          children: [
-            Expanded(
-                child: _BigStatCard('Equipment',
-                    '\$${s.equipmentValue}')),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _BigStatCard(
-                    'Economy', s.economyState)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('WEAPON USAGE'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Switches',
-                          '${s.weaponSwitchCount}')),
-                  Expanded(
-                      child: _InlineStat('Reload Timing',
-                          '${s.reloadTiming.toStringAsFixed(1)}s')),
-                  const Expanded(child: SizedBox()),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _NeedsGameEvents(),
-      ],
-    );
-  }
-}
-
-// ════════════════════════════════════════
-// PERFORMANCE TAB
-// ════════════════════════════════════════
-
-class _PerformanceTab extends StatelessWidget {
-  final SessionStats s;
-  const _PerformanceTab({required this.s});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        // Composite scores
-        Row(
-          children: [
-            Expanded(
-                child: _GaugeCard(
-                    'Confidence', s.confidenceScore)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Consistency', s.consistencyScore)),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _GaugeCard(
-                    'Fatigue', s.fatigueScore)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('RATINGS'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('HLTV Rating',
-                          s.hltvRating.toStringAsFixed(2))),
-                  Expanded(
-                      child: _InlineStat('ADR',
-                          s.adr.toStringAsFixed(1))),
-                  Expanded(
-                      child: _InlineStat('KAST',
-                          '${s.kast.toInt()}%')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('CLUTCH & DUELS'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Clutch Attempts',
-                          '${s.clutchAttempts}')),
-                  Expanded(
-                      child: _InlineStat('Clutch %',
-                          '${s.clutchSuccessPercent.toInt()}%')),
-                  Expanded(
-                      child: _InlineStat('Multi-kill Rds',
-                          '${s.multiKillRounds}')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Opening Duel',
-                          '${s.openingDuelPercent.toInt()}%')),
-                  Expanded(
-                      child: _InlineStat('Duel Win',
-                          '${s.openingDuelWinPercent.toInt()}%')),
-                  Expanded(
-                      child: _InlineStat('Round Win Prob.',
-                          '${s.roundWinProbability.toInt()}%')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('POSITIONING'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Rotation',
-                          '${s.rotationTiming.toStringAsFixed(1)}s')),
-                  Expanded(
-                      child: _InlineStat('Rotation Eff.',
-                          '${s.rotationEfficiency.toInt()}%')),
-                  Expanded(
-                      child: _InlineStat('Decision Latency',
-                          '${s.decisionLatency.toInt()}ms')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _InlineStat('Team Spacing',
-                          '${s.teamSpacing.toInt()}u')),
-                  Expanded(
-                      child: _InlineStat('Nearest Ally',
-                          '${s.nearestTeammateDistance.toInt()}u')),
-                  Expanded(
-                      child: _InlineStat('Isolation Deaths',
-                          '${s.isolationDeaths}')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionLabel('PATH EFFICIENCY TREND'),
-              const SizedBox(height: 8),
-              _Spark(
-                  data: s.pathEfficiencyHistory,
-                  maxVal: 100,
-                  height: 60,
-                  color: BiobaseColors.live),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _NeedsGameEvents(),
-      ],
-    );
-  }
-}
-
-// ════════════════════════════════════════
-// SHARED WIDGETS
-// ════════════════════════════════════════
-
-class _Card extends StatelessWidget {
-  final Widget child;
-  const _Card({required this.child});
+  const _Section({
+    required this.name,
+    required this.index,
+    required this.score,
+    required this.expanded,
+    required this.onToggle,
+    required this.stats,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: BiobaseColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
       ),
-      padding: const EdgeInsets.all(16),
-      child: child,
+      child: Column(
+        children: [
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: onToggle,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CustomPaint(
+                          painter: _MiniGaugePainter(
+                              value: (score / 100).clamp(0.0, 1.0))),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(name,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: BiobaseColors.text)),
+                    const Spacer(),
+                    if (!expanded)
+                      Flexible(
+                        child: Text(_keyMetric(index, stats),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 10,
+                                color: BiobaseColors.textTertiary)),
+                      ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      expanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 18,
+                      color: BiobaseColors.textTertiary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: expanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    child: _buildContent(index, stats),
+                  )
+                : const SizedBox(width: double.infinity, height: 0),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _SectionLabel extends StatelessWidget {
+String _keyMetric(int i, SessionStats s) {
+  return switch (i) {
+    0 =>
+      'Avg ${s.speedAvgSafe.toInt()} · Sync ${s.strafeSyncPercent.toInt()}% · Path ${(s.pathEfficiency * 100).toInt()}%',
+    1 =>
+      'Head ${s.crosshairHeadLevelPercent.toInt()}% · Travel ${s.crosshairTravelDistance.toInt()}°',
+    2 => s.entryAttempts > 0
+        ? 'ADR ${s.adr.toStringAsFixed(0)} · Entry ${s.entrySuccessRate.toInt()}%'
+        : 'Awaiting game events',
+    3 => (s.flashEffectiveness + s.smokeEffectiveness) > 0
+        ? 'Flash ${s.flashEffectiveness.toInt()}%'
+        : 'Awaiting game events',
+    4 => s.peekCount > 0
+        ? 'Peeks ${s.peekCount} · Success ${s.peekSuccessRate.toInt()}%'
+        : 'Awaiting game events',
+    5 => s.rotationEfficiency > 0
+        ? 'Rotation ${s.rotationEfficiency.toInt()}%'
+        : 'Awaiting game events',
+    6 => s.equipmentValue > 0
+        ? '\$${s.equipmentValue}'
+        : 'Awaiting game events',
+    7 => 'Awaiting game events',
+    8 => s.hltvRating > 0
+        ? 'HLTV ${s.hltvRating.toStringAsFixed(2)}'
+        : 'Awaiting game events',
+    9 =>
+      'Confidence ${s.confidenceScore.toInt()} · Consistency ${s.consistencyScore.toInt()}',
+    10 =>
+      'Sync ${s.strafeSyncPercent.toInt()}% · CS ${s.counterStrafeAccuracy.toInt()}% · Bhop ${s.bhopSuccessRate.toInt()}%',
+    11 => 'Fatigue ${s.fatigueScore.toInt()}',
+    _ => '',
+  };
+}
+
+Widget _buildContent(int i, SessionStats s) {
+  return switch (i) {
+    0 => _MovementContent(s: s),
+    1 => _AimContent(s: s),
+    2 => _CombatContent(s: s),
+    3 => _UtilityContent(s: s),
+    4 => _PositioningContent(s: s),
+    5 => _DecisionContent(s: s),
+    6 => _EconomyContent(s: s),
+    7 => _TeamplayContent(s: s),
+    8 => _RoundContent(s: s),
+    9 => _ConsistencyContent(s: s),
+    10 => _MechanicsContent(s: s),
+    11 => _BiometricsContent(s: s),
+    _ => const SizedBox(),
+  };
+}
+
+// ════════════════════════════════════════
+// CATEGORY CONTENT BUILDERS
+// ════════════════════════════════════════
+
+class _MovementContent extends StatelessWidget {
+  final SessionStats s;
+  const _MovementContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          _Kpi('AVG', '${s.speedAvgSafe.toInt()}', ' u/s'),
+          _Kpi('MAX', '${s.speedMax.toInt()}', ' u/s'),
+          _Kpi('MIN', '${s.speedMinSafe.toInt()}', ' u/s'),
+          _Kpi('DIST', _fd(s.distanceTraveled), ''),
+          _Kpi('AIR', '${s.airTimePercent.toInt()}', '%'),
+          _Kpi('PATH', '${(s.pathEfficiency * 100).toInt()}', '%'),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('SPEED TREND'),
+        const SizedBox(height: 4),
+        _Spark(data: s.speedHistory, maxVal: 300, height: 44),
+        const SizedBox(height: 10),
+        const _Label('PATH EFFICIENCY TREND'),
+        const SizedBox(height: 4),
+        _Spark(
+            data: s.pathEfficiencyHistory,
+            maxVal: 100,
+            height: 32,
+            color: BiobaseColors.live),
+        const SizedBox(height: 10),
+        Row(children: [
+          _Kpi('GROUND', '${s.groundSamples}', ' ticks'),
+          _Kpi('AIR', '${s.airSamples}', ' ticks'),
+          _Kpi('TOTAL', '${s.totalSamples}', ' ticks'),
+          _Kpi('STATE', s.movementState, ''),
+        ]),
+      ],
+    );
+  }
+}
+
+class _AimContent extends StatelessWidget {
+  final SessionStats s;
+  const _AimContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          _Kpi('HEAD', '${s.crosshairHeadLevelPercent.toInt()}', '%'),
+          _Kpi('1ST BULLET', '${s.firstBulletAccuracy.toInt()}', '%'),
+          _Kpi('SPRAY', '${s.sprayAccuracy.toInt()}', '%'),
+          _Kpi('TAP', '${s.tapAccuracy.toInt()}', '%'),
+          _Kpi('FLICK', '${s.flickAccuracy.toInt()}', '%'),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('ACCURACY'),
+        const SizedBox(height: 4),
+        _HBar('Headshot', s.headshotPercent),
+        _HBar('1st Bullet', s.firstBulletAccuracy),
+        _HBar('Spray', s.sprayAccuracy),
+        _HBar('Burst', s.burstAccuracy),
+        _HBar('Tap', s.tapAccuracy),
+        _HBar('Flick', s.flickAccuracy),
+        _HBar('Pre-aim', s.preAimAccuracy),
+        const SizedBox(height: 10),
+        const _Label('CROSSHAIR'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('TRAVEL', '${s.crosshairTravelDistance.toInt()}', '°'),
+          _Kpi('ERROR', '${s.crosshairPlacementError.toInt()}', '°'),
+          _Kpi('IDLE', '${s.crosshairIdleTime.toStringAsFixed(1)}', 's'),
+          _Kpi('OFF-TGT', '${s.crosshairOffTargetTime.toStringAsFixed(1)}', 's'),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('ANGLES & TIMING'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('HOLD', '${s.angleHoldDuration.toStringAsFixed(1)}', 's'),
+          _Kpi('WIN', '${s.angleWinRate.toInt()}', '%'),
+          _Kpi('REACT', '${s.reactionTime.toInt()}', 'ms'),
+          _Kpi('TTK', '${s.timeToKill.toStringAsFixed(2)}', 's'),
+          _Kpi('TTD', '${s.timeToDeath.toStringAsFixed(2)}', 's'),
+        ]),
+        if (s.crosshairHeadLevelPercent == 0 && s.firstBulletAccuracy == 0) ...[
+          const SizedBox(height: 10),
+          const _NeedsEvents(),
+        ],
+      ],
+    );
+  }
+}
+
+class _CombatContent extends StatelessWidget {
+  final SessionStats s;
+  const _CombatContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _Label('ENTRY FRAGGING'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('ATTEMPTS', '${s.entryAttempts}', ''),
+          _Kpi('SUCCESS', '${s.entrySuccesses}', ''),
+          _Kpi('RATE', '${s.entrySuccessRate.toInt()}', '%'),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('TRADES'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('OPPS', '${s.tradeOpportunities}', ''),
+          _Kpi('SUCCESS', '${s.successfulTrades}', ''),
+          _Kpi('DEATHS', '${s.tradeDeaths}', ''),
+          _Kpi('TIME', '${s.tradeTime.toStringAsFixed(1)}', 's'),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('DAMAGE'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('DEALT', '${s.damageDealt}', ''),
+          _Kpi('RECEIVED', '${s.damageReceived}', ''),
+          _Kpi('PER RD', s.damagePerRound.toStringAsFixed(1), ''),
+          _Kpi('UTIL DMG', '${s.utilityDamage}', ''),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('SURVIVAL'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('ALIVE', '${s.timeAlive.toStringAsFixed(0)}', 's'),
+          _Kpi('SURVIVE', '${s.survivalRate.toInt()}', '%'),
+        ]),
+        const SizedBox(height: 10),
+        const _NeedsEvents(),
+      ],
+    );
+  }
+}
+
+class _UtilityContent extends StatelessWidget {
+  final SessionStats s;
+  const _UtilityContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _Label('EFFECTIVENESS'),
+        const SizedBox(height: 6),
+        _HBar('Flash', s.flashEffectiveness),
+        _HBar('Smoke', s.smokeEffectiveness),
+        _HBar('Molotov', s.molotovEffectiveness),
+        _HBar('HE', s.heEffectiveness),
+        _HBar('Usage Eff.', s.utilityUsageEfficiency),
+        _HBar('Lineup', s.grenadeLineupSuccess),
+        const SizedBox(height: 10),
+        const _Label('FLASH DETAILS'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('ENEMIES', '${s.enemiesFlashed}', ''),
+          _Kpi('TEAM', '${s.teammatesFlashed}', ''),
+          _Kpi('BLIND', '${s.flashBlindnessDuration.toStringAsFixed(1)}', 's'),
+        ]),
+        const SizedBox(height: 10),
+        const _NeedsEvents(),
+      ],
+    );
+  }
+}
+
+class _PositioningContent extends StatelessWidget {
+  final SessionStats s;
+  const _PositioningContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _Label('PEEK BREAKDOWN'),
+        const SizedBox(height: 6),
+        _HBar('Total', s.peekCount > 0 ? 100 : 0),
+        _HBar('Wide', s.peekCount > 0
+            ? s.widePeekCount / s.peekCount * 100
+            : 0),
+        _HBar('Jiggle', s.peekCount > 0
+            ? s.jigglePeekCount / s.peekCount * 100
+            : 0),
+        _HBar('Shoulder', s.peekCount > 0
+            ? s.shoulderPeekCount / s.peekCount * 100
+            : 0),
+        _HBar('Re-peek', s.peekCount > 0
+            ? s.rePeekCount / s.peekCount * 100
+            : 0),
+        const SizedBox(height: 10),
+        Row(children: [
+          _Kpi('PEEKS', '${s.peekCount}', ''),
+          _Kpi('SUCCESS', '${s.peekSuccessRate.toInt()}', '%'),
+          _Kpi('EXPOSED', '${s.timeExposed.toStringAsFixed(1)}', 's'),
+          _Kpi('COVER', '${s.timeInCover.toStringAsFixed(1)}', 's'),
+        ]),
+        const SizedBox(height: 10),
+        const _NeedsEvents(),
+      ],
+    );
+  }
+}
+
+class _DecisionContent extends StatelessWidget {
+  final SessionStats s;
+  const _DecisionContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          _Kpi('ROTATION', '${s.rotationTiming.toStringAsFixed(1)}', 's'),
+          _Kpi('ROT EFF.', '${s.rotationEfficiency.toInt()}', '%'),
+          _Kpi('LATENCY', '${s.decisionLatency.toInt()}', 'ms'),
+        ]),
+        const SizedBox(height: 10),
+        const _NeedsEvents(),
+      ],
+    );
+  }
+}
+
+class _EconomyContent extends StatelessWidget {
+  final SessionStats s;
+  const _EconomyContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          _Kpi('EQUIP', '\$${s.equipmentValue}', ''),
+          _Kpi('STATE', s.economyState, ''),
+          _Kpi('WEP SWITCHES', '${s.weaponSwitchCount}', ''),
+          _Kpi('RELOAD', '${s.reloadTiming.toStringAsFixed(1)}', 's'),
+        ]),
+        const SizedBox(height: 10),
+        const _NeedsEvents(),
+      ],
+    );
+  }
+}
+
+class _TeamplayContent extends StatelessWidget {
+  final SessionStats s;
+  const _TeamplayContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          _Kpi('SPACING', '${s.teamSpacing.toInt()}', 'u'),
+          _Kpi('NEAREST', '${s.nearestTeammateDistance.toInt()}', 'u'),
+          _Kpi('ISO DEATHS', '${s.isolationDeaths}', ''),
+        ]),
+        const SizedBox(height: 10),
+        const _NeedsEvents(),
+      ],
+    );
+  }
+}
+
+class _RoundContent extends StatelessWidget {
+  final SessionStats s;
+  const _RoundContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _Label('RATINGS'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('HLTV', s.hltvRating.toStringAsFixed(2), ''),
+          _Kpi('ADR', s.adr.toStringAsFixed(1), ''),
+          _Kpi('KAST', '${s.kast.toInt()}', '%'),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('CLUTCH & DUELS'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('CLUTCH ATT', '${s.clutchAttempts}', ''),
+          _Kpi('CLUTCH %', '${s.clutchSuccessPercent.toInt()}', '%'),
+          _Kpi('MULTI-KILL', '${s.multiKillRounds}', ''),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          _Kpi('OPEN DUEL', '${s.openingDuelPercent.toInt()}', '%'),
+          _Kpi('DUEL WIN', '${s.openingDuelWinPercent.toInt()}', '%'),
+          _Kpi('ROUND WIN', '${s.roundWinProbability.toInt()}', '%'),
+        ]),
+        const SizedBox(height: 10),
+        const _NeedsEvents(),
+      ],
+    );
+  }
+}
+
+class _ConsistencyContent extends StatelessWidget {
+  final SessionStats s;
+  const _ConsistencyContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Expanded(
+            child: _GaugeBlock('Confidence', s.confidenceScore),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _GaugeBlock('Consistency', s.consistencyScore),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _GaugeBlock('Fatigue', s.fatigueScore),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        const _Label('SPEED TREND'),
+        const SizedBox(height: 4),
+        _Spark(data: s.speedHistory, maxVal: 300, height: 36),
+        const SizedBox(height: 8),
+        const _Label('STRAFE SYNC TREND'),
+        const SizedBox(height: 4),
+        _Spark(
+            data: s.strafeSyncHistory,
+            maxVal: 100,
+            height: 36,
+            color: BiobaseColors.live),
+        const SizedBox(height: 8),
+        const _Label('COUNTER-STRAFE TREND'),
+        const SizedBox(height: 4),
+        _Spark(
+            data: s.counterStrafeHistory,
+            maxVal: 100,
+            height: 36,
+            color: BiobaseColors.warning),
+        const SizedBox(height: 8),
+        const _Label('PATH EFFICIENCY TREND'),
+        const SizedBox(height: 4),
+        _Spark(
+            data: s.pathEfficiencyHistory,
+            maxVal: 100,
+            height: 36,
+            color: const Color(0xFF8B5CF6)),
+      ],
+    );
+  }
+}
+
+class _MechanicsContent extends StatelessWidget {
+  final SessionStats s;
+  const _MechanicsContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _Label('STRAFING'),
+        const SizedBox(height: 6),
+        _HBar('Strafe Sync', s.strafeSyncPercent),
+        _HBar('Air Strafe Eff.', s.airStrafeEfficiency),
+        _HBar('Counter-strafe', s.counterStrafeAccuracy),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('STOP TIME', s.counterStrafeStopTime.toStringAsFixed(0), 'ms'),
+          _Kpi('FULL ACC', s.timeToFullAccuracy.toStringAsFixed(0), 'ms'),
+          _Kpi('AIR ACCEL+', '+${s.airAccelerationGained.toInt()}', ''),
+          _Kpi('AIR ACCEL−', '−${s.airAccelerationLost.toInt()}', ''),
+        ]),
+        const SizedBox(height: 10),
+        const _Label('STRAFE SYNC TREND'),
+        const SizedBox(height: 4),
+        _Spark(
+            data: s.strafeSyncHistory,
+            maxVal: 100,
+            height: 36,
+            color: BiobaseColors.live),
+        const SizedBox(height: 12),
+        const _Label('JUMPING'),
+        const SizedBox(height: 6),
+        Row(children: [
+          _Kpi('JUMPS', '${s.jumpCount}', ''),
+          _Kpi('PERFECT', '${s.perfectJumps}', ''),
+          _Kpi('PERFECT %', '${s.perfectJumpPercent.toInt()}', '%'),
+          _Kpi('TIMING', '${(s.jumpTimingConsistency * 100).toInt()}', '%'),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          _Kpi('BHOP ATT', '${s.bhopAttemptCount}', ''),
+          _Kpi('BHOP OK', '${s.bhopSuccessCount}', ''),
+          _Kpi('BHOP %', '${s.bhopSuccessRate.toInt()}', '%'),
+          _Kpi('CHAIN MAX', '${s.consecutiveBhopsMax}', ''),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          _Kpi('LANDING RET.', '${(s.landingSpeedRetention * 100).toInt()}', '%'),
+          _Kpi('SPEED LOSS', '${s.speedLossOnLanding.toInt()}', 'u/s'),
+        ]),
+      ],
+    );
+  }
+}
+
+class _BiometricsContent extends StatelessWidget {
+  final SessionStats s;
+  const _BiometricsContent({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Expanded(
+            child: _GaugeBlock(
+                'Fatigue', s.fatigueScore),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _GaugeBlock(
+                'Readiness', (100 - s.fatigueScore).clamp(0.0, 100.0)),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: BiobaseColors.surfaceRaised,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.sensors_outlined,
+                  size: 14, color: BiobaseColors.textTertiary),
+              SizedBox(width: 8),
+              Text('Biometric sensors coming soon — heart rate, HRV, stress, focus',
+                  style: TextStyle(
+                      fontSize: 10, color: BiobaseColors.textTertiary)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ════════════════════════════════════════
+// SHARED VISUALIZATION WIDGETS
+// ════════════════════════════════════════
+
+Color _scoreColor(double score) {
+  if (score <= 0) return BiobaseColors.textTertiary;
+  if (score >= 80) return BiobaseColors.live;
+  if (score >= 60) return BiobaseColors.accent;
+  if (score >= 40) return BiobaseColors.warning;
+  return BiobaseColors.error;
+}
+
+Color _barColor(double pct) {
+  if (pct >= 70) return BiobaseColors.live;
+  if (pct >= 40) return BiobaseColors.accent;
+  if (pct > 0) return BiobaseColors.warning;
+  return BiobaseColors.surfaceRaised;
+}
+
+String _fd(double d) {
+  if (d >= 10000) return '${(d / 1000).toStringAsFixed(0)}k';
+  if (d >= 1000) return '${(d / 1000).toStringAsFixed(1)}k';
+  return d.toInt().toString();
+}
+
+class _Kpi extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+  const _Kpi(this.label, this.value, this.unit);
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RichText(
+              text: TextSpan(children: [
+                TextSpan(
+                  text: value,
+                  style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: BiobaseColors.text,
+                      letterSpacing: -0.3),
+                ),
+                if (unit.isNotEmpty)
+                  TextSpan(
+                    text: unit,
+                    style: const TextStyle(
+                        fontSize: 10, color: BiobaseColors.textTertiary),
+                  ),
+              ]),
+            ),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 9,
+                    color: BiobaseColors.textTertiary,
+                    letterSpacing: 0.3)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Label extends StatelessWidget {
   final String text;
-  const _SectionLabel(this.text);
+  const _Label(this.text);
 
   @override
   Widget build(BuildContext context) {
     return Text(text,
         style: const TextStyle(
-            fontSize: 10,
+            fontSize: 9,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.8,
             color: BiobaseColors.textTertiary));
   }
 }
 
-class _StatePill extends StatelessWidget {
-  final String state;
-  const _StatePill(this.state);
+class _HBar extends StatelessWidget {
+  final String label;
+  final double percent;
+  const _HBar(this.label, this.percent);
 
-  Color get _color {
-    return switch (state) {
-      'AIRBORNE' => BiobaseColors.warning,
-      'RUNNING' => BiobaseColors.accent,
-      'WALKING' => BiobaseColors.text,
-      'CROUCHING' => BiobaseColors.textTertiary,
-      _ => BiobaseColors.textTertiary,
-    };
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 10, color: BiobaseColors.textTertiary)),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(1.5),
+              child: SizedBox(
+                height: 3,
+                child: LinearProgressIndicator(
+                  value: (percent / 100).clamp(0.0, 1.0),
+                  backgroundColor: BiobaseColors.surfaceRaised,
+                  valueColor: AlwaysStoppedAnimation(
+                      _barColor(percent).withAlpha(180)),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 32,
+            child: Text('${percent.toInt()}%',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: BiobaseColors.text)),
+          ),
+        ],
+      ),
+    );
   }
+}
+
+class _GaugeBlock extends StatelessWidget {
+  final String label;
+  final double value;
+  const _GaugeBlock(this.label, this.value);
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: _color.withAlpha(20),
-        borderRadius: BorderRadius.circular(6),
+        color: BiobaseColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(state,
-          style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: _color,
-              letterSpacing: 0.5)),
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  final String label;
-  final String value;
-  const _MiniStat(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(value,
-            style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: BiobaseColors.text,
-                letterSpacing: -0.5)),
-        Text(label,
-            style: const TextStyle(
-                fontSize: 10,
-                color: BiobaseColors.textTertiary)),
-      ],
-    );
-  }
-}
-
-class _InlineStat extends StatelessWidget {
-  final String label;
-  final String value;
-  const _InlineStat(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(value,
-            style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: BiobaseColors.text,
-                letterSpacing: -0.3)),
-        const SizedBox(height: 1),
-        Text(label,
-            style: const TextStyle(
-                fontSize: 10,
-                color: BiobaseColors.textTertiary)),
-      ],
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final String unit;
-  const _StatCard(this.label, this.value, this.unit);
-
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.text,
-                  letterSpacing: -0.5)),
-          if (unit.isNotEmpty)
-            Text(unit,
-                style: const TextStyle(
-                    fontSize: 10,
-                    color: BiobaseColors.textTertiary)),
-          const SizedBox(height: 2),
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 10,
-                  color: BiobaseColors.textTertiary)),
-        ],
-      ),
-    );
-  }
-}
-
-class _BigStatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  const _BigStatCard(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w700,
-                  color: BiobaseColors.text,
-                  letterSpacing: -1,
-                  height: 1)),
-          const SizedBox(height: 4),
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 10,
-                  color: BiobaseColors.textTertiary)),
-        ],
-      ),
-    );
-  }
-}
-
-class _GaugeCard extends StatelessWidget {
-  final String label;
-  final double percent;
-  const _GaugeCard(this.label, this.percent);
-
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
       child: Column(
         children: [
           SizedBox(
-            width: 72,
-            height: 72,
+            width: 56,
+            height: 56,
             child: CustomPaint(
-              painter: _GaugePainter(
-                  value: percent.clamp(0, 100) / 100),
-            ),
+                painter: _ArcGaugePainter(
+                    value: (value / 100).clamp(0.0, 1.0), fontSize: 15)),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(label,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                  fontSize: 10,
-                  color: BiobaseColors.textTertiary)),
+                  fontSize: 10, color: BiobaseColors.textTertiary)),
         ],
       ),
     );
   }
-}
-
-class _GaugePainter extends CustomPainter {
-  final double value;
-  _GaugePainter({required this.value});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = min(size.width, size.height) / 2 - 4;
-    const startAngle = 0.75 * pi;
-    const sweepTotal = 1.5 * pi;
-
-    // Track
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      startAngle,
-      sweepTotal,
-      false,
-      Paint()
-        ..color = BiobaseColors.surfaceRaised
-        ..strokeWidth = 4
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // Value
-    if (value > 0) {
-      final color = value > 0.7
-          ? BiobaseColors.live
-          : value > 0.4
-              ? BiobaseColors.accent
-              : BiobaseColors.warning;
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        sweepTotal * value,
-        false,
-        Paint()
-          ..color = color
-          ..strokeWidth = 4
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round,
-      );
-    }
-
-    // Value text
-    final tp = TextPainter(
-      text: TextSpan(
-          text: '${(value * 100).toInt()}',
-          style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: BiobaseColors.text,
-              letterSpacing: -0.5)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas,
-        Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
-  }
-
-  @override
-  bool shouldRepaint(covariant _GaugePainter old) =>
-      value != old.value;
 }
 
 class _Spark extends StatelessWidget {
@@ -1292,8 +1035,7 @@ class _Spark extends StatelessWidget {
         height: height,
         child: CustomPaint(
           size: Size(double.infinity, height),
-          painter:
-              _SparkPainter(data: data, maxVal: maxVal, color: color),
+          painter: _SparkPainter(data: data, maxVal: maxVal, color: color),
         ),
       ),
     );
@@ -1310,12 +1052,11 @@ class _SparkPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Grid line
     canvas.drawLine(
       Offset(0, size.height / 2),
       Offset(size.width, size.height / 2),
       Paint()
-        ..color = BiobaseColors.surfaceRaised.withAlpha(80)
+        ..color = BiobaseColors.surfaceRaised.withAlpha(60)
         ..strokeWidth = 0.5,
     );
 
@@ -1327,8 +1068,8 @@ class _SparkPainter extends CustomPainter {
     final fill = Path();
     for (int i = 0; i < n; i++) {
       final x = (i / d) * size.width;
-      final y = size.height -
-          (data[i] / maxVal).clamp(0.0, 1.0) * size.height;
+      final y =
+          size.height - (data[i] / maxVal).clamp(0.0, 1.0) * size.height;
       if (i == 0) {
         path.moveTo(x, y);
         fill.moveTo(x, size.height);
@@ -1347,7 +1088,7 @@ class _SparkPainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [color.withAlpha(25), color.withAlpha(3)],
+          colors: [color.withAlpha(25), color.withAlpha(2)],
         ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
     );
     canvas.drawPath(
@@ -1359,12 +1100,10 @@ class _SparkPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round,
     );
 
-    // End dot
     final lx = ((n - 1) / d) * size.width;
-    final ly = size.height -
-        (data.last / maxVal).clamp(0.0, 1.0) * size.height;
-    canvas.drawCircle(
-        Offset(lx, ly), 2, Paint()..color = color);
+    final ly =
+        size.height - (data.last / maxVal).clamp(0.0, 1.0) * size.height;
+    canvas.drawCircle(Offset(lx, ly), 2, Paint()..color = color);
   }
 
   @override
@@ -1372,75 +1111,142 @@ class _SparkPainter extends CustomPainter {
       data.length != old.data.length;
 }
 
-class _BarRow extends StatelessWidget {
-  final String label;
-  final int value;
-  final int maxValue;
-  const _BarRow(this.label, this.value, this.maxValue);
+class _NeedsEvents extends StatelessWidget {
+  const _NeedsEvents();
 
-  @override
-  Widget build(BuildContext context) {
-    final pct = maxValue > 0 ? (value / maxValue).clamp(0.0, 1.0) : 0.0;
-    return Row(
-      children: [
-        SizedBox(
-          width: 80,
-          child: Text(label,
-              style: const TextStyle(
-                  fontSize: 11, color: BiobaseColors.textTertiary)),
-        ),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: SizedBox(
-              height: 4,
-              child: LinearProgressIndicator(
-                value: pct,
-                backgroundColor: BiobaseColors.surfaceRaised,
-                valueColor: AlwaysStoppedAnimation(
-                    BiobaseColors.accent.withAlpha(160)),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 30,
-          child: Text('$value',
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: BiobaseColors.text)),
-        ),
-      ],
-    );
-  }
-}
-
-class _NeedsGameEvents extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: BiobaseColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: BiobaseColors.borderSubtle),
+        color: BiobaseColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         children: [
           Icon(Icons.info_outline,
-              size: 14, color: BiobaseColors.textTertiary.withAlpha(120)),
-          const SizedBox(width: 8),
-          const Text(
-            'Combat & utility stats populate with game event integration',
-            style: TextStyle(
-                fontSize: 11, color: BiobaseColors.textTertiary),
-          ),
+              size: 12, color: BiobaseColors.textTertiary.withAlpha(100)),
+          const SizedBox(width: 6),
+          const Text('Populates with game event integration',
+              style: TextStyle(
+                  fontSize: 10, color: BiobaseColors.textTertiary)),
         ],
       ),
     );
   }
+}
+
+// ── Gauge Painters ──
+
+class _ArcGaugePainter extends CustomPainter {
+  final double value;
+  final double fontSize;
+  _ArcGaugePainter({required this.value, this.fontSize = 14});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = min(size.width, size.height) / 2 - 3;
+    const startAngle = 0.75 * pi;
+    const sweepTotal = 1.5 * pi;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      sweepTotal,
+      false,
+      Paint()
+        ..color = BiobaseColors.surfaceRaised
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round,
+    );
+
+    if (value > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepTotal * value,
+        false,
+        Paint()
+          ..color = _scoreColor(value * 100)
+          ..strokeWidth = 3
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    final tp = TextPainter(
+      text: TextSpan(
+          text: '${(value * 100).toInt()}',
+          style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w700,
+              color: BiobaseColors.text,
+              letterSpacing: -0.5)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(
+        canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(covariant _ArcGaugePainter old) => value != old.value;
+}
+
+class _MiniGaugePainter extends CustomPainter {
+  final double value;
+  _MiniGaugePainter({required this.value});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = min(size.width, size.height) / 2 - 2;
+    const startAngle = 0.75 * pi;
+    const sweepTotal = 1.5 * pi;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      sweepTotal,
+      false,
+      Paint()
+        ..color = BiobaseColors.surfaceRaised
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round,
+    );
+
+    if (value > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepTotal * value,
+        false,
+        Paint()
+          ..color = _scoreColor(value * 100)
+          ..strokeWidth = 2.5
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    final pct = (value * 100).toInt();
+    final tp = TextPainter(
+      text: TextSpan(
+          text: pct > 0 ? '$pct' : '—',
+          style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: pct > 0
+                  ? BiobaseColors.text
+                  : BiobaseColors.textTertiary)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(
+        canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniGaugePainter old) => value != old.value;
 }

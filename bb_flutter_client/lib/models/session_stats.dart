@@ -145,4 +145,83 @@ class SessionStats {
   double get speedAvgSafe => totalSamples > 0 ? speedAvg : 0;
   double get speedMinSafe =>
       speedMin == double.infinity ? 0 : speedMin;
+
+  // ── Category Scores (0–100) ──
+
+  double get movementScore {
+    if (totalSamples == 0) return 0;
+    final s = (speedAvgSafe / 250).clamp(0.0, 1.0);
+    final p = pathEfficiency.clamp(0.0, 1.0);
+    final a = (airTimePercent / 30).clamp(0.0, 1.0);
+    return (s * 40 + p * 40 + a * 20).clamp(0.0, 100.0);
+  }
+
+  double get aimScore {
+    if (crosshairHeadLevelPercent == 0 && firstBulletAccuracy == 0) return 0;
+    return crosshairHeadLevelPercent.clamp(0.0, 100.0);
+  }
+
+  double get combatScore {
+    if (entryAttempts == 0 && damageDealt == 0) return 0;
+    return entrySuccessRate.clamp(0.0, 100.0);
+  }
+
+  double get utilityScore {
+    final t = flashEffectiveness + smokeEffectiveness +
+        molotovEffectiveness + heEffectiveness;
+    if (t == 0) return 0;
+    return (t / 4).clamp(0.0, 100.0);
+  }
+
+  double get positioningScore {
+    if (peekCount == 0 && timeExposed == 0) return 0;
+    return peekSuccessRate.clamp(0.0, 100.0);
+  }
+
+  double get decisionMakingScore {
+    if (rotationEfficiency == 0) return 0;
+    return rotationEfficiency.clamp(0.0, 100.0);
+  }
+
+  double get economyScore => 0;
+  double get teamplayScore => 0;
+
+  double get roundPerformanceScore {
+    if (hltvRating == 0) return 0;
+    return (hltvRating * 50).clamp(0.0, 100.0);
+  }
+
+  double get consistencyScoreCategory =>
+      consistencyScore.clamp(0.0, 100.0);
+
+  double get mechanicalExecutionScore {
+    if (totalSamples == 0) return 0;
+    final vals = [
+      strafeSyncPercent, counterStrafeAccuracy,
+      bhopSuccessRate, perfectJumpPercent,
+    ];
+    final active = vals.where((v) => v > 0);
+    if (active.isEmpty) return 0;
+    return (active.reduce((a, b) => a + b) / active.length)
+        .clamp(0.0, 100.0);
+  }
+
+  double get biometricsScore {
+    if (totalSamples == 0) return 0;
+    return (100 - fatigueScore).clamp(0.0, 100.0);
+  }
+
+  double get overallScore {
+    final scores = categoryScores;
+    final active = scores.where((s) => s > 0).toList();
+    if (active.isEmpty) return 0;
+    return active.reduce((a, b) => a + b) / active.length;
+  }
+
+  List<double> get categoryScores => [
+        movementScore, aimScore, combatScore, utilityScore,
+        positioningScore, decisionMakingScore, economyScore,
+        teamplayScore, roundPerformanceScore, consistencyScoreCategory,
+        mechanicalExecutionScore, biometricsScore,
+      ];
 }

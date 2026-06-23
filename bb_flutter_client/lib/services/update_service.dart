@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 const String _downloadBaseUrl = 'https://cs2.clarionlab.dev/client/';
-const String currentVersion = '0.5.1';
+const String currentVersion = '0.6.0';
 
 String get _updateFeedUrl {
   if (Platform.isMacOS) return '${_downloadBaseUrl}latest-mac.yml';
@@ -102,8 +102,6 @@ class UpdateService {
     extract.createSync();
 
     final appPath = Platform.resolvedExecutable;
-    // resolvedExecutable is inside .app/Contents/MacOS/biobase_client
-    // Walk up to the .app bundle
     final appBundle = File(appPath).parent.parent.parent.path;
 
     await Process.run('unzip', ['-o', zipPath, '-d', extractDir]);
@@ -111,11 +109,9 @@ class UpdateService {
     final newApp = p.join(extractDir, 'biobase_client.app');
     if (!Directory(newApp).existsSync()) return 'Extracted app not found';
 
-    // Replace the running app bundle
     await Process.run('rm', ['-rf', appBundle]);
     await Process.run('mv', [newApp, appBundle]);
 
-    // Relaunch
     await Process.start('open', ['-n', appBundle],
         mode: ProcessStartMode.detached);
     exit(0);

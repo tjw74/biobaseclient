@@ -21,6 +21,31 @@ import 'services/update_service.dart' show UpdateService, currentVersion;
 
 enum Section { live, shadow, replay, profile, insights }
 
+enum _UpdatePhase { idle, checking, downloading, done, current }
+
+class _SectionMeta {
+  final String label;
+  final String title;
+  final String subtitle;
+  const _SectionMeta(this.label, this.title, this.subtitle);
+}
+
+const _sectionMeta = {
+  Section.live: _SectionMeta('LIVE DASHBOARD', 'Live Session', 'Real-time movement analysis'),
+  Section.shadow: _SectionMeta('SHADOW', 'Shadow Training', 'Practice movement drills'),
+  Section.replay: _SectionMeta('REPLAY', 'Demo Replay', 'Review recorded sessions'),
+  Section.profile: _SectionMeta('PERFORMANCE', 'Performance Review', '12-category CS2 analysis'),
+  Section.insights: _SectionMeta('INSIGHTS', 'Insights', 'Trends and patterns'),
+};
+
+const _navItems = [
+  (Section.live, 'Live Dashboard', Icons.show_chart),
+  (Section.shadow, 'Shadow', Icons.people_outline),
+  (Section.replay, 'Replay', Icons.replay),
+  (Section.profile, 'Performance Review', Icons.assessment_outlined),
+  (Section.insights, 'Insights', Icons.layers_outlined),
+];
+
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -35,7 +60,7 @@ class _AppShellState extends State<AppShell> {
   final SessionStatsService _sessionStats = SessionStatsService();
 
   Section _section = Section.live;
-  bool _drawerOpen = false;
+  bool _sidebarCollapsed = false;
   LiveServerStatus? _serverStatus;
   LiveMovementStatus? _movementStatus;
   String _syncStatus = 'starting…';
@@ -149,10 +174,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _navigateTo(Section s) {
-    setState(() {
-      _section = s;
-      _drawerOpen = false;
-    });
+    setState(() => _section = s);
   }
 
   @override
@@ -172,55 +194,58 @@ class _AppShellState extends State<AppShell> {
       backgroundColor: BiobaseColors.bg,
       body: Stack(
         children: [
-          Column(
+          Row(
             children: [
-              DragToMoveArea(child: SizedBox(height: topPad)),
-              DragToMoveArea(
-                child: _ContentHeader(
-                  serverStatus: _serverStatus,
-                  statusLevel: _statusLevel,
-                  trackedPlayer: _settings.trackedPlayerName,
-                  onPickPlayer: _pickPlayer,
-                  onConnect: _connectToServer,
-                  api: _api,
-                  syncStatus: _syncStatus,
-                  onSyncStatusChanged: (s) => setState(() => _syncStatus = s),
-                  onOpenNav: () => setState(() => _drawerOpen = true),
-                  onCheckUpdate: _checkForUpdateManual,
-                  updatePhase: _updatePhase,
-                  updateVersion: _updateVersion,
-                ),
+              _Sidebar(
+                topPad: topPad,
+                section: _section,
+                statusLevel: _statusLevel,
+                collapsed: _sidebarCollapsed,
+                onNav: _navigateTo,
+                onToggleCollapse: () => setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+                updatePhase: _updatePhase,
+                updateVersion: _updateVersion,
+                onCheckUpdate: _checkForUpdateManual,
               ),
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                  child: _buildContent(),
+                child: Column(
+                  children: [
+                    SizedBox(height: topPad),
+                    DragToMoveArea(
+                      child: _ContentHeader(
+                        section: _section,
+                        serverStatus: _serverStatus,
+                        statusLevel: _statusLevel,
+                        trackedPlayer: _settings.trackedPlayerName,
+                        onPickPlayer: _pickPlayer,
+                        onConnect: _connectToServer,
+                        api: _api,
+                        syncStatus: _syncStatus,
+                        onSyncStatusChanged: (s) => setState(() => _syncStatus = s),
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                        child: _buildContent(),
+                      ),
+                    ),
+                    _StatusBar(
+                      syncStatus: _syncStatus,
+                      mapName: _serverStatus?.map,
+                      movementLive: _movementStatus?.ok ?? false,
+                    ),
+                  ],
                 ),
-              ),
-              _StatusBar(
-                syncStatus: _syncStatus,
-                mapName: _serverStatus?.map,
-                movementLive: _movementStatus?.ok ?? false,
               ),
             ],
           ),
-          if (_drawerOpen) ...[
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: () => setState(() => _drawerOpen = false),
-                behavior: HitTestBehavior.opaque,
-              ),
-            ),
-            Positioned(
-              top: topPad + 44,
-              left: isMac ? 80.0 : 20.0,
-              child: _NavPopup(
-                section: _section,
-                statusLevel: _statusLevel,
-                onNav: _navigateTo,
-              ),
-            ),
-          ],
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: DragToMoveArea(child: SizedBox(height: topPad)),
+          ),
         ],
       ),
     );
@@ -239,100 +264,143 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-// ── Nav popup (floating menu) ──
+// ── Sidebar ──
 
-class _NavPopup extends StatelessWidget {
+class _Sidebar extends StatelessWidget {
+  final double topPad;
   final Section section;
   final StatusLevel statusLevel;
+  final bool collapsed;
   final ValueChanged<Section> onNav;
+  final VoidCallback onToggleCollapse;
+  final _UpdatePhase updatePhase;
+  final String? updateVersion;
+  final VoidCallback onCheckUpdate;
 
-  const _NavPopup({
+  const _Sidebar({
+    required this.topPad,
     required this.section,
     required this.statusLevel,
+    required this.collapsed,
     required this.onNav,
+    required this.onToggleCollapse,
+    required this.updatePhase,
+    required this.updateVersion,
+    required this.onCheckUpdate,
   });
-
-  static const _navItems = [
-    (Section.live, 'Live', Icons.show_chart),
-    (Section.shadow, 'Shadow', Icons.people_outline),
-    (Section.replay, 'Replay', Icons.replay),
-    (Section.profile, 'Performance Review', Icons.assessment_outlined),
-    (Section.insights, 'Insights', Icons.layers_outlined),
-  ];
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        width: 200,
-        decoration: BoxDecoration(
-          color: BiobaseColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: BiobaseColors.borderHover),
-          boxShadow: const [
-            BoxShadow(
-                color: Colors.black54, blurRadius: 30, offset: Offset(0, 8)),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final item in _navItems)
-                _NavItem(
-                  icon: item.$3,
-                  label: item.$2,
-                  active: section == item.$1,
-                  onTap: () => onNav(item.$1),
-                ),
-              Container(height: 1, color: BiobaseColors.borderSubtle,
-                  margin: const EdgeInsets.symmetric(vertical: 4)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                child: Row(
-                  children: [
-                    StatusDot(level: statusLevel),
-                    const SizedBox(width: 8),
-                    Text(
-                      switch (statusLevel) {
-                        StatusLevel.live => 'Live',
-                        StatusLevel.online => 'Ready',
-                        StatusLevel.offline => 'Offline',
-                      },
-                      style: const TextStyle(
-                          fontSize: 11, color: BiobaseColors.textTertiary),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    final statusLabel = switch (statusLevel) {
+      StatusLevel.live => 'Live',
+      StatusLevel.online => 'Connected',
+      StatusLevel.offline => 'Offline',
+    };
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      width: collapsed ? 56.0 : 200.0,
+      decoration: const BoxDecoration(
+        border: Border(right: BorderSide(color: BiobaseColors.border)),
+      ),
+      child: Column(
+        children: [
+          SizedBox(height: topPad + 12),
+          // Brand
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 12 : 16),
+            child: collapsed
+                ? Center(child: Image.asset('assets/logo.png', height: 20, filterQuality: FilterQuality.high))
+                : Row(
+                    children: [
+                      Image.asset('assets/logo.png', height: 20, filterQuality: FilterQuality.high),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text('BIOBASE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: BiobaseColors.text, letterSpacing: 1.2)),
+                            Text('Performance Lab', style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
           ),
-        ),
+          const SizedBox(height: 6),
+          // Version
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 4 : 16),
+            child: Align(
+              alignment: collapsed ? Alignment.center : Alignment.centerLeft,
+              child: _VersionIndicator(phase: updatePhase, updateVersion: updateVersion, onTap: onCheckUpdate),
+            ),
+          ),
+          const SizedBox(height: 24),
+          // Nav items
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Column(
+              children: [
+                for (final item in _navItems)
+                  _SidebarNavItem(
+                    icon: item.$3,
+                    label: item.$2,
+                    active: section == item.$1,
+                    collapsed: collapsed,
+                    onTap: () => onNav(item.$1),
+                  ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          // Status
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 16),
+            child: collapsed
+                ? Center(child: StatusDot(level: statusLevel))
+                : Row(
+                    children: [
+                      StatusDot(level: statusLevel),
+                      const SizedBox(width: 8),
+                      Text(statusLabel, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 10),
+          // Collapse toggle
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: _CollapseButton(collapsed: collapsed, onTap: onToggleCollapse),
+          ),
+          const SizedBox(height: 12),
+        ],
       ),
     );
   }
 }
 
-class _NavItem extends StatefulWidget {
+class _SidebarNavItem extends StatefulWidget {
   final IconData icon;
   final String label;
   final bool active;
+  final bool collapsed;
   final VoidCallback onTap;
 
-  const _NavItem({
+  const _SidebarNavItem({
     required this.icon,
     required this.label,
     required this.active,
+    required this.collapsed,
     required this.onTap,
   });
 
   @override
-  State<_NavItem> createState() => _NavItemState();
+  State<_SidebarNavItem> createState() => _SidebarNavItemState();
 }
 
-class _NavItemState extends State<_NavItem> {
+class _SidebarNavItemState extends State<_SidebarNavItem> {
   bool _hovered = false;
 
   @override
@@ -345,43 +413,84 @@ class _NavItemState extends State<_NavItem> {
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
           onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: widget.active
-                  ? BiobaseColors.accentDim
-                  : _hovered
-                      ? BiobaseColors.surfaceHover
-                      : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  widget.icon,
-                  size: 16,
-                  color: widget.active
-                      ? BiobaseColors.text
-                      : BiobaseColors.textTertiary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: widget.active
-                          ? BiobaseColors.text
-                          : BiobaseColors.textTertiary,
+          child: Tooltip(
+            message: widget.collapsed ? widget.label : '',
+            waitDuration: const Duration(milliseconds: 400),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              padding: EdgeInsets.symmetric(horizontal: widget.collapsed ? 0 : 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: widget.active
+                    ? BiobaseColors.accentDim
+                    : _hovered
+                        ? BiobaseColors.surfaceHover
+                        : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: widget.collapsed
+                  ? Center(
+                      child: Icon(widget.icon, size: 16,
+                        color: widget.active ? BiobaseColors.text : BiobaseColors.textTertiary),
+                    )
+                  : Row(
+                      children: [
+                        Icon(widget.icon, size: 16,
+                          color: widget.active ? BiobaseColors.text : BiobaseColors.textTertiary),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(widget.label,
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500,
+                              color: widget.active ? BiobaseColors.text : BiobaseColors.textTertiary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CollapseButton extends StatefulWidget {
+  final bool collapsed;
+  final VoidCallback onTap;
+
+  const _CollapseButton({required this.collapsed, required this.onTap});
+
+  @override
+  State<_CollapseButton> createState() => _CollapseButtonState();
+}
+
+class _CollapseButtonState extends State<_CollapseButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: EdgeInsets.symmetric(horizontal: widget.collapsed ? 0 : 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: _hovered ? BiobaseColors.surfaceHover : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: widget.collapsed
+              ? Center(child: Icon(Icons.chevron_right, size: 16, color: BiobaseColors.textTertiary))
+              : Row(
+                  children: const [
+                    Icon(Icons.chevron_left, size: 16, color: BiobaseColors.textTertiary),
+                    SizedBox(width: 8),
+                    Text('Collapse', style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                  ],
+                ),
         ),
       ),
     );
@@ -391,6 +500,7 @@ class _NavItemState extends State<_NavItem> {
 // ── Content header ──
 
 class _ContentHeader extends StatelessWidget {
+  final Section section;
   final LiveServerStatus? serverStatus;
   final StatusLevel statusLevel;
   final String trackedPlayer;
@@ -399,12 +509,9 @@ class _ContentHeader extends StatelessWidget {
   final ApiService api;
   final String syncStatus;
   final ValueChanged<String> onSyncStatusChanged;
-  final VoidCallback onOpenNav;
-  final VoidCallback onCheckUpdate;
-  final _UpdatePhase updatePhase;
-  final String? updateVersion;
 
   const _ContentHeader({
+    required this.section,
     required this.serverStatus,
     required this.statusLevel,
     required this.trackedPlayer,
@@ -413,32 +520,29 @@ class _ContentHeader extends StatelessWidget {
     required this.api,
     required this.syncStatus,
     required this.onSyncStatusChanged,
-    required this.onOpenNav,
-    required this.onCheckUpdate,
-    required this.updatePhase,
-    required this.updateVersion,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isMac = Platform.isMacOS;
-    final leftPad = isMac ? 80.0 : 20.0;
+    final meta = _sectionMeta[section]!;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(leftPad, 8, 20, 0),
+      padding: const EdgeInsets.fromLTRB(24, 10, 20, 0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: onOpenNav,
-              child: Image.asset('assets/logo.png', height: 22, filterQuality: FilterQuality.high),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(meta.label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 1.0, color: BiobaseColors.accent)),
+                const SizedBox(height: 2),
+                Text(meta.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: BiobaseColors.text, letterSpacing: -0.4, height: 1.2)),
+                const SizedBox(height: 2),
+                Text(meta.subtitle, style: const TextStyle(fontSize: 12, color: BiobaseColors.textTertiary)),
+              ],
             ),
           ),
-          const SizedBox(width: 10),
-          _VersionIndicator(phase: updatePhase, updateVersion: updateVersion, onTap: onCheckUpdate),
-          const Spacer(),
           _ServerPill(
             status: serverStatus,
             statusLevel: statusLevel,
@@ -447,10 +551,7 @@ class _ContentHeader extends StatelessWidget {
             onConnect: onConnect,
           ),
           const SizedBox(width: 4),
-          _AppMenuButton(
-            api: api,
-            onStatus: onSyncStatusChanged,
-          ),
+          _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
         ],
       ),
     );
@@ -497,27 +598,17 @@ class _ServerPillState extends State<_ServerPill> {
           child: GestureDetector(
             onTap: () => _overlayController.toggle(),
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(6)),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   StatusDot(level: widget.statusLevel),
                   const SizedBox(width: 6),
-                  Text(
-                    isOnline ? mapName : 'Not connected',
-                    style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: BiobaseColors.textTertiary),
-                  ),
+                  Text(isOnline ? mapName : 'Not connected',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: BiobaseColors.textTertiary)),
                   const SizedBox(width: 4),
-                  const Text('▾',
-                      style: TextStyle(
-                          fontSize: 8, color: BiobaseColors.textTertiary)),
+                  const Text('▾', style: TextStyle(fontSize: 8, color: BiobaseColors.textTertiary)),
                 ],
               ),
             ),
@@ -552,14 +643,9 @@ class _ServerPillState extends State<_ServerPill> {
               width: 240,
               decoration: BoxDecoration(
                 color: BiobaseColors.surfaceRaised,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: BiobaseColors.borderHover),
-                boxShadow: const [
-                  BoxShadow(
-                      color: Colors.black54,
-                      blurRadius: 30,
-                      offset: Offset(0, 8)),
-                ],
+                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 30, offset: Offset(0, 8))],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -573,29 +659,16 @@ class _ServerPillState extends State<_ServerPill> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Server',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                    color: BiobaseColors.textSecondary)),
-                            StatusBadge(
-                                status: isOnline
-                                    ? StatusLevel.online
-                                    : StatusLevel.offline),
+                            const Text('Server', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: BiobaseColors.textSecondary)),
+                            StatusBadge(status: isOnline ? StatusLevel.online : StatusLevel.offline),
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Text(mapName,
-                            style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: BiobaseColors.text)),
+                        Text(mapName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: BiobaseColors.text)),
                         if (isOnline)
                           Text(
                             '${humans.length} player${humans.length != 1 ? "s" : ""}${bots > 0 ? " · $bots bot${bots != 1 ? "s" : ""}" : ""}',
-                            style: const TextStyle(
-                                fontSize: 11,
-                                color: BiobaseColors.textTertiary),
+                            style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
                           ),
                       ],
                     ),
@@ -607,11 +680,7 @@ class _ServerPillState extends State<_ServerPill> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Players — click to track',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: BiobaseColors.textSecondary)),
+                          const Text('Players — click to track', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: BiobaseColors.textSecondary)),
                           const SizedBox(height: 4),
                           ...humans.map((p) => _playerRow(p)),
                         ],
@@ -624,18 +693,13 @@ class _ServerPillState extends State<_ServerPill> {
                     child: SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
-                          _overlayController.hide();
-                          widget.onConnect();
-                        },
+                        onPressed: () { _overlayController.hide(); widget.onConnect(); },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: BiobaseColors.accent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 6),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6)),
-                          textStyle: const TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w500),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                         ),
                         child: const Text('Connect to Server'),
                       ),
@@ -657,10 +721,7 @@ class _ServerPillState extends State<_ServerPill> {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTap: () {
-            widget.onPickPlayer(player.name);
-            _overlayController.hide();
-          },
+          onTap: () { widget.onPickPlayer(player.name); _overlayController.hide(); },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
@@ -670,12 +731,8 @@ class _ServerPillState extends State<_ServerPill> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(player.name,
-                    style: const TextStyle(
-                        fontSize: 12, color: BiobaseColors.text)),
-                Text('${player.ping}ms',
-                    style: const TextStyle(
-                        fontSize: 11, color: BiobaseColors.textTertiary)),
+                Text(player.name, style: const TextStyle(fontSize: 12, color: BiobaseColors.text)),
+                Text('${player.ping}ms', style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
               ],
             ),
           ),
@@ -685,7 +742,7 @@ class _ServerPillState extends State<_ServerPill> {
   }
 }
 
-// ── App menu (⋯) ──
+// ── App menu ──
 
 class _AppMenuButton extends StatefulWidget {
   final ApiService api;
@@ -707,10 +764,7 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
     setState(() => _busy = true);
     final result = await widget.api.createCompanionLink();
     if (result['ok'] == true && result['url'] != null) {
-      setState(() {
-        _companionUrl = result['url'] as String;
-        _busy = false;
-      });
+      setState(() { _companionUrl = result['url'] as String; _busy = false; });
       widget.onStatus('SideView ready');
     } else {
       setState(() => _busy = false);
@@ -730,20 +784,12 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
           child: GestureDetector(
             onTap: () {
               final opening = !_overlayController.isShowing;
-              if (opening) {
-                _overlayController.show();
-                if (_companionUrl == null) _createSideView();
-              } else {
-                _overlayController.hide();
-              }
+              if (opening) { _overlayController.show(); if (_companionUrl == null) _createSideView(); }
+              else { _overlayController.hide(); }
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              child: const Text('⋯',
-                  style: TextStyle(
-                      fontSize: 16,
-                      letterSpacing: 2,
-                      color: BiobaseColors.textTertiary)),
+              child: const Text('⋯', style: TextStyle(fontSize: 16, letterSpacing: 2, color: BiobaseColors.textTertiary)),
             ),
           ),
         ),
@@ -754,12 +800,7 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
   Widget _buildMenu() {
     return Stack(
       children: [
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: () => _overlayController.hide(),
-            behavior: HitTestBehavior.opaque,
-          ),
-        ),
+        Positioned.fill(child: GestureDetector(onTap: () => _overlayController.hide(), behavior: HitTestBehavior.opaque)),
         CompositedTransformFollower(
           link: _link,
           targetAnchor: Alignment.bottomRight,
@@ -771,64 +812,41 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
               width: 240,
               decoration: BoxDecoration(
                 color: BiobaseColors.surfaceRaised,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: BiobaseColors.borderHover),
-                boxShadow: const [
-                  BoxShadow(
-                      color: Colors.black54,
-                      blurRadius: 30,
-                      offset: Offset(0, 8)),
-                ],
+                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 30, offset: Offset(0, 8))],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(10),
+                  const Padding(
+                    padding: EdgeInsets.all(10),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text('SideView',
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: BiobaseColors.textSecondary)),
+                      children: [
+                        Text('SideView', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: BiobaseColors.textSecondary)),
                         SizedBox(height: 2),
-                        Text('Open stats on another screen',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: BiobaseColors.textTertiary)),
+                        Text('Open stats on another screen', style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
                       ],
                     ),
                   ),
                   if (_busy)
                     const Padding(
                       padding: EdgeInsets.all(10),
-                      child: Center(
-                          child: Text('Generating…',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: BiobaseColors.textTertiary))),
+                      child: Center(child: Text('Generating…', style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary))),
                     ),
                   if (_companionUrl != null) ...[
                     Center(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         child: QrImageView(
                           data: _companionUrl!,
                           version: QrVersions.auto,
                           size: 160,
                           backgroundColor: Colors.transparent,
-                          eyeStyle: const QrEyeStyle(
-                            eyeShape: QrEyeShape.square,
-                            color: BiobaseColors.text,
-                          ),
-                          dataModuleStyle: const QrDataModuleStyle(
-                            dataModuleShape: QrDataModuleShape.square,
-                            color: BiobaseColors.text,
-                          ),
+                          eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: BiobaseColors.text),
+                          dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: BiobaseColors.text),
                         ),
                       ),
                     ),
@@ -837,20 +855,13 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
                       padding: const EdgeInsets.all(10),
                       child: Row(
                         children: [
-                          Expanded(
-                            child: _menuBtn('New QR', () {
-                              _createSideView();
-                            }),
-                          ),
+                          Expanded(child: _menuBtn('New QR', () { _createSideView(); })),
                           const SizedBox(width: 4),
-                          Expanded(
-                            child: _menuBtn('Copy link', () async {
-                              if (_companionUrl == null) return;
-                              await Clipboard.setData(
-                                  ClipboardData(text: _companionUrl!));
-                              widget.onStatus('SideView link copied');
-                            }),
-                          ),
+                          Expanded(child: _menuBtn('Copy link', () async {
+                            if (_companionUrl == null) return;
+                            await Clipboard.setData(ClipboardData(text: _companionUrl!));
+                            widget.onStatus('SideView link copied');
+                          })),
                         ],
                       ),
                     ),
@@ -876,23 +887,15 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: BiobaseColors.border),
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: BiobaseColors.textSecondary),
-          ),
+          child: Text(label, textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: BiobaseColors.textSecondary)),
         ),
       ),
     );
   }
 }
 
-// ── Update indicator (inline on version number) ──
-
-enum _UpdatePhase { idle, checking, downloading, done, current }
+// ── Version indicator ──
 
 class _VersionIndicator extends StatelessWidget {
   final _UpdatePhase phase;
@@ -950,22 +953,16 @@ class _StatusBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: BiobaseColors.borderSubtle)),
       ),
       child: Row(
         children: [
-          Text(syncStatus,
-              style: const TextStyle(
-                  fontSize: 11, color: BiobaseColors.textTertiary)),
+          Text(syncStatus, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
           const SizedBox(width: 12),
-          Text(mapName ?? 'server offline',
-              style: const TextStyle(
-                  fontSize: 11, color: BiobaseColors.textTertiary)),
+          Text(mapName ?? 'server offline', style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
           const SizedBox(width: 12),
-          Text(movementLive ? 'movement feed live' : 'ready',
-              style: const TextStyle(
-                  fontSize: 11, color: BiobaseColors.textTertiary)),
+          Text(movementLive ? 'movement feed live' : 'ready', style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
         ],
       ),
     );

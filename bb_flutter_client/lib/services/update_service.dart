@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 const String _downloadBaseUrl = 'https://cs2.clarionlab.dev/client/';
-const String currentVersion = '0.7.1';
+const String currentVersion = '0.7.2';
 
 String get _updateFeedUrl {
   if (Platform.isMacOS) return '${_downloadBaseUrl}latest-mac.yml';

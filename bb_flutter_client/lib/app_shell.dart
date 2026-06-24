@@ -293,25 +293,23 @@ class _Sidebar extends StatelessWidget {
           SizedBox(height: topPad + 12),
           // Brand
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: collapsed ? 12 : 16),
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 8 : 16),
             child: collapsed
-                ? Center(child: Image.asset('assets/logo.png', height: 20, filterQuality: FilterQuality.high))
-                : Row(
+                ? Column(
                     children: [
-                      Image.asset('assets/logo.png', height: 20, filterQuality: FilterQuality.high),
-                      const SizedBox(width: 10),
-                      const Text('BIOBASE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: BiobaseColors.text, letterSpacing: 1.2)),
+                      const Text('B', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: BiobaseColors.text)),
+                      const SizedBox(height: 2),
+                      _VersionIndicator(phase: updatePhase, updateVersion: updateVersion, onTap: onCheckUpdate),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('BioBase', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: BiobaseColors.text)),
+                      const SizedBox(height: 2),
+                      _VersionIndicator(phase: updatePhase, updateVersion: updateVersion, onTap: onCheckUpdate),
                     ],
                   ),
-          ),
-          const SizedBox(height: 6),
-          // Version
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: collapsed ? 4 : 16),
-            child: Align(
-              alignment: collapsed ? Alignment.center : Alignment.centerLeft,
-              child: _VersionIndicator(phase: updatePhase, updateVersion: updateVersion, onTap: onCheckUpdate),
-            ),
           ),
           const SizedBox(height: 24),
           // Nav items

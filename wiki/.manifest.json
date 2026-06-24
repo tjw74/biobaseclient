@@ -29,7 +29,7 @@
     "biobase": {
       "source_cwd": "/home/clearmined/code/prod/biobase",
       "last_synced": "2026-06-24T01:20:47Z",
-      "last_commit_synced": "d9e9484e7f418f901a1d5f363781b956838c4846",
+      "last_commit_synced": "8597473",
       "pages_in_vault": [
         "projects/biobase/biobase.md",
         "projects/biobase/concepts/biobase-session-ingest.md",

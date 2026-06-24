@@ -23,21 +23,6 @@ enum Section { live, shadow, replay, profile, insights }
 
 enum _UpdatePhase { idle, checking, downloading, done, current }
 
-class _SectionMeta {
-  final String label;
-  final String title;
-  final String subtitle;
-  const _SectionMeta(this.label, this.title, this.subtitle);
-}
-
-const _sectionMeta = {
-  Section.live: _SectionMeta('LIVE DASHBOARD', 'Live Session', 'Real-time movement analysis'),
-  Section.shadow: _SectionMeta('SHADOW', 'Shadow Training', 'Practice movement drills'),
-  Section.replay: _SectionMeta('REPLAY', 'Demo Replay', 'Review recorded sessions'),
-  Section.profile: _SectionMeta('PERFORMANCE', 'Performance Review', '12-category CS2 analysis'),
-  Section.insights: _SectionMeta('INSIGHTS', 'Insights', 'Trends and patterns'),
-};
-
 const _navItems = [
   (Section.live, 'Live Dashboard', Icons.show_chart),
   (Section.shadow, 'Shadow', Icons.people_outline),
@@ -210,10 +195,9 @@ class _AppShellState extends State<AppShell> {
               Expanded(
                 child: Column(
                   children: [
-                    SizedBox(height: topPad),
+                    DragToMoveArea(child: SizedBox(height: topPad)),
                     DragToMoveArea(
                       child: _ContentHeader(
-                        section: _section,
                         serverStatus: _serverStatus,
                         statusLevel: _statusLevel,
                         trackedPlayer: _settings.trackedPlayerName,
@@ -226,7 +210,7 @@ class _AppShellState extends State<AppShell> {
                     ),
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                         child: _buildContent(),
                       ),
                     ),
@@ -316,15 +300,7 @@ class _Sidebar extends StatelessWidget {
                     children: [
                       Image.asset('assets/logo.png', height: 20, filterQuality: FilterQuality.high),
                       const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text('BIOBASE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: BiobaseColors.text, letterSpacing: 1.2)),
-                            Text('Performance Lab', style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary)),
-                          ],
-                        ),
-                      ),
+                      const Text('BIOBASE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: BiobaseColors.text, letterSpacing: 1.2)),
                     ],
                   ),
           ),
@@ -500,7 +476,6 @@ class _CollapseButtonState extends State<_CollapseButton> {
 // ── Content header ──
 
 class _ContentHeader extends StatelessWidget {
-  final Section section;
   final LiveServerStatus? serverStatus;
   final StatusLevel statusLevel;
   final String trackedPlayer;
@@ -511,7 +486,6 @@ class _ContentHeader extends StatelessWidget {
   final ValueChanged<String> onSyncStatusChanged;
 
   const _ContentHeader({
-    required this.section,
     required this.serverStatus,
     required this.statusLevel,
     required this.trackedPlayer,
@@ -524,25 +498,11 @@ class _ContentHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final meta = _sectionMeta[section]!;
-
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 10, 20, 0),
+      padding: const EdgeInsets.fromLTRB(24, 4, 20, 0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(meta.label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 1.0, color: BiobaseColors.accent)),
-                const SizedBox(height: 2),
-                Text(meta.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: BiobaseColors.text, letterSpacing: -0.4, height: 1.2)),
-                const SizedBox(height: 2),
-                Text(meta.subtitle, style: const TextStyle(fontSize: 12, color: BiobaseColors.textTertiary)),
-              ],
-            ),
-          ),
+          const Spacer(),
           _ServerPill(
             status: serverStatus,
             statusLevel: statusLevel,

@@ -55,7 +55,9 @@ def _strip_ansi(s: str) -> str:
 
 def mcrcon_run(*command_parts: str, timeout: float | None = None) -> tuple[int, str]:
     t = RCON_TIMEOUT if timeout is None else timeout
-    cmd = [MCRCON_BIN, "-H", RCON_HOST, "-P", str(RCON_PORT), "-p", RCON_PASSWORD, *command_parts]
+    # mcrcon appends a single trailing argument to the RCON line; join multi-token CS2 commands.
+    cmd_str = " ".join(command_parts)
+    cmd = [MCRCON_BIN, "-H", RCON_HOST, "-P", str(RCON_PORT), "-p", RCON_PASSWORD, cmd_str]
     try:
         p = subprocess.run(
             cmd,
@@ -237,17 +239,18 @@ def _capabilities_payload() -> dict:
         "hostname": (st_parsed or {}).get("hostname"),
     }
 
-    mv_code, mv_text = mcrcon_run("meta", "version", timeout=tmo)
-    ml_code, ml_text = mcrcon_run("meta", "list", timeout=tmo)
+    mv_code, mv_text = mcrcon_run("meta version", timeout=tmo)
+    ml_code, ml_text = mcrcon_run("meta list", timeout=tmo)
 
     cs_code, cs_text = -1, ""
-    for css_cmd in (("css", "list"), ("css_plugins", "list")):
-        cs_code, cs_text = mcrcon_run(*css_cmd, timeout=tmo)
-        if cs_code == 0:
-            break
-        low = (cs_text or "").lower()
-        if cs_text and "unknown command" not in low and "not recognized" not in low:
-            break
+    for probe in ("css_plugins list", "css list"):
+        cs_code, cs_text = mcrcon_run(probe, timeout=tmo)
+        if cs_code != 0:
+            continue
+        low = _strip_ansi(cs_text or "").lower()
+        if "unknown command" in low and "list" in low:
+            continue
+        break
 
     sc_code, sc_text = mcrcon_run("sv_cheats", timeout=tmo)
     cheat_state, cheat_note = (

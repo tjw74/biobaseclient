@@ -1,0 +1,39 @@
+---
+description: Biobase monorepo + Karpathy LLM Wiki (Obsidian vault + skills). Use when maintaining the wiki, ingesting sources, or answering from compiled wiki pages.
+globs: "**/*"
+alwaysApply: true
+---
+
+# Biobase — LLM Wiki (Karpathy pattern)
+
+This workspace implements Andrej Karpathy’s **LLM Wiki** idea ([gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)): **raw sources → compiled markdown wiki → schema/skills** that tell agents how to maintain it.
+
+## Where things live
+
+| Piece | Path |
+|-------|------|
+| **Vault** (compiled wiki) | `wiki/` — `index.md`, `log.md`, `hot.md`, `projects/`, etc. |
+| **Raw sources** (immutable) | `docs/llm-wiki-raw/` (e.g. Karpathy gist copy), repo `info.md`, READMEs — add more as needed |
+| **Agent skills** (schema + operations) | `obsidian-wiki/.skills/` — symlinked from **`.cursor/skills`** at repo root |
+| **Skill bootstrap / routing** | `obsidian-wiki/AGENTS.md`, `obsidian-wiki/CLAUDE.md`, `obsidian-wiki/README.md` |
+| **Vault + sources env** | `obsidian-wiki/.env` — from `obsidian-wiki/.env.biobase.example` (copy and adjust paths) |
+
+## Conventions (this repo)
+
+1. **Read vault config:** `obsidian-wiki/.env` → `OBSIDIAN_VAULT_PATH` must point at **`wiki/`** here (`<repo-root>/wiki`).
+2. **Skills:** Prefer reading **`obsidian-wiki/.skills/<name>/SKILL.md`** (same content as `.cursor/skills/`).
+3. **Compile, don’t only append:** Update existing wiki pages when code/docs change; refresh `index.md`, `log.md`, `hot.md`, and `.manifest.json` per the relevant skill.
+4. **Attribution:** Wiki **`hot.md`** / **`index.md`** ask for `agent=` on LLM edits — follow that.
+
+## Quick skill routing
+
+| Intent | Skill |
+|--------|--------|
+| Initialize or fix vault layout | `wiki-setup` |
+| Add a document / folder of sources | `wiki-ingest` |
+| Sync **this** repo into `wiki/projects/…` | `wiki-update` |
+| Question against compiled pages | `wiki-query` |
+| Health check, links, drift | `wiki-lint` |
+| Pattern / architecture theory | `llm-wiki` |
+
+For the full table, open `obsidian-wiki/AGENTS.md`.

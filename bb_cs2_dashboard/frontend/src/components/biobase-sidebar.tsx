@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/sidebar"
 import {
   ActivityIcon,
+  DatabaseIcon,
   LayoutDashboardIcon,
   ListTreeIcon,
   MapIcon,
@@ -35,6 +36,7 @@ export type DashboardSection =
   | "observability"
   | "demo_schema"
   | "pro_movement"
+  | "performance_datasets"
   | "roadmap"
 
 const navItems: {
@@ -49,6 +51,7 @@ const navItems: {
   { title: "TikTok clips", section: "tiktok_clips", icon: VideoIcon },
   { title: "Demo fields", section: "demo_schema", icon: ListTreeIcon },
   { title: "Pro movement", section: "pro_movement", icon: RouteIcon },
+  { title: "Performance datasets", section: "performance_datasets", icon: DatabaseIcon },
   { title: "Observability", section: "observability", icon: ActivityIcon },
   { title: "Roadmap", section: "roadmap", icon: MapIcon },
 ]

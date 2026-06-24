@@ -11,6 +11,7 @@ const titles: Record<DashboardSection, string> = {
   observability: "Observability",
   demo_schema: "Demo extractable fields",
   pro_movement: "Pro movement review",
+  performance_datasets: "Performance datasets",
   roadmap: "BioBase Live Roadmap",
 }
 

@@ -9,5 +9,6 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["src/main/**/*.ts", "src/shared/types.ts"]
+  "include": ["src/main/**/*.ts", "src/shared/types.ts", "src/shared/updateTypes.ts", "src/shared/updateFeedback.ts"],
+  "exclude": ["src/main/preload.ts"]
 }

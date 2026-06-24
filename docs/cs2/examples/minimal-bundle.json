@@ -1,0 +1,16 @@
+{
+  "schema_version": "biobase-telemetry-v1",
+  "match_id": "00000000-0000-0000-0000-00000000cafe",
+  "map": "de_dust2",
+  "tickrate": 128,
+  "players": [
+    {"steam_id": "76561198000000001", "name": "PlayerA", "slot": 0},
+    {"steam_id": "76561198000000002", "name": "PlayerB", "slot": 1}
+  ],
+  "samples": [
+    {"tick": 1000, "steam_id": "76561198000000001", "x": 125.25, "y": -413.75, "z": 96.03125},
+    {"tick": 1001, "steam_id": "76561198000000001", "x": 125.52, "y": -413.12, "z": 96.03125},
+    {"tick": 1000, "steam_id": "76561198000000002", "x": -40.125, "y": -120.5, "z": 72.03125}
+  ],
+  "recordings": []
+}

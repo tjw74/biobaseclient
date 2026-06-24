@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Prepare bb_cs2_server for a bot deathmatch data-collection session.
-# Overrides CS2KZ defaults (game_type 3 / bot_stop 1) for standard casual bot play.
+# Prepare bb_cs2_server for a bot deathmatch data-collection session **when CS2KZ is installed**.
+# With BB_CS2_SERVER_PROFILE=play (default), use normal combat stacks instead — this script is for
+# practice|kz installs where meta unload still fixes plugin hooks after a map change.
 # Run on the host with bb_cs2_server up:  ./short_match_rcon.sh
 # Set RCON_HOST / RCON_PORT / RCON_PASSWORD or CS2_RCONPW to match docker-compose.
 set -euo pipefail
@@ -39,6 +40,10 @@ r "mp_match_end_changelevel 0"
 r "log on"
 r "sv_logecho 1"
 r "mp_logdetail 3"
+
+# Do not exec biobase_dev here — it restores practice cheats and breaks normal bot/combat rounds.
+# To re-enable that bundle after tuning: RCON exec biobase_dev
+
 
 r "mp_warmup_end"
 r "mp_restartgame 1"

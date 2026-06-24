@@ -1,6 +1,6 @@
 {
   "name": "biobase_desktop_client",
-  "version": "0.1.44",
+  "version": "0.5.2",
   "private": true,
   "description": "Biobase desktop client for CS2 demo parsing, overlay HUD, stats dashboard, live player observation, and central sync.",
   "main": "dist/main/main.js",

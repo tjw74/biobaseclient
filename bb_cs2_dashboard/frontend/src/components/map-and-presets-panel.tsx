@@ -68,13 +68,22 @@ export function MapAndPresetsPanel() {
       const d = await postChangeMap(m)
       if (d.httpStatus === 401) {
         await refresh()
-        toast.error("Session expired — sign in again")
+        toast.error(d.error?.trim() || "Session expired — sign in again")
+        return
+      }
+      if (d.httpStatus === 403) {
+        toast.error(d.error ?? "You don't have permission to change the map (forbidden).")
         return
       }
       if (d.ok) {
         toast.success(d.message ?? "Map change sent")
       } else {
-        toast.error(d.error ?? "Map change failed")
+        toast.error(
+          d.error ??
+            (d.httpStatus === 502
+              ? "Control service error — check CS2_CONTROL_TOKEN / BB_CS2_CONTROL_TOKEN matches bb_cs2_control."
+              : "Map change failed"),
+        )
       }
     } catch {
       toast.error("Request failed")

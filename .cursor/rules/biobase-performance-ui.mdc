@@ -1,0 +1,18 @@
+---
+description: Biobase performance dashboard and Clarion UI doctrine
+globs:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+  - "**/*.ts"
+alwaysApply: false
+---
+
+# Biobase Performance UI Rule
+
+When implementing Biobase performance analytics, follow `docs/roadmap.md`, `docs/features/performance_dataset_categories.md`, and `docs/ui/clarion_interface_doctrine.md`.
+
+Default UX: one Performance Review page with top summary, sticky category rail, and expandable category sections. Optional deep-dive screens are allowed; forced separate category pages are not the default.
+
+Design standard: compact, value-first, low cognitive load, no card soup, no duplicated labels, semantic color only, thin charts, screenshot review before completion.

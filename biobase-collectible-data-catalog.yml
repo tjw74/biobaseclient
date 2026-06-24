@@ -1,0 +1,196 @@
+# Biobase — catalog of collectible CS2-related data
+# For review only; aligns with bb_data_collection parsers + schemas + common operators.
+#
+# Legend:
+#   origin          — where bits first exist or are observable (before/downstream sinks)
+#   sink            — where this repo persists or routes it today (may be absent)
+#   status          — available_in_stack | partial | requires_build | external_only
+
+schema_version: 1
+
+summary:
+  - Live match state (every entity position/tick) lives in the CS2 dedicated process memory unless exported.
+  - This repo observes the server chiefly via: container stdout/stderr, optional CS2KZ SQLite files, ingest API + Loki range queries, and periodic HTTP snapshots from bb_cs2_control.
+  - Dense per-player XYZ time series requires an explicit emitter (e.g. BIOBASE_POS_JSON lines) or demo parsing; vanilla combat logs yield sparse XYZ on damage/kill when logging detail is sufficient.
+
+#############################################################################
+origins_live_server:
+  - id: engine_simulation_ram
+    description: >-
+      Positions/velocity/angles/health/buttons/etc. inside the CS2 dedicated server process.
+      Not directly readable by shell without debuggers unless exported.
+    status: exists_always
+    operator_cli_approximation: >-
+      docker logs -f bb_cs2_server
+
+  - id: server_console_stdout_stderr
+    description: HL-formatted lines, plugin prints, Echo, combat detail when CVars/logging enable it.
+    status: always_streaming_into_docker_logs
+    operator_cli_approximation: >-
+      docker logs -f bb_cs2_server | stdbuf -oL grep -E '…'
+
+  - id: biobase_pos_json_protocol
+    description: >-
+      BIOBASE_POS_JSON {player,steamid,tick,pos,vel,speed,yaw,pitch,on_ground} emitted ~100 ms by
+      BiobasePosEmitter (CounterStrikeSharp) in bb_cs2_server image. Parses to game.biobase_cs2_movement_sample
+      (+ game_event biobase_pos) when emitted.
+      Reference: bb_cs2_server/biobase_pos_emitter + bb_data_collection/app/log_parser.py
+    status: shipped_in_bb_cs2_server_image
+    operator_cli_approximation: >-
+      docker logs -f bb_cs2_server | grep BIOBASE_POS_JSON
+
+  - id: biobase_event_json_protocol
+    description: >-
+      Planned protocol: BIOBASE_EVENT_JSON {... "type":"jump"|…}. Parses to game_event (event_type field).
+      Reference: bb_data_collection/app/log_parser.py
+    status: requires_emitter_impl
+
+  - id: cs2_combat_kill_damage_logs
+    description: >-
+      Parsed kill lines; damage lines when mp_logdetail is high enough to include attacker/victim [...] brackets.
+      Produces attacker_pos/victim_pos in extra_json where present.
+      Reference: bb_data_collection/app/log_parser.py patterns _KILL_RE, _ATTACK_RE
+    status: partial_requires_server_logging_cvares
+
+  - id: cs2_round_json_begin_end_blocks
+    description: JSON_BEGIN {...} }}JSON_END per-round cumulative stat lumps → game.biobase_cs2_round_stats
+    status: parsed_when_logged
+
+  - id: metamod_loaded_plugins_manifest
+    description: meta list / meta version (what plugins DLLs bind at runtime — not positional data).
+    status: operational_command_via_mcrcon_through_bb_cs2_control_container
+
+#########################################################
+sink_cs2kz_sqlite_on_disk:
+  notes: >-
+    Written by CS2KZ + sql_mm — path varies; bb_client compose default mounts read-only snapshot:
+    CS2KZ_SQLITE_PATH=/cs2-dedicated/game/csgo/addons/cs2kz/data/cs2kz.sqlite3
+  tables_mirror_to_postgres:
+    # Populated incrementally during ingest polling (see bb_data_collection/app/kz_sqlite_ingest.py)
+    - game.biobase_cs2kz_player       # aliases, steamid64, timestamps, prefs, cheater flag
+    - game.biobase_cs2kz_run          # timed runs metadata (duration, TP, modes, maps/courses)
+    - game.biobase_cs2kz_jumpstat     # jumpstat metrics buckets
+    - game.biobase_cs2kz_sqlite_cursor # ingest bookkeeping
+  inherent_sqlite_topics_not_exhaustively_listed: >-
+    Canonical schema inside cs2kz release; Postgres mirror copies selected tables only.
+
+###############################################################################
+sink_bb_data_collection_existing:
+  ingest_flow_summary: >-
+    Sessions trigger: HTTP polls to bb_cs2_control (/api/status) + bulk Loki range read for bb_cs2_server logs
+    + optional CS2KZ SQLite snapshots; final parse attaches rows to biobase_cs2_match_session (public).
+
+  public_schema:
+    - table: biobase_cs2_match_session
+      contains: ingest session identifiers, durations, timestamps, cancellation, Loki window ns, failures
+
+  ops_schema:
+    - table: ops.biobase_cs2_log_line
+      contains: verbatim text lines duplicated from Promtail→Loki for session wall window
+      row_shape: '{ingested_at,loki_ts_ns,line,session_id}'
+
+    - table: ops.biobase_cs2_rcon_sample
+      contains: snapshots of coarse server JSON from periodic /api/status (humans bots map hostname headline errors)
+      row_shape: '{sampled_at,rcon_ok,headline,humans,bots,map,hostname,raw_json,session_id}'
+
+    - table: ops.biobase_cs2_player_snapshot
+      contains: per-player rows unpacked from JSON players[] at each sampling tick (userid,name,steam id guess, ping, loss, connected, state …)
+      row_shape: derives from periodic control JSON
+
+    - table: ops.biobase_ingest_sample
+      contains: bootstrap historic stub rows (minimal practical value)
+
+################################################################################
+parsed_game_schema:
+  table_group: game
+  implementations:
+    - table: game.biobase_cs2_game_event
+      event_types_parsed_when_logs_match_regex:
+        - kill
+        - damage
+        - assist
+        - round_start
+        - round_end
+        - game_over
+        - game_commencing
+        - world_*      # wildcard World triggered events
+        - team_score
+        - connect
+        - disconnect
+        - say
+        - say_team
+        - freeze_period
+        - match_status
+        - player_reset
+        - team_change
+        - biobase_pos   # from BIOBASE_POS_JSON
+        - biobase_event # from BIOBASE_EVENT_JSON keyed by arbitrary type string
+      columns_core:
+        # See bb_data_collection/app/schema_cs2.py DDL
+        - event_ts
+        - event_type
+        - round_num
+        - attacker_name / attacker_steamid / attacker_team
+        - victim_name   / victim_steamid / victim_team
+        - weapon
+        - headshot
+        - extra_json   # positional arrays (attacker_pos, victim_pos) & misc plugin payloads
+        - raw_line
+      status: populated_when_matching_server_lines_present_inside_loki_pull
+
+    - table: game.biobase_cs2_movement_sample
+      columns_dense_movement_when_emitter_alive:
+        - tick
+        - player_name
+        - steamid
+        - pos_x pos_y pos_z
+        - vel_x vel_y vel_z
+        - speed
+        - yaw
+        - pitch
+        - on_ground
+      status: >-
+        empty_until_BIOBASE_POS_JSON_printed_regularly_then_ingestion_runs_successfully_end_of_session_windows
+
+    - table: game.biobase_cs2_round_stats
+      columns_wide_cumulative_snapshots_when_json_blocks_logged:
+        - economy & combat rollup fields (dmg,kills,...,chicken kills)
+      status: rows_can_be_zeros_if_server_emits_skeleton_blocks_early
+
+##################################################################################
+http_control_snapshot_api:
+  not_a_game_db:
+    id: bb_cs2_control_/api/status
+    description: Parses dedicated server textual status blob into JSON headline/humans/bots/map/players[]
+    caveat: excludes world XYZ / weapon / velocities
+    cli_example:
+      curl: curl -sS http://HOST:8765/api/status
+
+######################################################################################
+observability_extras_not_gameplay_core:
+  - id: Prometheus_metrics
+    hint: Grafana Prometheus datasources bundled (bb_monitor_*). Enumerate exporters separately if needed — not enumerated here exhaustively.
+
+  - id: Loki_streams
+    description: >-
+      Labels include container & host metadata; ingestion queries {container=\"bb_cs2_server\"}.
+
+#########################################################################################
+external_optional_pipelines_demo_offline:
+  - id: awpy_demo_ticks
+    description: Parses .dem to tick tables (footsteps grenades kills …) purely offline Python.
+    status: orthogonal_to_live_ingest
+    prerequisite: Acquire CS2 GOTV/MM demo artifact on disk manually or via automation.
+
+###############################################################################
+biosensors_future_extension:
+  status: >-
+    EMG/other biological streams are conceptual product scope —
+    specify separate capture path (MQTT/CSV/gRPC/ble gateway) —
+    integrate later with participant/session keys (not modeled in YAML detail here).
+
+#########################################################################################
+collector_limits_env:
+  BIOBASE_LOKI_LINE_LIMIT_DEFAULT: '5000'   # trims large windows (see bb_data_collection env)
+  session_line_of_sight_notes: >-
+    Empty game_event rows ⇒ either no overlapping log timestamps in Loki slice for that ingest or logging disabled / unloaded plugins.

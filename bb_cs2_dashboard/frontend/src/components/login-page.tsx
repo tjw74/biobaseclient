@@ -13,23 +13,62 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/context/auth-context"
+import { authLoginUrl } from "@/lib/dashboard-api"
+
+const USERNAME_STORAGE_KEY = "bb_cs2_dashboard_username"
+
+function readStoredUsername(): string {
+  if (typeof window === "undefined") {
+    return "admin"
+  }
+  return localStorage.getItem(USERNAME_STORAGE_KEY)?.trim() || "admin"
+}
+
+async function tryStorePasswordInBrowser(username: string, password: string): Promise<void> {
+  if (typeof window === "undefined" || !navigator.credentials?.store) {
+    return
+  }
+  const PasswordCredentialCtor = (
+    window as Window & {
+      PasswordCredential?: new (data: {
+        id: string
+        password: string
+        name?: string
+      }) => Credential
+    }
+  ).PasswordCredential
+  if (!PasswordCredentialCtor) {
+    return
+  }
+  try {
+    await navigator.credentials.store(
+      new PasswordCredentialCtor({ id: username, password, name: username }),
+    )
+  } catch {
+    // Browser may decline; session cookie still keeps you signed in.
+  }
+}
 
 export function LoginPage() {
   const { login } = useAuth()
-  const [username, setUsername] = useState("")
+  const [username, setUsername] = useState(readStoredUsername)
   const [password, setPassword] = useState("")
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setBusy(true)
     setErr(null)
-    const ok = await login(username.trim(), password)
-    setBusy(false)
-    if (!ok) {
+    const user = username.trim()
+    const ok = await login(user, password)
+    if (ok) {
+      localStorage.setItem(USERNAME_STORAGE_KEY, user)
+      await tryStorePasswordInBrowser(user, password)
+    } else {
       setErr("Invalid username or password.")
     }
+    setBusy(false)
   }
 
   return (
@@ -38,12 +77,18 @@ export function LoginPage() {
         <CardHeader>
           <CardTitle>BioBase · CS2 admin</CardTitle>
           <CardDescription>
-            Shared team login. Use the operator name and password configured on the server (same style
-            as a simple Grafana login).
+            Shared team login. After a successful sign-in you stay logged in for 30 days on this
+            browser. Firefox can also save the password when prompted.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={(e) => void onSubmit(e)} className="grid gap-4">
+          <form
+            method="post"
+            action={authLoginUrl()}
+            autoComplete="on"
+            onSubmit={(e) => void onSubmit(e)}
+            className="grid gap-4"
+          >
             <div className="grid gap-2">
               <Label htmlFor="dash-user">Username</Label>
               <Input

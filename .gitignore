@@ -22,3 +22,13 @@ bb_flutter_client/.dart_tool/
 bb_flutter_client/.flutter-plugins
 bb_flutter_client/.flutter-plugins-dependencies
 bb_flutter_client/installer/output/
+# Biobase local/runtime artifacts
+runtime/
+.hermes/reports/
+# JavaScript/Electron generated artifacts
+node_modules/
+dist/
+release/
+*.tsbuildinfo
+.vite/
+.hermes/archive/

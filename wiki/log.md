@@ -15,3 +15,7 @@ title: Wiki Log
 - [2026-06-04T16:25:00Z] WIKI_UPDATE agent=GPT-5.5 project=biobase pages_updated=2 source_cwd=/home/clearmined/code/prod/biobase note="bb_desktop_client final MVP: settings, upload queue, retry, local commit prep"
 
 - 2026-06-04T17:45:00Z — Finished Biobase desktop client release hardening except GitHub push: added device pairing/auth headers, persisted device credentials, Node test suite, production dependency audit clean, Electron 39 / electron-builder 26 updates, unsigned Windows dir packaging verification, and Windows QA checklist.
+
+- [2026-06-22T22:15:47Z] WIKI_UPDATE agent=GPT-5.5 project=biobase pages_updated=14 pages_created=6 source_cwd=/home/clearmined/code/prod/biobase note="canonical performance dataset categories + Performance Review UI doctrine mirrored to repo docs, Obsidian, LLM wiki, ClarionKnowledge"
+
+- [2026-06-24T01:20:47Z] WIKI_UPDATE agent=Codex project=biobase pages_updated=5 pages_created=1 source_cwd=/home/clearmined/code/prod/biobase note="biobase-performance-v1, Flutter evidence-aware Performance Review, startup fix, durable authenticated client session history"

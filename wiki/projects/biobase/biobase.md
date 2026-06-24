@@ -2,10 +2,10 @@
 title: >-
   Biobase
 category: projects
-tags: [cs2, game-analytics, postgres, grafana, docker, electron, desktop-client]
+tags: [cs2, game-analytics, postgres, grafana, docker, flutter, desktop-client]
 sources: [projects/biobase]
 summary: >-
-  CS2 performance analytics platform: desktop Electron client (primary UI),
+  CS2 performance analytics platform: Flutter desktop client (release UI),
   phone companion via QR, admin dashboard, auto-update pipeline, and CS2
   server data pipeline. Design philosophy: extreme friction reduction and
   zero-inference labeling.
@@ -14,7 +14,7 @@ provenance:
   inferred: 0.12
   ambiguous: 0.03
 created: 2026-04-28T00:00:00Z
-updated: 2026-06-04T15:54:47Z
+updated: 2026-06-24T01:20:47Z
 ---
 
 # Biobase
@@ -47,11 +47,15 @@ bb_cs2_dashboard (bb_cs2_server compose)
 
 ## Design Philosophy
 
+- **Single-page Performance Review** — categories live on one review surface with compact summaries, sticky jump rail, expandable sections, and optional deep dives.
 - [[zero-inference-labeling]] — Every label communicates with zero cognitive inference from the user. If the name makes you ask "what's that?", it has failed.
 - **Extreme friction reduction** — Every interaction that can be eliminated, is eliminated. No unnecessary inputs, no learning curves, controls live where users are already looking.
 
 ## Key Concepts
 
+- [[biobase-performance-contract]] — Versioned category, source, confidence, availability, and session-persistence contract
+- [[biobase-performance-dataset-roadmap]] — Canonical 12-category pro-player performance dataset and roadmap
+- [[biobase-performance-review-ui-doctrine]] — One-page Performance Review UI doctrine with sticky category rail and expandable sections
 - [[biobase-product-roadmap]] — Phased delivery plan, progress tracking, current state (v0.1.44)
 - [[biobase-windows-client-primary-ui]] — Desktop client architecture, three UI surfaces, design decisions
 - [[llm-wiki-pattern]] — Karpathy **LLM Wiki** for this monorepo (`wiki/` vault; skills in `obsidian-wiki/`; raw gist copy under `docs/llm-wiki-raw/`)

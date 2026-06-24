@@ -1,0 +1,118 @@
+{
+  "schema_version": "biobase-performance-v1",
+  "category_order": [
+    "movement",
+    "aim",
+    "combat",
+    "utility",
+    "positioning",
+    "decision_making",
+    "teamplay",
+    "economy",
+    "round_performance",
+    "consistency",
+    "mechanical_execution",
+    "biometrics"
+  ],
+  "evidence_states": ["observed", "derived", "unavailable"],
+  "metric_sources": [
+    "server_telemetry",
+    "demo_parser",
+    "game_event",
+    "session_history",
+    "derived_heuristic",
+    "biometric_device"
+  ],
+  "rules": {
+    "unavailable_metrics_are_excluded_from_scores": true,
+    "derived_metrics_require_confidence": true,
+    "replay_metrics_require_tick_or_time": true,
+    "zero_is_not_an_unavailable_value": true
+  },
+  "categories": [
+    {
+      "id": "movement",
+      "label": "Movement",
+      "initial_source": "server_telemetry",
+      "release_state": "derived",
+      "metrics": ["velocity", "strafing", "bunny_hops", "counter_strafes", "jumps", "air_control", "positioning", "movement_efficiency"]
+    },
+    {
+      "id": "aim",
+      "label": "Aim",
+      "initial_source": "demo_parser",
+      "release_state": "derived",
+      "metrics": ["crosshair_placement", "head_level_percent", "flick_accuracy", "spray_control", "spray_transfer", "burst_accuracy", "tap_accuracy", "first_bullet_accuracy", "crosshair_travel", "target_acquisition", "time_to_first_shot", "reaction_time"]
+    },
+    {
+      "id": "combat",
+      "label": "Combat",
+      "initial_source": "game_event",
+      "release_state": "unavailable",
+      "metrics": ["kills", "deaths", "assists", "adr", "damage_dealt", "damage_taken", "headshot_percent", "opening_duels", "trade_kills", "trade_deaths", "multi_kills", "clutches", "time_to_kill", "survival_time"]
+    },
+    {
+      "id": "utility",
+      "label": "Utility",
+      "initial_source": "game_event",
+      "release_state": "unavailable",
+      "metrics": ["flash_effectiveness", "teammates_flashed", "enemies_flashed", "smoke_effectiveness", "molotov_effectiveness", "he_damage", "utility_damage", "utility_value_per_round", "utility_timing", "lineup_success"]
+    },
+    {
+      "id": "positioning",
+      "label": "Positioning",
+      "initial_source": "demo_parser",
+      "release_state": "unavailable",
+      "metrics": ["heatmaps", "angle_hold_time", "angle_win_rate", "time_in_cover", "time_exposed", "peek_locations", "death_locations", "kill_locations", "rotation_paths", "distance_traveled"]
+    },
+    {
+      "id": "decision_making",
+      "label": "Decision Making",
+      "initial_source": "game_event",
+      "release_state": "unavailable",
+      "metrics": ["rotate_timing", "save_decisions", "retake_participation", "entry_timing", "re_peek_frequency", "aggression_score", "risk_score", "opportunity_conversion", "decision_latency"]
+    },
+    {
+      "id": "teamplay",
+      "label": "Teamplay",
+      "initial_source": "demo_parser",
+      "release_state": "unavailable",
+      "metrics": ["trade_percentage", "spacing", "distance_to_teammates", "support_effectiveness", "flash_assists", "crossfires", "bait_deaths", "refrag_timing", "site_support_timing"]
+    },
+    {
+      "id": "economy",
+      "label": "Economy",
+      "initial_source": "game_event",
+      "release_state": "unavailable",
+      "metrics": ["buy_efficiency", "equipment_value", "weapon_value", "economy_impact", "save_success", "upgrade_timing", "cost_per_kill", "cost_per_damage"]
+    },
+    {
+      "id": "round_performance",
+      "label": "Round Performance",
+      "initial_source": "game_event",
+      "release_state": "unavailable",
+      "metrics": ["round_impact_score", "mvp_rounds", "win_contribution", "objective_contribution", "bomb_plants", "defuses", "entry_impact", "clutch_impact", "momentum"]
+    },
+    {
+      "id": "consistency",
+      "label": "Consistency",
+      "initial_source": "session_history",
+      "release_state": "derived",
+      "metrics": ["performance_trend", "round_to_round_variance", "aim_consistency", "movement_consistency", "decision_consistency", "utility_consistency", "confidence_score", "fatigue_score", "tilt_indicator"]
+    },
+    {
+      "id": "mechanical_execution",
+      "label": "Mechanical Execution",
+      "initial_source": "derived_heuristic",
+      "release_state": "derived",
+      "metrics": ["reload_timing", "weapon_switching", "scope_timing", "accuracy_recovery", "weapon_handling", "input_efficiency", "idle_time", "actions_per_minute"]
+    },
+    {
+      "id": "biometrics",
+      "label": "BioBase Biometrics",
+      "initial_source": "biometric_device",
+      "release_state": "unavailable",
+      "metrics": ["heart_rate", "hrv", "respiration", "skin_temperature", "skin_conductance", "eye_tracking", "blink_rate", "pupil_dilation", "posture", "hand_tremor", "muscle_tension", "fatigue", "cognitive_load", "focus_score", "stress_score"]
+    }
+  ]
+}

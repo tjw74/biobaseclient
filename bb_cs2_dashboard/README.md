@@ -76,12 +76,26 @@ cd /home/clearmined/code/prod/biobase/bb_cs2_server
 - `BB_DEMO_PARSE_MAX_MB` — max size for demo parse upload/URL fetch (default **256**).
 - `BB_DEMO_PARSE_ALLOW_URL_FETCH` — set `1` / `true` to allow `demo_url` on `POST /api/demo-parse-preview` (SSRF-hardened host allowlist).
 - `BB_DEMO_PARSE_URL_HOSTS` — optional comma-separated hostname suffix allowlist (defaults include `figshare.com`, `github.com`, `raw.githubusercontent.com`, `objects.githubusercontent.com`).
+- `BB_DEMO_PARSER_COMPARE_TIMEOUT_SEC` — wall time for **each** parser subprocess in `POST /api/demo-parser-compare` (default **120**, max 600).
+- `BB_DEMO_PARSER_COMPARE_MAX_STDOUT` — max captured stdout bytes per subprocess (default **524288**).
+- `BB_DEMOINFOCS_SUMMARY_BIN` — override path to the `demoinfocs-summary` helper (default **`/usr/local/bin/demoinfocs-summary`**). If the binary is missing, the Go slot returns `skipped` / `binary_not_installed` (useful for slim dev images).
+- `BB_DEMOINFOCS_SUMMARY_VERSION` — optional static override for **`GET /api/server-capabilities` → `demo_parsers`** (skips probing `demoinfocs-summary --version`).
+- `BB_DEMO_PARSER_PROBE_TIMEOUT_SEC` — cap subprocess probes for **`demo_parsers`** (default **`3`**).
 
 ### Demo parse preview + fixture
 
 - **API:** `POST /api/demo-parse-preview` (multipart: `file` **or** form `demo_url` if allowed; optional `event_scan_max`, default 80, max 200). Same auth as other `/api/*` routes.
-- **Fixture (optional):** `make fetch-demo-fixture` in this directory writes `fixtures/sample.dem` when Figshare permits unattended download; otherwise see [`fixtures/README.md`](fixtures/README.md) for the canonical URL and manual download.
-- **Test (optional):** with `fixtures/sample.dem` present, `python -m unittest tests.test_demo_parse_preview`.
+- **API:** `POST /api/demo-parser-compare` — same multipart source as above; runs **three** isolated summaries in parallel: **awpy** (Python), **LaihoE `demoparser2`** (Python worker), **`demoinfocs-golang` v5** (static Go binary from the image). The admin **Demo** tab shows tabs (Awpy / LaihoE / Go) with timing, exit code, JSON summary, and expandable stderr.
+
+#### Parser sources (CS2)
+
+| Parser | Install in image | CS2 notes |
+|--------|------------------|-----------|
+| [awpy](https://github.com/pnxenopoulos/awpy) | `pip install awpy` | Python ≥ 3.11 upstream; this image uses 3.12. CS2-focused. |
+| [LaihoE demoparser2](https://github.com/LaihoE/demoparser) | Pulled in by awpy (`pip install demoparser2`) | Rust core; CS2 demos. |
+| [demoinfocs-golang](https://github.com/markus-wa/demoinfocs-golang) | Multi-stage Docker build → `/usr/local/bin/demoinfocs-summary` | **v5** supports CS2 and CS:GO. Older **v3** is CS:GO-only — this dashboard builds **v5**. |
+
+**Fixture / tests:** `make fetch-demo-fixture` may write `fixtures/sample.dem` (see [`fixtures/README.md`](fixtures/README.md)). With that file: `python -m unittest tests.test_demo_parse_preview`. Parser-compare smoke (no real parse): `python -m unittest tests.test_demo_parser_compare`. Control token + `/api/map` proxy + login allowlist (no Docker): `python -m unittest tests.test_dashboard_control_proxy`.
 
 ## Rebuild after UI changes
 

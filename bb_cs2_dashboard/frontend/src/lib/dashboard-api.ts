@@ -67,6 +67,10 @@ export type StatusResponse = {
   raw?: string
 }
 
+export function authLoginUrl(): string {
+  return apiUrl("/api/auth/login")
+}
+
 export async function fetchAuthMe(): Promise<{
   authenticated: boolean
   login_required: boolean
@@ -109,11 +113,19 @@ export async function fetchStatus(): Promise<{
 
 export type CapabilityTriState = "enabled" | "disabled" | "unknown"
 
+export type DemoParserCapability = {
+  id: string
+  tool: string
+  version_or_probe: string
+  source: string
+}
+
 export type ServerCapabilitiesResponse = {
   control_http_ok?: boolean
   checked_at?: string
   error?: string
   detail?: string
+  demo_parsers?: DemoParserCapability[]
   server_profile?: { value: string; source: string }
   rcon?: {
     reachable?: boolean
@@ -260,6 +272,8 @@ export type DemoFieldCatalogResponse = {
 export async function postDemoParsePreview(args: {
   file?: File | null
   demoUrl?: string
+  /** Basename from GET /api/uploads (same volume as Clips upload). */
+  clipStorageName?: string
   eventScanMax?: number
 }): Promise<{
   httpStatus: number
@@ -272,6 +286,10 @@ export async function postDemoParsePreview(args: {
   const url = args.demoUrl?.trim()
   if (url) {
     fd.append("demo_url", url)
+  }
+  const clip = args.clipStorageName?.trim()
+  if (clip) {
+    fd.append("clip_storage_name", clip)
   }
   fd.append("event_scan_max", String(args.eventScanMax ?? 80))
   const r = await fetch(apiUrl("/api/demo-parse-preview"), {
@@ -295,6 +313,8 @@ export type DemoParsePreviewMeta = {
 
 export type DemoParsePreviewDiscovered = {
   header_keys?: string[]
+  /** First 64 header keys with truncated scalar previews (from awpy demo header). */
+  header_field_samples?: Record<string, string | number | boolean | null>
   list_game_events?: string[]
   list_updated_fields?: string[]
   event_columns_from_parse_event?: Record<string, string[] | { error?: string }>
@@ -313,6 +333,68 @@ export type DemoParsePreviewResponse = {
   detail?: string
 }
 
+export type ParserCompareParserResult = {
+  id: string
+  label: string
+  ok?: boolean
+  skipped?: boolean
+  exit_code?: number | null
+  duration_ms?: number
+  summary?: Record<string, unknown> | null
+  stdout_json?: Record<string, unknown> | null
+  stdout_text?: string
+  stderr_tail?: string
+  error?: string | null
+  hint?: string
+}
+
+export type ParserCompareResponse = {
+  meta?: {
+    source_filename?: string
+    bytes?: number
+    sha256?: string
+    timeout_sec?: number
+    max_stdout_bytes?: number
+    disclaimer?: string
+  }
+  parsers?: Record<string, ParserCompareParserResult>
+  error?: string
+  detail?: string
+}
+
+export async function postDemoParserCompare(args: {
+  file?: File | null
+  demoUrl?: string
+  clipStorageName?: string
+}): Promise<{
+  httpStatus: number
+  data: ParserCompareResponse
+}> {
+  const fd = new FormData()
+  if (args.file) {
+    fd.append("file", args.file, args.file.name)
+  }
+  const url = args.demoUrl?.trim()
+  if (url) {
+    fd.append("demo_url", url)
+  }
+  const clip = args.clipStorageName?.trim()
+  if (clip) {
+    fd.append("clip_storage_name", clip)
+  }
+  const r = await fetch(apiUrl("/api/demo-parser-compare"), {
+    method: "POST",
+    credentials: cred,
+    body: fd,
+  })
+  const data = (await r.json().catch(() => ({}))) as ParserCompareResponse
+  return { httpStatus: r.status, data }
+}
+
+export type ClipBatchUploadRow =
+  | { ok: true; saved_as: string; bytes: number; filename?: string }
+  | { ok: false; detail: string; http_status: number; filename?: string }
+
 export async function uploadClip(file: File): Promise<{
   httpStatus: number
   ok?: boolean
@@ -321,6 +403,8 @@ export async function uploadClip(file: File): Promise<{
   detail?: string
   vm_clips_path?: string | null
   host?: string
+  /** Populated for multi-file POST (≥2 parts). */
+  results?: ClipBatchUploadRow[]
 }> {
   const fd = new FormData()
   fd.append("file", file, file.name)
@@ -336,6 +420,7 @@ export async function uploadClip(file: File): Promise<{
     detail?: unknown
     vm_clips_path?: string | null
     host?: string
+    results?: ClipBatchUploadRow[]
   }
   return {
     httpStatus: r.status,
@@ -345,6 +430,54 @@ export async function uploadClip(file: File): Promise<{
     detail: fastApiDetailString(d.detail),
     vm_clips_path: d.vm_clips_path ?? null,
     host: typeof d.host === "string" ? d.host : undefined,
+    results: Array.isArray(d.results) ? d.results : undefined,
+  }
+}
+
+/** POST multiple `file` parts in one request. For a single file, delegates to {@link uploadClip}. */
+export async function uploadClips(files: File[]): Promise<{
+  httpStatus: number
+  ok?: boolean
+  saved_as?: string
+  bytes?: number
+  detail?: string
+  vm_clips_path?: string | null
+  host?: string
+  results?: ClipBatchUploadRow[]
+}> {
+  if (files.length === 0) {
+    return { httpStatus: 400, ok: false, detail: "no_files" }
+  }
+  if (files.length === 1) {
+    return uploadClip(files[0]!)
+  }
+  const fd = new FormData()
+  for (const f of files) {
+    fd.append("file", f, f.name)
+  }
+  const r = await fetch(apiUrl("/api/uploads"), {
+    method: "POST",
+    credentials: cred,
+    body: fd,
+  })
+  const d = (await r.json().catch(() => ({}))) as {
+    ok?: boolean
+    saved_as?: string
+    bytes?: number
+    detail?: unknown
+    vm_clips_path?: string | null
+    host?: string
+    results?: ClipBatchUploadRow[]
+  }
+  return {
+    httpStatus: r.status,
+    ok: d.ok,
+    saved_as: d.saved_as,
+    bytes: d.bytes,
+    detail: fastApiDetailString(d.detail),
+    vm_clips_path: d.vm_clips_path ?? null,
+    host: typeof d.host === "string" ? d.host : undefined,
+    results: Array.isArray(d.results) ? d.results : undefined,
   }
 }
 
@@ -397,4 +530,341 @@ export function clipUploadAbsoluteDownloadUrl(storageName: string): string {
     return path
   }
   return new URL(path, window.location.origin).href
+}
+
+export type ClipLibrarySummary = {
+  id: string
+  label: string
+  mp4_count: number
+}
+
+export async function fetchClipLibraries(): Promise<{
+  httpStatus: number
+  ok?: boolean
+  libraries?: ClipLibrarySummary[]
+  detail?: string
+}> {
+  const r = await fetch(apiUrl("/api/clip-libraries"), {
+    method: "GET",
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as {
+    ok?: boolean
+    libraries?: ClipLibrarySummary[]
+    detail?: unknown
+  }
+  return {
+    httpStatus: r.status,
+    ok: d.ok,
+    libraries: Array.isArray(d.libraries) ? d.libraries : undefined,
+    detail: fastApiDetailString(d.detail),
+  }
+}
+
+export async function fetchClipLibraryItems(
+  libraryId: string,
+  opts?: { limit?: number; offset?: number; q?: string },
+): Promise<{
+  httpStatus: number
+  ok?: boolean
+  library_id?: string
+  items?: UploadListItem[]
+  total?: number
+  limit?: number
+  offset?: number
+  has_more?: boolean
+  detail?: string
+}> {
+  const params = new URLSearchParams()
+  if (opts?.limit != null) {
+    params.set("limit", String(opts.limit))
+  }
+  if (opts?.offset != null) {
+    params.set("offset", String(opts.offset))
+  }
+  if (opts?.q?.trim()) {
+    params.set("q", opts.q.trim())
+  }
+  const qs = params.toString()
+  const r = await fetch(
+    apiUrl(`/api/clip-libraries/${encodeURIComponent(libraryId)}/items${qs ? `?${qs}` : ""}`),
+    {
+      method: "GET",
+      credentials: cred,
+      headers: headers(true),
+    },
+  )
+  const d = (await r.json().catch(() => ({}))) as {
+    ok?: boolean
+    library_id?: string
+    items?: UploadListItem[]
+    total?: number
+    limit?: number
+    offset?: number
+    has_more?: boolean
+    detail?: unknown
+  }
+  return {
+    httpStatus: r.status,
+    ok: d.ok,
+    library_id: d.library_id,
+    items: Array.isArray(d.items) ? d.items : undefined,
+    total: typeof d.total === "number" ? d.total : undefined,
+    limit: typeof d.limit === "number" ? d.limit : undefined,
+    offset: typeof d.offset === "number" ? d.offset : undefined,
+    has_more: d.has_more,
+    detail: fastApiDetailString(d.detail),
+  }
+}
+
+/** Same-origin URL for inline MP4 playback (session cookie sent). */
+export function clipLibraryPlayUrl(libraryId: string, fileName: string): string {
+  const params = new URLSearchParams({ name: fileName })
+  return apiUrl(`/api/clip-libraries/${encodeURIComponent(libraryId)}/play?${params.toString()}`)
+}
+
+export type DemoMovementPoint = {
+  tick: number
+  round_num?: number
+  x: number | null
+  y: number | null
+  z: number | null
+  health?: number | null
+}
+
+export type DemoMovementPlayer = {
+  steamid: string
+  name: string
+  team_name?: string | null
+  rows: number
+  first_tick: number
+  last_tick: number
+  travel_units: number
+  bounds?: Record<string, number | null>
+  points: DemoMovementPoint[]
+}
+
+export type DemoMovementPayload = {
+  ok?: boolean
+  cached?: boolean
+  meta?: {
+    extraction?: string
+    awpy_version?: string | null
+    demoparser2_version?: string | null
+    source_filename?: string
+    storage_name?: string
+    bytes?: number
+    sha256?: string
+    generated_at?: string
+    parse_elapsed_sec?: number
+    max_points_per_player?: number
+    note?: string
+  }
+  summary?: {
+    tick_rows?: number
+    movement_rows?: number
+    players?: number
+    rounds?: number
+    columns?: string[]
+    bounds?: Record<string, number | null>
+  }
+  players?: DemoMovementPlayer[]
+  error?: string
+  detail?: string
+}
+
+export type DemoMovementListResponse = {
+  ok?: boolean
+  parse_max_mb?: number
+  demos?: Array<UploadListItem & { movement_parsed?: boolean }>
+  artifacts?: Array<{
+    artifact: string
+    storage_name?: string
+    source_filename?: string
+    generated_at?: string
+    parse_elapsed_sec?: number
+    tick_rows?: number
+    movement_rows?: number
+    players?: number
+    rounds?: number
+    bytes?: number
+  }>
+  detail?: string
+}
+
+export async function fetchDemoMovementList(): Promise<{ httpStatus: number; data: DemoMovementListResponse }> {
+  const r = await fetch(apiUrl("/api/demo-movement"), {
+    method: "GET",
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoMovementListResponse
+  return { httpStatus: r.status, data: d }
+}
+
+export async function fetchDemoMovement(clipStorageName: string): Promise<{ httpStatus: number; data: DemoMovementPayload }> {
+  const params = new URLSearchParams({ clip_storage_name: clipStorageName })
+  const r = await fetch(apiUrl(`/api/demo-movement?${params.toString()}`), {
+    method: "GET",
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoMovementPayload
+  return { httpStatus: r.status, data: d }
+}
+
+export async function postDemoMovementParse(args: {
+  clipStorageName: string
+  force?: boolean
+  maxPointsPerPlayer?: number
+}): Promise<{ httpStatus: number; data: DemoMovementPayload }> {
+  const fd = new FormData()
+  fd.append("clip_storage_name", args.clipStorageName)
+  fd.append("force", args.force ? "true" : "false")
+  fd.append("max_points_per_player", String(args.maxPointsPerPlayer ?? 450))
+  const r = await fetch(apiUrl("/api/demo-movement/parse"), {
+    method: "POST",
+    credentials: cred,
+    body: fd,
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoMovementPayload
+  return { httpStatus: r.status, data: d }
+}
+
+export type DemoMovementAnnotation = {
+  id: string
+  clip_storage_name?: string
+  player_steamid?: string | null
+  player_name?: string | null
+  start_tick: number
+  end_tick: number
+  label: string
+  intent?: string | null
+  phase?: string | null
+  quality?: string | null
+  note?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export type DemoMovementAnnotationsResponse = {
+  ok?: boolean
+  storage_name?: string
+  updated_at?: string
+  annotations?: DemoMovementAnnotation[]
+  error?: string
+  detail?: string
+}
+
+export async function fetchDemoMovementAnnotations(clipStorageName: string): Promise<{ httpStatus: number; data: DemoMovementAnnotationsResponse }> {
+  const params = new URLSearchParams({ clip_storage_name: clipStorageName })
+  const r = await fetch(apiUrl(`/api/demo-movement/annotations?${params.toString()}`), {
+    method: "GET",
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoMovementAnnotationsResponse
+  return { httpStatus: r.status, data: d }
+}
+
+export async function postDemoMovementAnnotation(annotation: Omit<DemoMovementAnnotation, "id"> & { id?: string; clip_storage_name: string }): Promise<{ httpStatus: number; data: DemoMovementAnnotationsResponse }> {
+  const r = await fetch(apiUrl("/api/demo-movement/annotations"), {
+    method: "POST",
+    credentials: cred,
+    headers: {
+      ...headers(true),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(annotation),
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoMovementAnnotationsResponse
+  return { httpStatus: r.status, data: d }
+}
+
+export async function deleteDemoMovementAnnotation(clipStorageName: string, annotationId: string): Promise<{ httpStatus: number; data: DemoMovementAnnotationsResponse }> {
+  const params = new URLSearchParams({ clip_storage_name: clipStorageName })
+  const r = await fetch(apiUrl(`/api/demo-movement/annotations/${encodeURIComponent(annotationId)}?${params.toString()}`), {
+    method: "DELETE",
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoMovementAnnotationsResponse
+  return { httpStatus: r.status, data: d }
+}
+
+export type DemoRenderStatus = {
+  ok?: boolean
+  storage_name?: string
+  rendered?: boolean
+  renderer_configured?: boolean
+  steam_playback_configured?: boolean
+  status?: string
+  video_url?: string | null
+  bytes?: number | null
+  generated_at?: string
+  detail?: string
+  error?: string
+  cached?: boolean
+}
+
+export type DemoSteamPlaybackStatus = {
+  ok?: boolean
+  storage_name?: string
+  steam_playback_configured?: boolean
+  status?: string
+  viewer_url?: string | null
+  detail?: string
+  error?: string
+  exit_code?: number
+  stdout?: string
+  stderr?: string
+  started_at?: string
+}
+
+export async function fetchDemoRender(clipStorageName: string): Promise<{ httpStatus: number; data: DemoRenderStatus }> {
+  const params = new URLSearchParams({ clip_storage_name: clipStorageName })
+  const r = await fetch(apiUrl(`/api/demo-render?${params.toString()}`), {
+    method: "GET",
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoRenderStatus
+  return { httpStatus: r.status, data: d }
+}
+
+export async function postDemoRender(clipStorageName: string, force = false): Promise<{ httpStatus: number; data: DemoRenderStatus }> {
+  const fd = new FormData()
+  fd.append("clip_storage_name", clipStorageName)
+  fd.append("force", force ? "true" : "false")
+  const r = await fetch(apiUrl("/api/demo-render"), {
+    method: "POST",
+    credentials: cred,
+    body: fd,
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoRenderStatus
+  return { httpStatus: r.status, data: d }
+}
+
+export async function fetchDemoSteamPlayback(clipStorageName: string): Promise<{ httpStatus: number; data: DemoSteamPlaybackStatus }> {
+  const params = new URLSearchParams({ clip_storage_name: clipStorageName })
+  const r = await fetch(apiUrl(`/api/demo-steam-playback?${params.toString()}`), {
+    method: "GET",
+    credentials: cred,
+    headers: headers(true),
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoSteamPlaybackStatus
+  return { httpStatus: r.status, data: d }
+}
+
+export async function postDemoSteamPlayback(clipStorageName: string): Promise<{ httpStatus: number; data: DemoSteamPlaybackStatus }> {
+  const fd = new FormData()
+  fd.append("clip_storage_name", clipStorageName)
+  const r = await fetch(apiUrl("/api/demo-steam-playback"), {
+    method: "POST",
+    credentials: cred,
+    body: fd,
+  })
+  const d = (await r.json().catch(() => ({}))) as DemoSteamPlaybackStatus
+  return { httpStatus: r.status, data: d }
 }

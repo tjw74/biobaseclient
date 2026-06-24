@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biobase.local/schemas/biobase-telemetry-v1.schema.json",
+  "title": "Biobase CS2 telemetry flush bundle v1",
+  "description": "Versioned flush bundle emitted by BioBase-compatible match sidecars (GAME stack, GOTV, exporter, etc.). Complements Postgres session ingest; canonical machine-readable definition for tooling.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "match_id",
+    "map",
+    "tickrate",
+    "players",
+    "samples"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "biobase-telemetry-v1"
+    },
+    "match_id": {
+      "type": "string",
+      "description": "Logical match identifier (UUID string recommended)",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "map": {
+      "type": "string",
+      "description": "Map name as reported by GOTV/game state (e.g. de_dust2)",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "tickrate": {
+      "type": "integer",
+      "description": "Server or demo nominal tickrate (typically 64 or 128)",
+      "minimum": 1,
+      "maximum": 256
+    },
+    "players": {
+      "type": "array",
+      "description": "Roster at flush time",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["steam_id", "name"],
+        "properties": {
+          "steam_id": {
+            "type": "string",
+            "description": "64-bit SteamID as string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "team": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          }
+        }
+      }
+    },
+    "samples": {
+      "description": "Per-tick snapshots. MVP: inlined array (see TelemetrySampleItem). Larger corpora SHOULD use parquet/JSONL sidecar conventions described in biobase-telemetry-v1.md.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/telemetry_sample_item" },
+          "minItems": 0
+        },
+        {
+          "$ref": "#/$defs/samples_pointer"
+        }
+      ]
+    },
+    "recordings": {
+      "type": "array",
+      "description": "Optional GOTV/demo references (may be empty in MVP)",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "uri": {
+            "type": "string",
+            "description": "s3:, file:, gs:, or HTTPS URL when available",
+            "maxLength": 2048
+          },
+          "sha256_hex": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["gotv", "faceit_demo", "other"]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      },
+      "default": []
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "build": { "type": "string" }
+      }
+    },
+    "flushed_at": {
+      "type": "string",
+      "description": "RFC3339-ish timestamp when the bundle was flushed (optional)",
+      "maxLength": 64
+    }
+  },
+  "$defs": {
+    "telemetry_sample_item": {
+      "type": "object",
+      "description": "One pose/tick observation for reconciliation with demo-derived ticks",
+      "additionalProperties": true,
+      "required": ["tick", "steam_id"],
+      "properties": {
+        "tick": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "steam_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "pitch": { "type": "number" },
+        "yaw": { "type": "number" },
+        "source": {
+          "type": "string",
+          "description": "Logical origin tag (gotv_tick, exporter, plugin_log, synthetic)",
+          "maxLength": 64
+        }
+      }
+    },
+    "samples_pointer": {
+      "type": "object",
+      "required": ["format", "path"],
+      "additionalProperties": true,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["ndjson_relative", "parquet_relative"],
+          "description": "Relative NDJSON (.jsonl) or Parquet sidecar; semantics match inlined samples."
+        },
+        "path": {
+          "type": "string",
+          "description": "Path relative to bundle file or ingestion root",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "row_count_estimate": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

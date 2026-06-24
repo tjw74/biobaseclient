@@ -1,17 +1,9 @@
 # Download Biobase Client for Windows
 
-## One-click download
+**https://cs2.clarionlab.dev/install** (one-click) · **https://cs2.clarionlab.dev/client** (download page)
 
-# [⬇️ DOWNLOAD BIOBASE CLIENT FOR WINDOWS](https://cs2.clarionlab.dev/client/Biobase-Client-Setup.exe)
+Double-click the downloaded `biobase-client-setup.exe`. One-click install. No zip. No GitHub.
 
-Download `Biobase-Client-Setup.exe`, then double-click it.
+After the first install, use **Update app** in the sidebar — the client checks `https://cs2.clarionlab.dev/client/latest.yml` and installs updates without re-downloading from the browser.
 
-No GitHub account. No command line. No Node.js. No npm.
-
-GitHub mirror (requires Biobase org login today): `https://github.com/biobaselive/biobaseclient/releases/latest/download/Biobase-Client-Setup.exe`
-
-## Windows warning
-
-This early test build is unsigned. If Windows SmartScreen appears, choose:
-
-`More info` → `Run anyway`
+SmartScreen may warn (unsigned test build) → **More info** → **Run anyway**.

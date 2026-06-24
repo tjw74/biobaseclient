@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-05-11T12:00:00Z",
+  "last_updated": "2026-06-24T01:20:47Z",
   "sources": {
     "/home/clearmined/code/prod/biobase/docs/llm-wiki-raw/karpathy-llm-wiki-gist.md": {
       "ingested_at": "2026-05-11T12:00:00Z",
@@ -28,11 +28,14 @@
   "projects": {
     "biobase": {
       "source_cwd": "/home/clearmined/code/prod/biobase",
-      "last_synced": "2026-05-11T12:00:00Z",
-      "last_commit_synced": "fd85a3b75bd9ef05ade7823b1ebdcc1b23b3679c",
+      "last_synced": "2026-06-24T01:20:47Z",
+      "last_commit_synced": "d9e9484e7f418f901a1d5f363781b956838c4846",
       "pages_in_vault": [
         "projects/biobase/biobase.md",
         "projects/biobase/concepts/biobase-session-ingest.md",
+        "projects/biobase/concepts/biobase-performance-contract.md",
+        "projects/biobase/concepts/biobase-performance-dataset-roadmap.md",
+        "projects/biobase/concepts/biobase-performance-review-ui-doctrine.md",
         "projects/biobase/concepts/biobase-telemetry-schema.md",
         "projects/biobase/concepts/biobase-log-parsing.md",
         "projects/biobase/concepts/biobase-hub-routing.md",

@@ -11,9 +11,22 @@ import { useAuth } from "@/context/auth-context"
 import {
   fetchServerCapabilities,
   type CapabilityTriState,
+  type DemoParserCapability,
   type ServerCapabilitiesResponse,
 } from "@/lib/dashboard-api"
-import { Activity, Blocks, Cable, Layers, Loader2, Mountain, RefreshCw, Server, ShieldAlert, Trophy } from "lucide-react"
+import {
+  Activity,
+  Blocks,
+  Cable,
+  Film,
+  Layers,
+  Loader2,
+  Mountain,
+  RefreshCw,
+  Server,
+  ShieldAlert,
+  Trophy,
+} from "lucide-react"
 
 type OverviewSectionProps = {
   onNavigate: (section: DashboardSection) => void
@@ -97,6 +110,19 @@ function normalizeTri(raw: string | undefined): CapabilityTriState {
     return raw
   }
   return "unknown"
+}
+
+function demoParserChipLabel(row: Pick<DemoParserCapability, "id" | "tool">): string {
+  switch (row.id) {
+    case "awpy":
+      return "Awpy"
+    case "demoparser2":
+      return "demoparser2"
+    case "demoinfocs_golang":
+      return "demoinfocs (Go)"
+    default:
+      return row.tool
+  }
 }
 
 export function OverviewSection({ onNavigate }: OverviewSectionProps) {
@@ -249,6 +275,26 @@ export function OverviewSection({ onNavigate }: OverviewSectionProps) {
                   </span>
                 ) : null}
               </div>
+
+              {capData?.demo_parsers && capData.demo_parsers.length > 0 ? (
+                <div className="border-border/70 bg-muted/12 rounded-md border px-2 py-1.5">
+                  <div className="text-muted-foreground flex items-center gap-1.5 text-[0.6rem] font-medium tracking-wider uppercase">
+                    <Film className="size-3 shrink-0 opacity-90" aria-hidden />
+                    Demo parsers
+                  </div>
+                  <p className="text-muted-foreground mt-0.5 text-[0.62rem] leading-snug">
+                    Source: POST parse preview / compare routes
+                  </p>
+                  <div className="text-foreground mt-1 flex flex-wrap gap-x-2.5 gap-y-1 text-[0.68rem] leading-tight">
+                    {capData.demo_parsers.map((p) => (
+                      <span key={p.id} className="inline-flex items-baseline gap-1">
+                        <span className="font-medium">{demoParserChipLabel(p)}</span>
+                        <span className="text-muted-foreground">{p.version_or_probe}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <CapabilityIconRow
                 icon={ShieldAlert}

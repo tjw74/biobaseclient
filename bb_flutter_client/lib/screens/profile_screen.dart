@@ -1,7 +1,10 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../theme.dart';
+import '../models/performance_contract.dart';
+import '../models/performance_review.dart';
 import '../models/session_stats.dart';
+import '../widgets/performance_evidence.dart';
 
 const _cats = [
   'Movement',
@@ -10,8 +13,8 @@ const _cats = [
   'Utility',
   'Positioning',
   'Decision Making',
-  'Economy',
   'Teamplay',
+  'Economy',
   'Round Performance',
   'Consistency',
   'Mechanical Execution',
@@ -36,9 +39,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _keys[i].currentContext;
       if (ctx != null) {
-        Scrollable.ensureVisible(ctx,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOut);
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -62,11 +67,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final s = widget.stats;
+    final assessments = s.releaseAssessments;
     return Column(
       children: [
-        _TopSummary(stats: s),
+        _TopSummary(stats: s, assessments: assessments),
         const SizedBox(height: 6),
-        _CategoryRail(scores: s.categoryScores, onTap: _scrollTo),
+        _CategoryRail(assessments: assessments, onTap: _scrollTo),
         const SizedBox(height: 6),
         Expanded(
           child: ListView.builder(
@@ -79,7 +85,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: _Section(
                 name: _cats[i],
                 index: i,
-                score: s.categoryScores[i],
+                assessment: assessments[i],
                 expanded: _expanded.contains(i),
                 onToggle: () => _toggle(i),
                 stats: s,
@@ -98,22 +104,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
 class _TopSummary extends StatelessWidget {
   final SessionStats stats;
-  const _TopSummary({required this.stats});
+  final List<CategoryAssessment> assessments;
+  const _TopSummary({required this.stats, required this.assessments});
 
   @override
   Widget build(BuildContext context) {
-    final overall = stats.overallScore;
-    final scores = stats.categoryScores;
+    final overall = stats.releaseOverallScore;
+    final available = assessments.where((a) => a.available).toList();
     String strongest = '—', weakest = '—';
     double hi = 0, lo = 101;
-    for (int i = 0; i < scores.length; i++) {
-      if (scores[i] > hi) {
-        hi = scores[i];
-        strongest = _cats[i];
+    for (final assessment in available) {
+      final score = assessment.score!;
+      if (score > hi) {
+        hi = score;
+        strongest = assessment.label;
       }
-      if (scores[i] > 0 && scores[i] < lo) {
-        lo = scores[i];
-        weakest = _cats[i];
+      if (score < lo) {
+        lo = score;
+        weakest = assessment.label;
       }
     }
     if (hi == 0) strongest = '—';
@@ -131,20 +139,26 @@ class _TopSummary extends StatelessWidget {
             width: 44,
             height: 44,
             child: CustomPaint(
-                painter: _ArcGaugePainter(
-                    value: (overall / 100).clamp(0.0, 1.0), fontSize: 16)),
+              painter: _ArcGaugePainter(
+                value: (overall / 100).clamp(0.0, 1.0),
+                fontSize: 16,
+              ),
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('PERFORMANCE REVIEW',
-                    style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
-                        color: BiobaseColors.textTertiary,
-                        letterSpacing: 0.8)),
+                const Text(
+                  'PERFORMANCE REVIEW',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: BiobaseColors.textTertiary,
+                    letterSpacing: 0.8,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
@@ -152,8 +166,11 @@ class _TopSummary extends StatelessWidget {
                     const SizedBox(width: 20),
                     _chip('Weakness', weakest, BiobaseColors.warning),
                     const SizedBox(width: 20),
-                    _chip('Samples', '${stats.totalSamples}',
-                        BiobaseColors.textSecondary),
+                    _chip(
+                      'Samples',
+                      '${stats.totalSamples}',
+                      BiobaseColors.textSecondary,
+                    ),
                   ],
                 ),
               ],
@@ -168,12 +185,17 @@ class _TopSummary extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(value,
-            style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w600, color: c)),
-        Text(label,
-            style: const TextStyle(
-                fontSize: 9, color: BiobaseColors.textTertiary)),
+        Text(
+          value,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9,
+            color: BiobaseColors.textTertiary,
+          ),
+        ),
       ],
     );
   }
@@ -184,9 +206,9 @@ class _TopSummary extends StatelessWidget {
 // ════════════════════════════════════════
 
 class _CategoryRail extends StatelessWidget {
-  final List<double> scores;
+  final List<CategoryAssessment> assessments;
   final ValueChanged<int> onTap;
-  const _CategoryRail({required this.scores, required this.onTap});
+  const _CategoryRail({required this.assessments, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -197,15 +219,18 @@ class _CategoryRail extends StatelessWidget {
         itemCount: _cats.length,
         separatorBuilder: (_, _) => const SizedBox(width: 4),
         itemBuilder: (_, i) {
-          final s = scores[i];
-          final live = s > 0;
+          final assessment = assessments[i];
+          final s = assessment.score;
+          final live = assessment.available;
           return MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: () => onTap(i),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: BiobaseColors.surface,
                   borderRadius: BorderRadius.circular(6),
@@ -213,19 +238,25 @@ class _CategoryRail extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_cats[i],
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                            color: live
-                                ? BiobaseColors.text
-                                : BiobaseColors.textTertiary)),
+                    Text(
+                      _cats[i],
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: live
+                            ? BiobaseColors.text
+                            : BiobaseColors.textTertiary,
+                      ),
+                    ),
                     const SizedBox(width: 6),
-                    Text(live ? '${s.toInt()}' : '—',
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: _scoreColor(s))),
+                    Text(
+                      live ? '${s!.toInt()}' : '—',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: _scoreColor(s ?? 0),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -244,7 +275,7 @@ class _CategoryRail extends StatelessWidget {
 class _Section extends StatelessWidget {
   final String name;
   final int index;
-  final double score;
+  final CategoryAssessment assessment;
   final bool expanded;
   final VoidCallback onToggle;
   final SessionStats stats;
@@ -252,7 +283,7 @@ class _Section extends StatelessWidget {
   const _Section({
     required this.name,
     required this.index,
-    required this.score,
+    required this.assessment,
     required this.expanded,
     required this.onToggle,
     required this.stats,
@@ -272,31 +303,47 @@ class _Section extends StatelessWidget {
             child: GestureDetector(
               onTap: onToggle,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 child: Row(
                   children: [
                     SizedBox(
                       width: 26,
                       height: 26,
                       child: CustomPaint(
-                          painter: _MiniGaugePainter(
-                              value: (score / 100).clamp(0.0, 1.0))),
+                        painter: _MiniGaugePainter(
+                          value: ((assessment.score ?? 0) / 100).clamp(
+                            0.0,
+                            1.0,
+                          ),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 10),
-                    Text(name,
+                    Expanded(
+                      child: Text(
+                        name,
                         style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: BiobaseColors.text)),
-                    const Spacer(),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: BiobaseColors.text,
+                        ),
+                      ),
+                    ),
+                    PerformanceEvidenceBadge(assessment: assessment),
+                    const SizedBox(width: 10),
                     if (!expanded)
                       Flexible(
-                        child: Text(_keyMetric(index, stats),
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 10,
-                                color: BiobaseColors.textTertiary)),
+                        child: Text(
+                          collapsedAssessmentSummary(assessment),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: BiobaseColors.textTertiary,
+                          ),
+                        ),
                       ),
                     const SizedBox(width: 8),
                     Icon(
@@ -317,7 +364,14 @@ class _Section extends StatelessWidget {
             child: expanded
                 ? Padding(
                     padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                    child: _buildContent(index, stats),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        PerformanceEvidenceNote(assessment: assessment),
+                        const SizedBox(height: 12),
+                        _buildContent(index, stats),
+                      ],
+                    ),
                   )
                 : const SizedBox(width: double.infinity, height: 0),
           ),
@@ -325,40 +379,6 @@ class _Section extends StatelessWidget {
       ),
     );
   }
-}
-
-String _keyMetric(int i, SessionStats s) {
-  return switch (i) {
-    0 =>
-      'Avg ${s.speedAvgSafe.toInt()} · Sync ${s.strafeSyncPercent.toInt()}% · Path ${(s.pathEfficiency * 100).toInt()}%',
-    1 =>
-      'Head ${s.crosshairHeadLevelPercent.toInt()}% · Travel ${s.crosshairTravelDistance.toInt()}°',
-    2 => s.entryAttempts > 0
-        ? 'ADR ${s.adr.toStringAsFixed(0)} · Entry ${s.entrySuccessRate.toInt()}%'
-        : 'Awaiting game events',
-    3 => (s.flashEffectiveness + s.smokeEffectiveness) > 0
-        ? 'Flash ${s.flashEffectiveness.toInt()}%'
-        : 'Awaiting game events',
-    4 => s.peekCount > 0
-        ? 'Peeks ${s.peekCount} · Success ${s.peekSuccessRate.toInt()}%'
-        : 'Awaiting game events',
-    5 => s.rotationEfficiency > 0
-        ? 'Rotation ${s.rotationEfficiency.toInt()}%'
-        : 'Awaiting game events',
-    6 => s.equipmentValue > 0
-        ? '\$${s.equipmentValue}'
-        : 'Awaiting game events',
-    7 => 'Awaiting game events',
-    8 => s.hltvRating > 0
-        ? 'HLTV ${s.hltvRating.toStringAsFixed(2)}'
-        : 'Awaiting game events',
-    9 =>
-      'Confidence ${s.confidenceScore.toInt()} · Consistency ${s.consistencyScore.toInt()}',
-    10 =>
-      'Sync ${s.strafeSyncPercent.toInt()}% · CS ${s.counterStrafeAccuracy.toInt()}% · Bhop ${s.bhopSuccessRate.toInt()}%',
-    11 => 'Fatigue ${s.fatigueScore.toInt()}',
-    _ => '',
-  };
 }
 
 Widget _buildContent(int i, SessionStats s) {
@@ -369,8 +389,8 @@ Widget _buildContent(int i, SessionStats s) {
     3 => _UtilityContent(s: s),
     4 => _PositioningContent(s: s),
     5 => _DecisionContent(s: s),
-    6 => _EconomyContent(s: s),
-    7 => _TeamplayContent(s: s),
+    6 => _TeamplayContent(s: s),
+    7 => _EconomyContent(s: s),
     8 => _RoundContent(s: s),
     9 => _ConsistencyContent(s: s),
     10 => _MechanicsContent(s: s),
@@ -392,14 +412,16 @@ class _MovementContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          _Kpi('AVG', '${s.speedAvgSafe.toInt()}', ' u/s'),
-          _Kpi('MAX', '${s.speedMax.toInt()}', ' u/s'),
-          _Kpi('MIN', '${s.speedMinSafe.toInt()}', ' u/s'),
-          _Kpi('DIST', _fd(s.distanceTraveled), ''),
-          _Kpi('AIR', '${s.airTimePercent.toInt()}', '%'),
-          _Kpi('PATH', '${(s.pathEfficiency * 100).toInt()}', '%'),
-        ]),
+        Row(
+          children: [
+            _Kpi('AVG', '${s.speedAvgSafe.toInt()}', ' u/s'),
+            _Kpi('MAX', '${s.speedMax.toInt()}', ' u/s'),
+            _Kpi('MIN', '${s.speedMinSafe.toInt()}', ' u/s'),
+            _Kpi('DIST', _fd(s.distanceTraveled), ''),
+            _Kpi('AIR', '${s.airTimePercent.toInt()}', '%'),
+            _Kpi('PATH', '${(s.pathEfficiency * 100).toInt()}', '%'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('SPEED TREND'),
         const SizedBox(height: 4),
@@ -408,17 +430,20 @@ class _MovementContent extends StatelessWidget {
         const _Label('PATH EFFICIENCY TREND'),
         const SizedBox(height: 4),
         _Spark(
-            data: s.pathEfficiencyHistory,
-            maxVal: 100,
-            height: 32,
-            color: BiobaseColors.live),
+          data: s.pathEfficiencyHistory,
+          maxVal: 100,
+          height: 32,
+          color: BiobaseColors.live,
+        ),
         const SizedBox(height: 10),
-        Row(children: [
-          _Kpi('GROUND', '${s.groundSamples}', ' ticks'),
-          _Kpi('AIR', '${s.airSamples}', ' ticks'),
-          _Kpi('TOTAL', '${s.totalSamples}', ' ticks'),
-          _Kpi('STATE', s.movementState, ''),
-        ]),
+        Row(
+          children: [
+            _Kpi('GROUND', '${s.groundSamples}', ' ticks'),
+            _Kpi('AIR', '${s.airSamples}', ' ticks'),
+            _Kpi('TOTAL', '${s.totalSamples}', ' ticks'),
+            _Kpi('STATE', s.movementState, ''),
+          ],
+        ),
       ],
     );
   }
@@ -433,13 +458,15 @@ class _AimContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          _Kpi('HEAD', '${s.crosshairHeadLevelPercent.toInt()}', '%'),
-          _Kpi('1ST BULLET', '${s.firstBulletAccuracy.toInt()}', '%'),
-          _Kpi('SPRAY', '${s.sprayAccuracy.toInt()}', '%'),
-          _Kpi('TAP', '${s.tapAccuracy.toInt()}', '%'),
-          _Kpi('FLICK', '${s.flickAccuracy.toInt()}', '%'),
-        ]),
+        Row(
+          children: [
+            _Kpi('HEAD', '${s.crosshairHeadLevelPercent.toInt()}', '%'),
+            _Kpi('1ST BULLET', '${s.firstBulletAccuracy.toInt()}', '%'),
+            _Kpi('SPRAY', '${s.sprayAccuracy.toInt()}', '%'),
+            _Kpi('TAP', '${s.tapAccuracy.toInt()}', '%'),
+            _Kpi('FLICK', '${s.flickAccuracy.toInt()}', '%'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('ACCURACY'),
         const SizedBox(height: 4),
@@ -453,22 +480,30 @@ class _AimContent extends StatelessWidget {
         const SizedBox(height: 10),
         const _Label('CROSSHAIR'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('TRAVEL', '${s.crosshairTravelDistance.toInt()}', '°'),
-          _Kpi('ERROR', '${s.crosshairPlacementError.toInt()}', '°'),
-          _Kpi('IDLE', '${s.crosshairIdleTime.toStringAsFixed(1)}', 's'),
-          _Kpi('OFF-TGT', '${s.crosshairOffTargetTime.toStringAsFixed(1)}', 's'),
-        ]),
+        Row(
+          children: [
+            _Kpi('TRAVEL', '${s.crosshairTravelDistance.toInt()}', '°'),
+            _Kpi('ERROR', '${s.crosshairPlacementError.toInt()}', '°'),
+            _Kpi('IDLE', '${s.crosshairIdleTime.toStringAsFixed(1)}', 's'),
+            _Kpi(
+              'OFF-TGT',
+              '${s.crosshairOffTargetTime.toStringAsFixed(1)}',
+              's',
+            ),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('ANGLES & TIMING'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('HOLD', '${s.angleHoldDuration.toStringAsFixed(1)}', 's'),
-          _Kpi('WIN', '${s.angleWinRate.toInt()}', '%'),
-          _Kpi('REACT', '${s.reactionTime.toInt()}', 'ms'),
-          _Kpi('TTK', '${s.timeToKill.toStringAsFixed(2)}', 's'),
-          _Kpi('TTD', '${s.timeToDeath.toStringAsFixed(2)}', 's'),
-        ]),
+        Row(
+          children: [
+            _Kpi('HOLD', '${s.angleHoldDuration.toStringAsFixed(1)}', 's'),
+            _Kpi('WIN', '${s.angleWinRate.toInt()}', '%'),
+            _Kpi('REACT', '${s.reactionTime.toInt()}', 'ms'),
+            _Kpi('TTK', '${s.timeToKill.toStringAsFixed(2)}', 's'),
+            _Kpi('TTD', '${s.timeToDeath.toStringAsFixed(2)}', 's'),
+          ],
+        ),
         if (s.crosshairHeadLevelPercent == 0 && s.firstBulletAccuracy == 0) ...[
           const SizedBox(height: 10),
           const _NeedsEvents(),
@@ -489,36 +524,44 @@ class _CombatContent extends StatelessWidget {
       children: [
         const _Label('ENTRY FRAGGING'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('ATTEMPTS', '${s.entryAttempts}', ''),
-          _Kpi('SUCCESS', '${s.entrySuccesses}', ''),
-          _Kpi('RATE', '${s.entrySuccessRate.toInt()}', '%'),
-        ]),
+        Row(
+          children: [
+            _Kpi('ATTEMPTS', '${s.entryAttempts}', ''),
+            _Kpi('SUCCESS', '${s.entrySuccesses}', ''),
+            _Kpi('RATE', '${s.entrySuccessRate.toInt()}', '%'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('TRADES'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('OPPS', '${s.tradeOpportunities}', ''),
-          _Kpi('SUCCESS', '${s.successfulTrades}', ''),
-          _Kpi('DEATHS', '${s.tradeDeaths}', ''),
-          _Kpi('TIME', '${s.tradeTime.toStringAsFixed(1)}', 's'),
-        ]),
+        Row(
+          children: [
+            _Kpi('OPPS', '${s.tradeOpportunities}', ''),
+            _Kpi('SUCCESS', '${s.successfulTrades}', ''),
+            _Kpi('DEATHS', '${s.tradeDeaths}', ''),
+            _Kpi('TIME', '${s.tradeTime.toStringAsFixed(1)}', 's'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('DAMAGE'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('DEALT', '${s.damageDealt}', ''),
-          _Kpi('RECEIVED', '${s.damageReceived}', ''),
-          _Kpi('PER RD', s.damagePerRound.toStringAsFixed(1), ''),
-          _Kpi('UTIL DMG', '${s.utilityDamage}', ''),
-        ]),
+        Row(
+          children: [
+            _Kpi('DEALT', '${s.damageDealt}', ''),
+            _Kpi('RECEIVED', '${s.damageReceived}', ''),
+            _Kpi('PER RD', s.damagePerRound.toStringAsFixed(1), ''),
+            _Kpi('UTIL DMG', '${s.utilityDamage}', ''),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('SURVIVAL'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('ALIVE', '${s.timeAlive.toStringAsFixed(0)}', 's'),
-          _Kpi('SURVIVE', '${s.survivalRate.toInt()}', '%'),
-        ]),
+        Row(
+          children: [
+            _Kpi('ALIVE', '${s.timeAlive.toStringAsFixed(0)}', 's'),
+            _Kpi('SURVIVE', '${s.survivalRate.toInt()}', '%'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _NeedsEvents(),
       ],
@@ -546,11 +589,17 @@ class _UtilityContent extends StatelessWidget {
         const SizedBox(height: 10),
         const _Label('FLASH DETAILS'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('ENEMIES', '${s.enemiesFlashed}', ''),
-          _Kpi('TEAM', '${s.teammatesFlashed}', ''),
-          _Kpi('BLIND', '${s.flashBlindnessDuration.toStringAsFixed(1)}', 's'),
-        ]),
+        Row(
+          children: [
+            _Kpi('ENEMIES', '${s.enemiesFlashed}', ''),
+            _Kpi('TEAM', '${s.teammatesFlashed}', ''),
+            _Kpi(
+              'BLIND',
+              '${s.flashBlindnessDuration.toStringAsFixed(1)}',
+              's',
+            ),
+          ],
+        ),
         const SizedBox(height: 10),
         const _NeedsEvents(),
       ],
@@ -570,25 +619,31 @@ class _PositioningContent extends StatelessWidget {
         const _Label('PEEK BREAKDOWN'),
         const SizedBox(height: 6),
         _HBar('Total', s.peekCount > 0 ? 100 : 0),
-        _HBar('Wide', s.peekCount > 0
-            ? s.widePeekCount / s.peekCount * 100
-            : 0),
-        _HBar('Jiggle', s.peekCount > 0
-            ? s.jigglePeekCount / s.peekCount * 100
-            : 0),
-        _HBar('Shoulder', s.peekCount > 0
-            ? s.shoulderPeekCount / s.peekCount * 100
-            : 0),
-        _HBar('Re-peek', s.peekCount > 0
-            ? s.rePeekCount / s.peekCount * 100
-            : 0),
+        _HBar(
+          'Wide',
+          s.peekCount > 0 ? s.widePeekCount / s.peekCount * 100 : 0,
+        ),
+        _HBar(
+          'Jiggle',
+          s.peekCount > 0 ? s.jigglePeekCount / s.peekCount * 100 : 0,
+        ),
+        _HBar(
+          'Shoulder',
+          s.peekCount > 0 ? s.shoulderPeekCount / s.peekCount * 100 : 0,
+        ),
+        _HBar(
+          'Re-peek',
+          s.peekCount > 0 ? s.rePeekCount / s.peekCount * 100 : 0,
+        ),
         const SizedBox(height: 10),
-        Row(children: [
-          _Kpi('PEEKS', '${s.peekCount}', ''),
-          _Kpi('SUCCESS', '${s.peekSuccessRate.toInt()}', '%'),
-          _Kpi('EXPOSED', '${s.timeExposed.toStringAsFixed(1)}', 's'),
-          _Kpi('COVER', '${s.timeInCover.toStringAsFixed(1)}', 's'),
-        ]),
+        Row(
+          children: [
+            _Kpi('PEEKS', '${s.peekCount}', ''),
+            _Kpi('SUCCESS', '${s.peekSuccessRate.toInt()}', '%'),
+            _Kpi('EXPOSED', '${s.timeExposed.toStringAsFixed(1)}', 's'),
+            _Kpi('COVER', '${s.timeInCover.toStringAsFixed(1)}', 's'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _NeedsEvents(),
       ],
@@ -605,11 +660,13 @@ class _DecisionContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          _Kpi('ROTATION', '${s.rotationTiming.toStringAsFixed(1)}', 's'),
-          _Kpi('ROT EFF.', '${s.rotationEfficiency.toInt()}', '%'),
-          _Kpi('LATENCY', '${s.decisionLatency.toInt()}', 'ms'),
-        ]),
+        Row(
+          children: [
+            _Kpi('ROTATION', '${s.rotationTiming.toStringAsFixed(1)}', 's'),
+            _Kpi('ROT EFF.', '${s.rotationEfficiency.toInt()}', '%'),
+            _Kpi('LATENCY', '${s.decisionLatency.toInt()}', 'ms'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _NeedsEvents(),
       ],
@@ -626,12 +683,14 @@ class _EconomyContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          _Kpi('EQUIP', '\$${s.equipmentValue}', ''),
-          _Kpi('STATE', s.economyState, ''),
-          _Kpi('WEP SWITCHES', '${s.weaponSwitchCount}', ''),
-          _Kpi('RELOAD', '${s.reloadTiming.toStringAsFixed(1)}', 's'),
-        ]),
+        Row(
+          children: [
+            _Kpi('EQUIP', '\$${s.equipmentValue}', ''),
+            _Kpi('STATE', s.economyState, ''),
+            _Kpi('WEP SWITCHES', '${s.weaponSwitchCount}', ''),
+            _Kpi('RELOAD', '${s.reloadTiming.toStringAsFixed(1)}', 's'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _NeedsEvents(),
       ],
@@ -648,11 +707,13 @@ class _TeamplayContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          _Kpi('SPACING', '${s.teamSpacing.toInt()}', 'u'),
-          _Kpi('NEAREST', '${s.nearestTeammateDistance.toInt()}', 'u'),
-          _Kpi('ISO DEATHS', '${s.isolationDeaths}', ''),
-        ]),
+        Row(
+          children: [
+            _Kpi('SPACING', '${s.teamSpacing.toInt()}', 'u'),
+            _Kpi('NEAREST', '${s.nearestTeammateDistance.toInt()}', 'u'),
+            _Kpi('ISO DEATHS', '${s.isolationDeaths}', ''),
+          ],
+        ),
         const SizedBox(height: 10),
         const _NeedsEvents(),
       ],
@@ -671,25 +732,31 @@ class _RoundContent extends StatelessWidget {
       children: [
         const _Label('RATINGS'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('HLTV', s.hltvRating.toStringAsFixed(2), ''),
-          _Kpi('ADR', s.adr.toStringAsFixed(1), ''),
-          _Kpi('KAST', '${s.kast.toInt()}', '%'),
-        ]),
+        Row(
+          children: [
+            _Kpi('HLTV', s.hltvRating.toStringAsFixed(2), ''),
+            _Kpi('ADR', s.adr.toStringAsFixed(1), ''),
+            _Kpi('KAST', '${s.kast.toInt()}', '%'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('CLUTCH & DUELS'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('CLUTCH ATT', '${s.clutchAttempts}', ''),
-          _Kpi('CLUTCH %', '${s.clutchSuccessPercent.toInt()}', '%'),
-          _Kpi('MULTI-KILL', '${s.multiKillRounds}', ''),
-        ]),
+        Row(
+          children: [
+            _Kpi('CLUTCH ATT', '${s.clutchAttempts}', ''),
+            _Kpi('CLUTCH %', '${s.clutchSuccessPercent.toInt()}', '%'),
+            _Kpi('MULTI-KILL', '${s.multiKillRounds}', ''),
+          ],
+        ),
         const SizedBox(height: 8),
-        Row(children: [
-          _Kpi('OPEN DUEL', '${s.openingDuelPercent.toInt()}', '%'),
-          _Kpi('DUEL WIN', '${s.openingDuelWinPercent.toInt()}', '%'),
-          _Kpi('ROUND WIN', '${s.roundWinProbability.toInt()}', '%'),
-        ]),
+        Row(
+          children: [
+            _Kpi('OPEN DUEL', '${s.openingDuelPercent.toInt()}', '%'),
+            _Kpi('DUEL WIN', '${s.openingDuelWinPercent.toInt()}', '%'),
+            _Kpi('ROUND WIN', '${s.roundWinProbability.toInt()}', '%'),
+          ],
+        ),
         const SizedBox(height: 10),
         const _NeedsEvents(),
       ],
@@ -706,19 +773,15 @@ class _ConsistencyContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          Expanded(
-            child: _GaugeBlock('Confidence', s.confidenceScore),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _GaugeBlock('Consistency', s.consistencyScore),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _GaugeBlock('Fatigue', s.fatigueScore),
-          ),
-        ]),
+        Row(
+          children: [
+            Expanded(child: _GaugeBlock('Confidence', s.confidenceScore)),
+            const SizedBox(width: 8),
+            Expanded(child: _GaugeBlock('Consistency', s.consistencyScore)),
+            const SizedBox(width: 8),
+            Expanded(child: _GaugeBlock('Fatigue', s.fatigueScore)),
+          ],
+        ),
         const SizedBox(height: 12),
         const _Label('SPEED TREND'),
         const SizedBox(height: 4),
@@ -727,26 +790,29 @@ class _ConsistencyContent extends StatelessWidget {
         const _Label('STRAFE SYNC TREND'),
         const SizedBox(height: 4),
         _Spark(
-            data: s.strafeSyncHistory,
-            maxVal: 100,
-            height: 36,
-            color: BiobaseColors.live),
+          data: s.strafeSyncHistory,
+          maxVal: 100,
+          height: 36,
+          color: BiobaseColors.live,
+        ),
         const SizedBox(height: 8),
         const _Label('COUNTER-STRAFE TREND'),
         const SizedBox(height: 4),
         _Spark(
-            data: s.counterStrafeHistory,
-            maxVal: 100,
-            height: 36,
-            color: BiobaseColors.warning),
+          data: s.counterStrafeHistory,
+          maxVal: 100,
+          height: 36,
+          color: BiobaseColors.warning,
+        ),
         const SizedBox(height: 8),
         const _Label('PATH EFFICIENCY TREND'),
         const SizedBox(height: 4),
         _Spark(
-            data: s.pathEfficiencyHistory,
-            maxVal: 100,
-            height: 36,
-            color: const Color(0xFF8B5CF6)),
+          data: s.pathEfficiencyHistory,
+          maxVal: 100,
+          height: 36,
+          color: const Color(0xFF8B5CF6),
+        ),
       ],
     );
   }
@@ -767,41 +833,54 @@ class _MechanicsContent extends StatelessWidget {
         _HBar('Air Strafe Eff.', s.airStrafeEfficiency),
         _HBar('Counter-strafe', s.counterStrafeAccuracy),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('STOP TIME', s.counterStrafeStopTime.toStringAsFixed(0), 'ms'),
-          _Kpi('FULL ACC', s.timeToFullAccuracy.toStringAsFixed(0), 'ms'),
-          _Kpi('AIR ACCEL+', '+${s.airAccelerationGained.toInt()}', ''),
-          _Kpi('AIR ACCEL−', '−${s.airAccelerationLost.toInt()}', ''),
-        ]),
+        Row(
+          children: [
+            _Kpi('STOP TIME', s.counterStrafeStopTime.toStringAsFixed(0), 'ms'),
+            _Kpi('FULL ACC', s.timeToFullAccuracy.toStringAsFixed(0), 'ms'),
+            _Kpi('AIR ACCEL+', '+${s.airAccelerationGained.toInt()}', ''),
+            _Kpi('AIR ACCEL−', '−${s.airAccelerationLost.toInt()}', ''),
+          ],
+        ),
         const SizedBox(height: 10),
         const _Label('STRAFE SYNC TREND'),
         const SizedBox(height: 4),
         _Spark(
-            data: s.strafeSyncHistory,
-            maxVal: 100,
-            height: 36,
-            color: BiobaseColors.live),
+          data: s.strafeSyncHistory,
+          maxVal: 100,
+          height: 36,
+          color: BiobaseColors.live,
+        ),
         const SizedBox(height: 12),
         const _Label('JUMPING'),
         const SizedBox(height: 6),
-        Row(children: [
-          _Kpi('JUMPS', '${s.jumpCount}', ''),
-          _Kpi('PERFECT', '${s.perfectJumps}', ''),
-          _Kpi('PERFECT %', '${s.perfectJumpPercent.toInt()}', '%'),
-          _Kpi('TIMING', '${(s.jumpTimingConsistency * 100).toInt()}', '%'),
-        ]),
+        Row(
+          children: [
+            _Kpi('JUMPS', '${s.jumpCount}', ''),
+            _Kpi('PERFECT', '${s.perfectJumps}', ''),
+            _Kpi('PERFECT %', '${s.perfectJumpPercent.toInt()}', '%'),
+            _Kpi('TIMING', '${(s.jumpTimingConsistency * 100).toInt()}', '%'),
+          ],
+        ),
         const SizedBox(height: 8),
-        Row(children: [
-          _Kpi('BHOP ATT', '${s.bhopAttemptCount}', ''),
-          _Kpi('BHOP OK', '${s.bhopSuccessCount}', ''),
-          _Kpi('BHOP %', '${s.bhopSuccessRate.toInt()}', '%'),
-          _Kpi('CHAIN MAX', '${s.consecutiveBhopsMax}', ''),
-        ]),
+        Row(
+          children: [
+            _Kpi('BHOP ATT', '${s.bhopAttemptCount}', ''),
+            _Kpi('BHOP OK', '${s.bhopSuccessCount}', ''),
+            _Kpi('BHOP %', '${s.bhopSuccessRate.toInt()}', '%'),
+            _Kpi('CHAIN MAX', '${s.consecutiveBhopsMax}', ''),
+          ],
+        ),
         const SizedBox(height: 8),
-        Row(children: [
-          _Kpi('LANDING RET.', '${(s.landingSpeedRetention * 100).toInt()}', '%'),
-          _Kpi('SPEED LOSS', '${s.speedLossOnLanding.toInt()}', 'u/s'),
-        ]),
+        Row(
+          children: [
+            _Kpi(
+              'LANDING RET.',
+              '${(s.landingSpeedRetention * 100).toInt()}',
+              '%',
+            ),
+            _Kpi('SPEED LOSS', '${s.speedLossOnLanding.toInt()}', 'u/s'),
+          ],
+        ),
       ],
     );
   }
@@ -813,43 +892,28 @@ class _BiometricsContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return const Row(
       children: [
-        Row(children: [
-          Expanded(
-            child: _GaugeBlock(
-                'Fatigue', s.fatigueScore),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _GaugeBlock(
-                'Readiness', (100 - s.fatigueScore).clamp(0.0, 100.0)),
-          ),
-        ]),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: BiobaseColors.surfaceRaised,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.sensors_outlined,
-                  size: 14, color: BiobaseColors.textTertiary),
-              SizedBox(width: 8),
-              Text('Biometric sensors coming soon — heart rate, HRV, stress, focus',
-                  style: TextStyle(
-                      fontSize: 10, color: BiobaseColors.textTertiary)),
-            ],
+        Icon(
+          Icons.sensors_outlined,
+          size: 14,
+          color: BiobaseColors.textTertiary,
+        ),
+        SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'No biometric device is connected. Heart rate, HRV, stress, and focus remain unavailable and are excluded from scoring.',
+            style: TextStyle(
+              fontSize: 10,
+              height: 1.4,
+              color: BiobaseColors.textTertiary,
+            ),
           ),
         ),
       ],
     );
   }
 }
-
 // ════════════════════════════════════════
 // SHARED VISUALIZATION WIDGETS
 // ════════════════════════════════════════
@@ -890,28 +954,36 @@ class _Kpi extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             RichText(
-              text: TextSpan(children: [
-                TextSpan(
-                  text: value,
-                  style: const TextStyle(
+              text: TextSpan(
+                children: [
+                  TextSpan(
+                    text: value,
+                    style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
                       color: BiobaseColors.text,
-                      letterSpacing: -0.3),
-                ),
-                if (unit.isNotEmpty)
-                  TextSpan(
-                    text: unit,
-                    style: const TextStyle(
-                        fontSize: 10, color: BiobaseColors.textTertiary),
+                      letterSpacing: -0.3,
+                    ),
                   ),
-              ]),
+                  if (unit.isNotEmpty)
+                    TextSpan(
+                      text: unit,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
+                ],
+              ),
             ),
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 9,
-                    color: BiobaseColors.textTertiary,
-                    letterSpacing: 0.3)),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 9,
+                color: BiobaseColors.textTertiary,
+                letterSpacing: 0.3,
+              ),
+            ),
           ],
         ),
       ),
@@ -925,12 +997,15 @@ class _Label extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(text,
-        style: const TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.8,
-            color: BiobaseColors.textTertiary));
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.8,
+        color: BiobaseColors.textTertiary,
+      ),
+    );
   }
 }
 
@@ -947,9 +1022,13 @@ class _HBar extends StatelessWidget {
         children: [
           SizedBox(
             width: 72,
-            child: Text(label,
-                style: const TextStyle(
-                    fontSize: 10, color: BiobaseColors.textTertiary)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10,
+                color: BiobaseColors.textTertiary,
+              ),
+            ),
           ),
           Expanded(
             child: ClipRRect(
@@ -960,7 +1039,8 @@ class _HBar extends StatelessWidget {
                   value: (percent / 100).clamp(0.0, 1.0),
                   backgroundColor: BiobaseColors.surfaceRaised,
                   valueColor: AlwaysStoppedAnimation(
-                      _barColor(percent).withAlpha(180)),
+                    _barColor(percent).withAlpha(180),
+                  ),
                 ),
               ),
             ),
@@ -968,12 +1048,15 @@ class _HBar extends StatelessWidget {
           const SizedBox(width: 8),
           SizedBox(
             width: 32,
-            child: Text('${percent.toInt()}%',
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: BiobaseColors.text)),
+            child: Text(
+              '${percent.toInt()}%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: BiobaseColors.text,
+              ),
+            ),
           ),
         ],
       ),
@@ -1000,14 +1083,21 @@ class _GaugeBlock extends StatelessWidget {
             width: 56,
             height: 56,
             child: CustomPaint(
-                painter: _ArcGaugePainter(
-                    value: (value / 100).clamp(0.0, 1.0), fontSize: 15)),
+              painter: _ArcGaugePainter(
+                value: (value / 100).clamp(0.0, 1.0),
+                fontSize: 15,
+              ),
+            ),
           ),
           const SizedBox(height: 6),
-          Text(label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontSize: 10, color: BiobaseColors.textTertiary)),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10,
+              color: BiobaseColors.textTertiary,
+            ),
+          ),
         ],
       ),
     );
@@ -1047,8 +1137,11 @@ class _SparkPainter extends CustomPainter {
   final double maxVal;
   final Color color;
 
-  _SparkPainter(
-      {required this.data, required this.maxVal, required this.color});
+  _SparkPainter({
+    required this.data,
+    required this.maxVal,
+    required this.color,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1068,8 +1161,7 @@ class _SparkPainter extends CustomPainter {
     final fill = Path();
     for (int i = 0; i < n; i++) {
       final x = (i / d) * size.width;
-      final y =
-          size.height - (data[i] / maxVal).clamp(0.0, 1.0) * size.height;
+      final y = size.height - (data[i] / maxVal).clamp(0.0, 1.0) * size.height;
       if (i == 0) {
         path.moveTo(x, y);
         fill.moveTo(x, size.height);
@@ -1101,8 +1193,7 @@ class _SparkPainter extends CustomPainter {
     );
 
     final lx = ((n - 1) / d) * size.width;
-    final ly =
-        size.height - (data.last / maxVal).clamp(0.0, 1.0) * size.height;
+    final ly = size.height - (data.last / maxVal).clamp(0.0, 1.0) * size.height;
     canvas.drawCircle(Offset(lx, ly), 2, Paint()..color = color);
   }
 
@@ -1124,12 +1215,16 @@ class _NeedsEvents extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline,
-              size: 12, color: BiobaseColors.textTertiary.withAlpha(100)),
+          Icon(
+            Icons.info_outline,
+            size: 12,
+            color: BiobaseColors.textTertiary.withAlpha(100),
+          ),
           const SizedBox(width: 6),
-          const Text('Populates with game event integration',
-              style: TextStyle(
-                  fontSize: 10, color: BiobaseColors.textTertiary)),
+          const Text(
+            'Populates with game event integration',
+            style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
+          ),
         ],
       ),
     );
@@ -1178,16 +1273,20 @@ class _ArcGaugePainter extends CustomPainter {
 
     final tp = TextPainter(
       text: TextSpan(
-          text: '${(value * 100).toInt()}',
-          style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.w700,
-              color: BiobaseColors.text,
-              letterSpacing: -0.5)),
+        text: '${(value * 100).toInt()}',
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w700,
+          color: BiobaseColors.text,
+          letterSpacing: -0.5,
+        ),
+      ),
       textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(
-        canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+      canvas,
+      Offset(center.dx - tp.width / 2, center.dy - tp.height / 2),
+    );
   }
 
   @override
@@ -1234,17 +1333,19 @@ class _MiniGaugePainter extends CustomPainter {
     final pct = (value * 100).toInt();
     final tp = TextPainter(
       text: TextSpan(
-          text: pct > 0 ? '$pct' : '—',
-          style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: pct > 0
-                  ? BiobaseColors.text
-                  : BiobaseColors.textTertiary)),
+        text: pct > 0 ? '$pct' : '—',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: pct > 0 ? BiobaseColors.text : BiobaseColors.textTertiary,
+        ),
+      ),
       textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(
-        canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+      canvas,
+      Offset(center.dx - tp.width / 2, center.dy - tp.height / 2),
+    );
   }
 
   @override

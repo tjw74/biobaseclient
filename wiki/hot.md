@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-21T23:00:00Z
+updated: 2026-06-24T01:20:47Z
 ---
 
 # Hot Cache
@@ -9,6 +9,9 @@ updated: 2026-06-21T23:00:00Z
 
 ## Recent Activity
 
+- [2026-06-24T01:20:47Z] WIKI_UPDATE agent=Codex project=biobase — **Release performance contract** — Flutter Performance Review now distinguishes observed, estimated, and not-measured categories with confidence-weighted scoring; fixed settings startup race; added authenticated SQLite client-session history; canonical contract is `biobase-performance-v1`.
+
+- [2026-06-22T22:15:47Z] WIKI_UPDATE agent=GPT-5.5 project=biobase — **Performance categories + UI doctrine** — Added canonical 12-category dataset roadmap (121 metrics) and Performance Review UI doctrine: one single review screen with top summary, sticky category rail, expandable category sections, optional deep dives; mirrored to repo docs, Claude/agent instructions, Obsidian, and ClarionKnowledge.
 - [2026-06-21T23:00:00Z] WIKI_UPDATE agent=Claude project=biobase — **Zero-inference labeling + roadmap + v0.1.44 state capture** — Created [[zero-inference-labeling]] concept page (Review→Playback case study, inference gap analysis, word categories). Created [[biobase-product-roadmap]] with phased roadmap, shipped checklist, architecture diagram. Updated [[biobase-windows-client-primary-ui]] with v0.1.42–0.1.44 redesign (companion fix, compact top-bar, movement-dominant layout). Updated [[biobase]] hub with design philosophy. Renamed Review→Playback in desktop client.
 - [2026-06-04T16:25:00Z] WIKI_UPDATE agent=GPT-5.5 project=biobase — **Desktop client MVP finalization** — added persisted settings, upload queue/retry, clean TS build layout, and README release notes before local commit.
 - [2026-06-04T16:07:39Z] WIKI_UPDATE agent=GPT-5.5 project=biobase — **Desktop client MVP implementation** — `bb_desktop_client` now includes local `.dem` scan/import, `@laihoe/demoparser2` parser integration, shared playback clock, HUD play/seek controls, parsed movement sample display, and structured upload stub to central Biobase API.
@@ -25,9 +28,12 @@ updated: 2026-06-21T23:00:00Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform at v0.1.44. Three UI surfaces: **desktop Electron client** (primary, movement stats dominant, compact top-bar controls), **phone companion** (responsive QR mirror), **admin dashboard** (operator tools + scrollytelling roadmap). Design philosophy: **extreme friction reduction** + **[[zero-inference-labeling]]**. Currently shipping Phase 1 (client + companion + auto-update); Phase 2 (performance dashboards, bio-sensors) is planned.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI. Current focus is trustworthy Performance Review output: source, evidence state, confidence, explicit unavailable states, and durable paired-device session history.
 
 ## Key Takeaways
+
+**Performance scores must be evidence-aware.** `biobase-performance-v1` forbids treating unavailable data as zero, requires confidence on derived metrics, and excludes missing categories from the overall score. Biometrics require a real device stream.
+
 
 **CS2KZ must be unloaded before data collection.** The KZ plugin hooks `bot_stop` and `mp_roundtime` in ways that prevent bots from moving and suppress round events. `short_match_rcon.sh` does `meta unload 1` + game-mode switch + enables logging — and must be re-run after every `changelevel` since the plugin reloads automatically on map change.
 

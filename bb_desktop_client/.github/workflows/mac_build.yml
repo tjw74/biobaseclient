@@ -1,0 +1,29 @@
+name: Biobase Client macOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'bb_desktop_client/**'
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: bb_desktop_client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: bb_desktop_client/package-lock.json
+      - run: npm ci
+      - run: npm run dist:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: biobase-client-mac
+          path: |
+            bb_desktop_client/release/biobase-client-*-mac.zip

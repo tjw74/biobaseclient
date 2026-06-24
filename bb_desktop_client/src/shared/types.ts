@@ -90,6 +90,14 @@ export interface ClientSettings {
   deviceToken?: string;
   accountName?: string;
   pairedAt?: string;
+  trackedPlayerName?: string;
+  trackedSteamId?: string;
+  /** When true (default), this client advertises live stats on the server. */
+  shareStatsOnServer?: boolean;
+  /** Stable id for optional presence heartbeats (generated on first run). */
+  presenceSessionId?: string;
+  /** Set after user confirms first HUD overlay warning dialog. */
+  overlayHudConfirmed?: boolean;
 }
 
 export interface PairDeviceInput {

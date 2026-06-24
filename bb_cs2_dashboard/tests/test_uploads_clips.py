@@ -59,6 +59,73 @@ class ClipUploadHelpersTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["name"], "a_new.txt")
 
+    def test_list_clip_libraries_counts_mp4_subdirs(self) -> None:
+        from app import _list_clip_libraries
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        lib = tmp / "klingis_tv_tiktok"
+        lib.mkdir()
+        (lib / "one.mp4").write_bytes(b"x")
+        (lib / "skip.txt").write_text("n")
+        rows = _list_clip_libraries(root=tmp)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], "klingis_tv_tiktok")
+        self.assertEqual(rows[0]["mp4_count"], 1)
+
+    def test_list_clip_library_items_filters_and_pages(self) -> None:
+        from app import _list_clip_library_items
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        lib = tmp / "klingis_tv_tiktok"
+        lib.mkdir()
+        (lib / "alpha.mp4").write_bytes(b"a")
+        (lib / "beta.mp4").write_bytes(b"b")
+        payload = _list_clip_library_items("klingis_tv_tiktok", limit=1, offset=0, root=tmp)
+        self.assertEqual(payload["total"], 2)
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertTrue(payload["has_more"])
+        filtered = _list_clip_library_items("klingis_tv_tiktok", q="alpha", root=tmp)
+        self.assertEqual(filtered["total"], 1)
+        self.assertEqual(filtered["items"][0]["name"], "alpha.mp4")
+
+    def test_resolve_clip_in_library_ok(self) -> None:
+        from app import _resolve_clip_in_library
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        lib = tmp / "klingis_tv_tiktok"
+        lib.mkdir()
+        (lib / "clip.mp4").write_bytes(b"v")
+        p = _resolve_clip_in_library("klingis_tv_tiktok", "clip.mp4", root=tmp)
+        self.assertEqual(p.name, "clip.mp4")
+
+    def test_api_upload_accepts_multipart_file_part(self) -> None:
+        import app as app_mod
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        with patch.object(app_mod, "DASHBOARD_TOKEN", ""), patch.object(
+            app_mod,
+            "CLIPS_UPLOAD_DIR",
+            tmp,
+        ):
+            client = TestClient(app_mod.dashboard)
+            r = client.post(
+                "/api/uploads",
+                files={"file": ("probe.txt", b"hello", "text/plain")},
+            )
+
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body.get("ok"))
+        self.assertEqual(body.get("bytes"), 5)
+        saved_as = body.get("saved_as")
+        self.assertIsInstance(saved_as, str)
+        self.assertTrue((tmp / saved_as).is_file())
 
 if __name__ == "__main__":
     unittest.main()

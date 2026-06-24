@@ -18,6 +18,10 @@ for cmd in \
 	"bot_quota $BOT_QUOTA" \
 	"bot_quota_mode $BOT_MODE" \
 	"bot_difficulty $BOT_DIFF" \
+	"log on" \
+	"sv_logecho 1" \
+	"mp_logdetail 3" \
+	"mp_warmup_end" \
 	"mp_restartgame 1" \
 ; do
 	echo ">>> $cmd"

@@ -1,4 +1,4 @@
-import type { BiobaseMatch, MovementSample, TimelineFrame } from './types';
+import type { BiobaseMatch, MovementSample, TimelineFrame } from './types.js';
 
 export const mockMatch: BiobaseMatch = {
   id: 'local-demo-akani-001',

@@ -1,372 +1,335 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import {
-  ArrowUpCircle,
+  Activity,
+  Brain,
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  Crosshair,
+  DollarSign,
+  Gauge,
   HeartPulse,
-  Layers,
-  Monitor,
-  Server,
-  Smartphone,
-  Sparkles,
+  ListChecks,
+  MousePointer2,
+  Radar,
+  Shield,
+  Target,
+  Users,
+  Zap,
 } from "lucide-react"
 
-interface Chapter {
-  id: string
-  phase: string
+type Status = "done" | "active" | "next" | "later"
+type CategoryStatus = "ready" | "partial" | "planned"
+
+interface RoadmapItem {
   title: string
-  focus: string
-  priority: "now" | "next" | "future"
-  features: number
-  status: string
-  icon: typeof Monitor
-  body: string[]
+  outcome: string
+  status: Status
 }
 
-const chapters: Chapter[] = [
+interface RoadmapPhase {
+  id: string
+  label: string
+  title: string
+  value: string
+  status: Status
+  items: RoadmapItem[]
+}
+
+interface PerformanceCategory {
+  name: string
+  icon: typeof Gauge
+  status: CategoryStatus
+  role: string
+  metrics: string[]
+}
+
+const statusMeta: Record<Status, { label: string; dot: string; badge: string; text: string }> = {
+  done: {
+    label: "Done",
+    dot: "bg-emerald-400",
+    badge: "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+    text: "text-emerald-300",
+  },
+  active: {
+    label: "Active",
+    dot: "bg-amber-300",
+    badge: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+    text: "text-amber-300",
+  },
+  next: {
+    label: "Next",
+    dot: "bg-sky-300",
+    badge: "border-sky-500/25 bg-sky-500/10 text-sky-300",
+    text: "text-sky-300",
+  },
+  later: {
+    label: "Later",
+    dot: "bg-zinc-500",
+    badge: "border-zinc-700 bg-zinc-900/60 text-zinc-400",
+    text: "text-zinc-400",
+  },
+}
+
+const categoryMeta: Record<CategoryStatus, { label: string; dot: string; badge: string }> = {
+  ready: {
+    label: "Ready",
+    dot: "bg-emerald-400",
+    badge: "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+  },
+  partial: {
+    label: "Partial",
+    dot: "bg-amber-300",
+    badge: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+  },
+  planned: {
+    label: "Planned",
+    dot: "bg-zinc-500",
+    badge: "border-zinc-700 bg-zinc-900/60 text-zinc-400",
+  },
+}
+
+const phases: RoadmapPhase[] = [
   {
-    id: "vision",
-    phase: "Phase 0",
-    title: "The Vision",
-    focus: "Platform",
-    priority: "now",
-    features: 2,
-    status: "Active",
-    icon: Sparkles,
-    body: [
-      "BioBase is a CS2 performance platform with two pillars: the BioBase Client App that players install on their machine, and the BioBase CS2 Server that powers the data pipeline.",
-      "Players install the client to get deep in-game analytics — movement quality, shooting precision, decision-making patterns — all tracked in real time. The platform also integrates with bio-sensor hardware so players can see their physiological state synced to the game clock.",
-      "The client app is the primary experience. The companion web app is a phone-side mirror accessed via a secret QR code — same data, optimized for glancing at while you play.",
+    id: "release-one",
+    label: "Release 1",
+    title: "Installable player client",
+    value: "A CS2 player installs BioBase, connects, records or imports play, and sees useful performance feedback without operator help.",
+    status: "active",
+    items: [
+      { title: "Windows desktop client", outcome: "Local CS2/demo workflow, overlay foundation, upload queue", status: "active" },
+      { title: "Phone companion", outcome: "QR-linked glance display beside the monitor", status: "active" },
+      { title: "Auto-update", outcome: "Player stays current without manual installers", status: "done" },
+      { title: "Admin/server control", outcome: "Operator can manage maps, uploads, parser checks", status: "active" },
     ],
   },
   {
-    id: "client",
-    phase: "Phase 1",
-    title: "BioBase Client App",
-    focus: "Client",
-    priority: "now",
-    features: 6,
-    status: "In Progress",
-    icon: Monitor,
-    body: [
-      "The client is the player’s home base. It opens and immediately makes sense — no digging through menus, no learning curve. Every control and piece of information lives where the user is already looking.",
-      "Core features: one-click Play on Biobase to launch CS2 and connect to the server. Live movement stats updating in real time. Server status showing who’s online. Game overlay rendering stats directly on the CS2 screen.",
-      "The design principle is extreme friction reduction. Updates install automatically with a single click on the version number. The companion QR generates instantly. Player tracking auto-detects from Steam. Every interaction that can be eliminated, is eliminated.",
+    id: "performance-review",
+    label: "Core Value",
+    title: "Single Performance Review cockpit",
+    value: "The paid product becomes obvious when a player can see what cost rounds, what improved, and what to train next.",
+    status: "next",
+    items: [
+      { title: "Top match summary", outcome: "Strength, weakness, costliest mistake, next improvement", status: "next" },
+      { title: "Sticky category rail", outcome: "Movement → Biometrics visible without page switching", status: "next" },
+      { title: "Expandable category sections", outcome: "Compact summaries first, deep detail only on demand", status: "next" },
+      { title: "Replay-linked insights", outcome: "Every important metric can jump to tick/time context", status: "later" },
     ],
   },
   {
-    id: "companion",
-    phase: "Phase 1",
-    title: "Phone Companion",
-    focus: "Companion",
-    priority: "now",
-    features: 4,
-    status: "In Progress",
-    icon: Smartphone,
-    body: [
-      "Most players can’t see the BioBase app while playing — their screen is the game. The companion solves this: scan the QR from the client, and your phone becomes a live stats display you prop up next to your monitor.",
-      "The companion mirrors the client’s UI with two modes. Full mode (tablets) is an exact replica of the client’s layout. Compact mode (phones, default) is a streamlined single-column view optimized for glancing.",
-      "Both modes share the same design language and component library. Responsive CSS handles the adaptation — one codebase, not two apps that drift apart. The companion connects via a secret, time-limited link unique to each client instance.",
+    id: "data-contract",
+    label: "Data Contract",
+    title: "Canonical metrics and confidence",
+    value: "Each metric declares source, confidence, tick/time alignment, and whether it is observed or inferred.",
+    status: "next",
+    items: [
+      { title: "12 category model", outcome: "Pro-player mental model is now canonical", status: "done" },
+      { title: "Metric source map", outcome: "Demo parser, server telemetry, heuristic, biometric device", status: "next" },
+      { title: "Movement + Aim first", outcome: "Foundational signals linked to replay and duel outcomes", status: "next" },
+      { title: "Biometrics sync", outcome: "Body state aligned to round, duel, and tick context", status: "later" },
     ],
   },
   {
-    id: "dashboards",
-    phase: "Phase 2",
-    title: "Performance Dashboards",
-    focus: "Data Views",
-    priority: "next",
-    features: 8,
-    status: "Planned",
-    icon: Layers,
-    body: [
-      "This is the core value of BioBase — what makes it worth installing. Players want to improve specific aspects of their game, and each aspect gets its own purpose-built dashboard.",
-      "Movement dashboard: speed patterns, counter-strafe timing, path efficiency, bhop consistency. Shooting dashboard: accuracy breakdowns, spray control visualization, crosshair placement tracking, peek timing analysis.",
-      "Players select up to 3 focus categories and BioBase builds a combined dashboard on demand. Every player sees exactly the data that matters to their improvement path, nothing more.",
-    ],
-  },
-  {
-    id: "bio",
-    phase: "Phase 2",
-    title: "Bio-Sensor Integration",
-    focus: "Bio Input",
-    priority: "next",
-    features: 5,
-    status: "Planned",
-    icon: HeartPulse,
-    body: [
-      "What makes BioBase unique: physiological data synced to the game clock. When a player clutches a 1v3, we can show their heart rate spiking, their grip pressure changing, their micro-tremor patterns — all timestamped to the exact tick.",
-      "The bio-sensor device pairs with the client app over USB or Bluetooth. Raw sensor streams are captured at high frequency, downsampled to match the game’s tick rate, and overlaid on the performance dashboards.",
-      "During live play, the companion app shows bio metrics alongside game stats in real time. During replay review, players scrub through their demo and see exactly how their body responded to each engagement. This is the data no other platform has.",
-    ],
-  },
-  {
-    id: "updates",
-    phase: "Phase 1",
-    title: "Auto-Update Pipeline",
-    focus: "Infrastructure",
-    priority: "now",
-    features: 3,
-    status: "Shipped",
-    icon: ArrowUpCircle,
-    body: [
-      "Central control of updates is built in from day one. The client checks for updates on launch and when the user clicks the version number. Downloads happen in the background, and a single restart applies the update. No browser, no manual download, no installer wizard.",
-      "The update feed is a simple YAML manifest served from the BioBase server. electron-updater handles differential downloads, integrity verification, and atomic installs. The Caddy reverse proxy ensures the feed is always cache-busted.",
-      "When the server offering launches, the same pipeline extends to it — operators get notified of available updates and can apply them with one command. Every BioBase component is always up to date, always in sync.",
-    ],
-  },
-  {
-    id: "server",
-    phase: "Phase 3",
-    title: "BioBase CS2 Server",
-    focus: "Server",
-    priority: "future",
-    features: 7,
-    status: "Roadmap",
-    icon: Server,
-    body: [
-      "Today the CS2 server is internal — we run it, we manage it, players connect to it. But some players and teams want to run their own BioBase-powered server with the full data pipeline.",
-      "The packaged server offering will include: the CS2 dedicated server with BioBase instrumentation, the dashboard for server operators, the data pipeline that feeds client apps, and the movement/shooting analysis backend.",
-      "This is a future phase. The server architecture is already built and running — it’s a matter of packaging it for self-hosting, building an onboarding flow, and ensuring the auto-update pipeline works for server operators the same way it works for client users.",
+    id: "productization",
+    label: "Scale",
+    title: "Product hardening and server offering",
+    value: "Move from lab-grade capability to a simple paid service with reliable install, support, and operational boundaries.",
+    status: "later",
+    items: [
+      { title: "Signed release pipeline", outcome: "Trustworthy installs and updates", status: "later" },
+      { title: "Account/device management", outcome: "Paid users, devices, sessions, entitlements", status: "later" },
+      { title: "Self-hosted team server", outcome: "Optional package for teams that want their own instrumented CS2 server", status: "later" },
+      { title: "Support/observability", outcome: "Fast diagnosis without bloating the app stack", status: "later" },
     ],
   },
 ]
 
-const priorityStyle = {
-  now: { label: "Active", dot: "bg-emerald-400", badge: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" },
-  next: { label: "Up Next", dot: "bg-sky-400", badge: "bg-sky-500/15 text-sky-400 border-sky-500/25" },
-  future: { label: "Future", dot: "bg-violet-400", badge: "bg-violet-500/15 text-violet-400 border-violet-500/25" },
-} as const
+const categories: PerformanceCategory[] = [
+  { name: "Movement", icon: Gauge, status: "partial", role: "How efficiently the player moves and preserves duel readiness.", metrics: ["Velocity", "Strafing", "Bunny hops", "Counter-strafes", "Jumps", "Air control", "Positioning", "Movement efficiency"] },
+  { name: "Aim", icon: Crosshair, status: "planned", role: "Whether the crosshair is ready before the fight starts.", metrics: ["Crosshair placement", "Head-level %", "Flick accuracy", "Spray control", "Spray transfer", "Burst accuracy", "Tap accuracy", "First bullet accuracy", "Crosshair travel", "Target acquisition", "Time to first shot", "Reaction time"] },
+  { name: "Combat", icon: Target, status: "partial", role: "Outcome layer for kills, deaths, damage, openings, trades, and clutches.", metrics: ["Kills", "Deaths", "Assists", "ADR", "Damage dealt", "Damage taken", "Headshot %", "Opening duels", "Trade kills", "Trade deaths", "Multi-kills", "Clutches", "Time to kill", "Survival time"] },
+  { name: "Utility", icon: Zap, status: "planned", role: "Value created by grenades and timing.", metrics: ["Flash effectiveness", "Teammates flashed", "Enemies flashed", "Smoke effectiveness", "Molotov effectiveness", "HE damage", "Utility damage", "Utility value per round", "Utility timing", "Lineup success"] },
+  { name: "Positioning", icon: Radar, status: "planned", role: "Where the player wins, dies, rotates, peeks, and exposes themselves.", metrics: ["Heatmaps", "Angle hold time", "Angle win rate", "Time in cover", "Time exposed", "Peek locations", "Death locations", "Kill locations", "Rotation paths", "Distance traveled"] },
+  { name: "Decision Making", icon: Brain, status: "planned", role: "Timing and risk quality across rotate, save, entry, retake, and re-peek decisions.", metrics: ["Rotate timing", "Save decisions", "Retake participation", "Entry timing", "Re-peek frequency", "Aggression score", "Risk score", "Opportunity conversion", "Decision latency"] },
+  { name: "Economy", icon: DollarSign, status: "planned", role: "How money turns into round impact.", metrics: ["Buy efficiency", "Equipment value", "Weapon value", "Economy impact", "Save success", "Upgrade timing", "Cost per kill", "Cost per damage"] },
+  { name: "Teamplay", icon: Users, status: "planned", role: "Trade structure, spacing, support timing, and crossfire value.", metrics: ["Trade percentage", "Spacing", "Distance to teammates", "Support effectiveness", "Flash assists", "Crossfires", "Bait deaths", "Refrag timing", "Site support timing"] },
+  { name: "Round Performance", icon: Shield, status: "planned", role: "Round-level contribution to winning, objective play, entry, clutch, and momentum.", metrics: ["Round impact score", "MVP rounds", "Win contribution", "Objective contribution", "Bomb plants", "Defuses", "Entry impact", "Clutch impact", "Momentum"] },
+  { name: "Consistency", icon: Activity, status: "planned", role: "Trend, variance, confidence, fatigue, tilt, and repeatability.", metrics: ["Performance trend", "Round-to-round variance", "Aim consistency", "Movement consistency", "Decision consistency", "Utility consistency", "Confidence score", "Fatigue score", "Tilt indicator"] },
+  { name: "Mechanical Execution", icon: MousePointer2, status: "planned", role: "Input discipline and weapon-handling habits that silently cost fights.", metrics: ["Reload timing", "Weapon switching", "Scope timing", "Accuracy recovery", "Weapon handling", "Input efficiency", "Idle time", "APM"] },
+  { name: "BioBase Biometrics", icon: HeartPulse, status: "planned", role: "Body-state context synced to game clock: stress, fatigue, focus, and load.", metrics: ["Heart rate", "HRV", "Respiration", "Skin temperature", "Skin conductance", "Eye tracking", "Blink rate", "Pupil dilation", "Posture", "Hand tremor", "Muscle tension", "Fatigue", "Cognitive load", "Focus score", "Stress score"] },
+]
 
-function statusDot(s: string) {
-  return s === "Shipped" ? "bg-emerald-400" : s === "In Progress" ? "bg-amber-400" : s === "Planned" ? "bg-sky-400" : "bg-violet-400/60"
+function StatusBadge({ status }: { status: Status }) {
+  const meta = statusMeta[status]
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.badge}`}>
+      <span className={`size-1.5 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </span>
+  )
 }
 
-function statusColor(s: string) {
-  return s === "Shipped" ? "text-emerald-400" : s === "In Progress" ? "text-amber-400" : s === "Planned" ? "text-sky-400" : "text-violet-400"
-}
-
-function getScrollParent(el: HTMLElement): HTMLElement | null {
-  let p = el.parentElement
-  while (p) {
-    const s = getComputedStyle(p).overflowY
-    if (s === "auto" || s === "scroll") return p
-    p = p.parentElement
-  }
-  return null
+function CategoryBadge({ status }: { status: CategoryStatus }) {
+  const meta = categoryMeta[status]
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.badge}`}>
+      <span className={`size-1.5 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </span>
+  )
 }
 
 export function RoadmapSection() {
-  const [activeIndex, setActiveIndex] = useState(0)
-  const refs = useRef<(HTMLDivElement | null)[]>([])
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const el = rootRef.current
-    if (!el) return
-    const scrollRoot = getScrollParent(el)
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (!e.isIntersecting) continue
-          const i = refs.current.indexOf(e.target as HTMLDivElement)
-          if (i >= 0) setActiveIndex(i)
-        }
-      },
-      { root: scrollRoot, rootMargin: "-5% 0px -65% 0px", threshold: 0 },
-    )
-
-    for (const r of refs.current) if (r) observer.observe(r)
-    return () => observer.disconnect()
+  const [openCategory, setOpenCategory] = useState("Movement")
+  const counts = useMemo(() => {
+    const items = phases.flatMap((phase) => phase.items)
+    return {
+      done: items.filter((item) => item.status === "done").length,
+      active: items.filter((item) => item.status === "active").length,
+      next: items.filter((item) => item.status === "next").length,
+      later: items.filter((item) => item.status === "later").length,
+      metrics: categories.reduce((n, c) => n + c.metrics.length, 0),
+    }
   }, [])
 
-  function jumpTo(i: number) {
-    const el = rootRef.current
-    if (!el) return
-    const sp = getScrollParent(el)
-    const target = refs.current[i]
-    if (!target || !sp) return
-    sp.scrollTo({
-      top: sp.scrollTop + target.getBoundingClientRect().top - sp.getBoundingClientRect().top,
-      behavior: "smooth",
-    })
-  }
-
-  const ch = chapters[activeIndex]
-  const pm = priorityStyle[ch.priority]
-  const Icon = ch.icon
-
   return (
-    <div ref={rootRef}>
-      {/* Hero */}
-      <div className="border-b border-border/40 px-5 pb-5 pt-4 md:px-8 md:pb-6 md:pt-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-primary">
-          BioBase Live
-        </p>
-        <h1 className="mt-1 text-xl font-bold tracking-tight md:text-2xl">Product Roadmap</h1>
-        <p className="mt-1.5 max-w-lg text-[13px] leading-relaxed text-muted-foreground">
-          From CS2 performance client to full analytics platform &mdash; movement, shooting,
-          bio-sensors, and self-hosted servers.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {(["now", "next", "future"] as const).map((p) => {
-            const m = priorityStyle[p]
-            const n = chapters.filter((c) => c.priority === p).length
-            return (
-              <span
-                key={p}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.badge}`}
-              >
-                <span className={`size-1.5 rounded-full ${m.dot}`} />
-                {m.label} &middot; {n}
-              </span>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Two-column: chapters scroll, stats stick */}
-      <div className="flex">
-        {/* Chapters */}
-        <div className="min-w-0 flex-1">
-          {chapters.map((c, i) => {
-            const isActive = i === activeIndex
-            const CI = c.icon
-            return (
-              <div
-                key={c.id}
-                ref={(el) => {
-                  refs.current[i] = el
-                }}
-                className={`border-b border-border/20 px-5 py-6 transition-colors duration-300 md:px-8 md:py-8 ${isActive ? "bg-card/50" : ""}`}
-              >
-                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
-                  <span className="text-muted-foreground">{c.phase}</span>
-                  <span className="text-border">&middot;</span>
-                  <span className={statusColor(c.status)}>{c.status}</span>
-                </div>
-
-                <div className="mt-1.5 flex items-center gap-2">
-                  <CI
-                    className={`size-4 shrink-0 transition-colors duration-300 ${isActive ? "text-primary" : "text-muted-foreground/40"}`}
-                  />
-                  <h2
-                    className={`text-base font-bold tracking-tight transition-colors duration-300 md:text-lg ${isActive ? "text-foreground" : "text-muted-foreground/60"}`}
-                  >
-                    {c.title}
-                  </h2>
-                </div>
-
-                <div className="mt-3 max-w-xl space-y-2.5">
-                  {c.body.map((para, j) => (
-                    <p
-                      key={j}
-                      className={`text-[13px] leading-[1.65] transition-colors duration-500 ${isActive ? "text-foreground/80" : "text-muted-foreground/35"}`}
-                    >
-                      {para}
-                    </p>
-                  ))}
-                </div>
-
-                <div className="mt-3 flex items-center gap-2 text-[10px]">
-                  <span className="rounded bg-muted/60 px-1.5 py-0.5 font-medium text-muted-foreground">
-                    {c.features} features
-                  </span>
-                  <span className="rounded bg-muted/60 px-1.5 py-0.5 font-medium text-muted-foreground">
-                    {c.focus}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-          <div className="h-[50vh]" />
-        </div>
-
-        {/* Sticky stats panel */}
-        <div className="hidden w-56 shrink-0 border-l border-border/40 lg:block xl:w-64">
-          <div className="sticky top-0 max-h-screen overflow-y-auto p-4">
-            {/* Current chapter card */}
-            <div className="rounded-lg border border-border/50 bg-card/60 p-3">
-              <div className="flex items-center gap-2.5">
-                <div className="flex size-8 items-center justify-center rounded-md bg-primary/10">
-                  <Icon className="size-4 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {ch.phase}
-                  </p>
-                  <p className="truncate text-sm font-bold">{ch.title}</p>
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-1.5">
-                <div className="rounded-md bg-muted/30 px-2.5 py-1.5">
-                  <p className="text-base font-bold tabular-nums">{ch.features}</p>
-                  <p className="text-[9px] text-muted-foreground">Features</p>
-                </div>
-                <div className="rounded-md bg-muted/30 px-2.5 py-1.5">
-                  <p className="truncate text-sm font-bold">{ch.focus}</p>
-                  <p className="text-[9px] text-muted-foreground">Focus</p>
-                </div>
-              </div>
-
-              <div className="mt-2 flex items-center justify-between rounded-md bg-muted/30 px-2.5 py-1.5">
-                <div>
-                  <p className="text-xs font-semibold">{ch.status}</p>
-                  <p className="text-[9px] text-muted-foreground">Status</p>
-                </div>
-                <div
-                  className={`size-2 rounded-full ${statusDot(ch.status)} ${ch.status === "In Progress" ? "animate-pulse" : ""}`}
-                />
-              </div>
-
-              <div className="mt-2">
-                <span
-                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${pm.badge}`}
-                >
-                  {pm.label}
-                </span>
-              </div>
-            </div>
-
-            {/* Chapter navigation */}
-            <div className="mt-4">
-              <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Chapters
-              </p>
-              <div className="space-y-px">
-                {chapters.map((c, i) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => jumpTo(i)}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] transition-colors ${
-                      i === activeIndex
-                        ? "bg-primary/10 font-semibold text-primary"
-                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                    }`}
-                  >
-                    <span
-                      className={`size-1.5 shrink-0 rounded-full ${i === activeIndex ? "bg-primary" : statusDot(c.status)}`}
-                    />
-                    <span className="truncate">{c.title}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+    <div className="min-h-full bg-[#070a0f] text-zinc-100">
+      <div className="border-b border-white/10 bg-[#0a0f17] px-4 py-4 md:px-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-300">Board roadmap</p>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">BioBase first release</h1>
+            <p className="mt-1.5 text-sm leading-6 text-zinc-400">
+              Installable CS2 performance review for serious players: local desktop client, companion display,
+              replay-linked analytics, and a single low-cognitive-load cockpit for what to improve next.
+            </p>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5 text-center text-[11px] md:w-[360px]">
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2"><div className="text-lg font-semibold tabular-nums">{counts.done}</div><div className="text-zinc-500">done</div></div>
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2"><div className="text-lg font-semibold tabular-nums">{counts.active}</div><div className="text-zinc-500">active</div></div>
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2"><div className="text-lg font-semibold tabular-nums">{counts.next}</div><div className="text-zinc-500">next</div></div>
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2"><div className="text-lg font-semibold tabular-nums">{counts.metrics}</div><div className="text-zinc-500">metrics</div></div>
           </div>
         </div>
       </div>
 
-      {/* Mobile floating pill */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-20 flex justify-center lg:hidden">
-        <div className="pointer-events-auto rounded-full border border-border/50 bg-background/90 px-3.5 py-1.5 shadow-lg backdrop-blur-sm">
-          <p className="text-[11px] font-semibold">
-            <span className="text-primary">{ch.phase}</span>
-            <span className="mx-1 text-muted-foreground/40">&middot;</span>
-            <span>{ch.title}</span>
-          </p>
-        </div>
+      <div className="grid gap-4 px-4 py-4 md:px-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <main className="space-y-4">
+          <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-center gap-2">
+              <ListChecks className="size-4 text-sky-300" />
+              <h2 className="text-sm font-semibold">Operating thesis</h2>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500">Vision</div>
+                <p className="mt-1 text-sm text-zinc-300">A coaching instrument that shows why rounds were won or lost and what to train next.</p>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500">Paid value</div>
+                <p className="mt-1 text-sm text-zinc-300">Players pay for insight they cannot get from demos alone: movement, aim, decisions, teamplay, and biometrics in one timeline.</p>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500">Design rule</div>
+                <p className="mt-1 text-sm text-zinc-300">One Performance Review screen. Compact category summaries. Deep detail only when requested.</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Release roadmap</h2>
+              <span className="text-[11px] text-zinc-500">Checklist view</span>
+            </div>
+            {phases.map((phase) => {
+              const meta = statusMeta[phase.status]
+              return (
+                <article key={phase.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
+                        <span>{phase.label}</span>
+                        <span className={`size-1.5 rounded-full ${meta.dot}`} />
+                        <span className={meta.text}>{meta.label}</span>
+                      </div>
+                      <h3 className="mt-1 text-base font-semibold">{phase.title}</h3>
+                      <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-400">{phase.value}</p>
+                    </div>
+                    <StatusBadge status={phase.status} />
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {phase.items.map((item) => {
+                      const done = item.status === "done"
+                      return (
+                        <div key={item.title} className="flex gap-2 rounded-lg border border-white/10 bg-black/20 p-3">
+                          {done ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300" /> : <Circle className="mt-0.5 size-4 shrink-0 text-zinc-600" />}
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium">{item.title}</p>
+                              <StatusBadge status={item.status} />
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-zinc-500">{item.outcome}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </article>
+              )
+            })}
+          </section>
+        </main>
+
+        <aside className="space-y-4 xl:sticky xl:top-3 xl:self-start">
+          <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Performance categories</h2>
+              <span className="text-[11px] text-zinc-500">expandable</span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              Canonical pro-player model. The app should keep these on one screen through the category rail, not force page switching.
+            </p>
+            <div className="mt-3 space-y-1.5">
+              {categories.map((category) => {
+                const Icon = category.icon
+                const open = openCategory === category.name
+                return (
+                  <div key={category.name} className="overflow-hidden rounded-lg border border-white/10 bg-black/20">
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setOpenCategory(open ? "" : category.name)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03]"
+                    >
+                      <Icon className="size-4 shrink-0 text-sky-300" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium">{category.name}</span>
+                          <CategoryBadge status={category.status} />
+                        </div>
+                        <p className="truncate text-[11px] text-zinc-500">{category.role}</p>
+                      </div>
+                      <ChevronDown className={`size-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`} />
+                    </button>
+                    {open ? (
+                      <div className="border-t border-white/10 px-3 py-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {category.metrics.map((metric) => (
+                            <span key={metric} className="rounded border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-zinc-400">
+                              {metric}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        </aside>
       </div>
     </div>
   )

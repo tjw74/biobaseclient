@@ -3,13 +3,15 @@ import { createRoot } from 'react-dom/client';
 import QRCode from 'qrcode';
 import { frameAt } from '../../shared/mockTimeline';
 import { buildLiveFrame, DEFAULT_API_BASE_URL, DEFAULT_CONNECT } from '../../shared/liveFrame';
-import type { AppMode } from '../../shared/liveTypes';
 import type { LiveMovementStatus, LiveServerStatus } from '../../shared/liveTypes';
 import type { ClientSettings, LocalDemoFile, ParsedDemoSummary, PlaybackState, TimelineFrame, UploadQueueItem } from '../../shared/types';
 import type { UpdateStatus } from '../../shared/updateTypes';
+import { formatVersionClickFeedback } from '../../shared/updateFeedback';
 import './styles.css';
 
 declare const __APP_VERSION__: string;
+
+type Section = 'live' | 'shadow' | 'replay' | 'profile' | 'insights';
 
 const isOverlayRoute = window.location.hash.includes('overlay');
 if (isOverlayRoute) {
@@ -36,28 +38,132 @@ function Badge({ status }: { status: 'live' | 'soon' | 'idle' | 'online' | 'offl
   return <span className={`badge badge--${status}`}>{label}</span>;
 }
 
+/* ── Nav icons ── */
+
+function NavIcon({ id }: { id: string }) {
+  const d: Record<string, string> = {
+    live: 'M22 12h-4l-3 9L9 3l-3 9H2',
+    shadow: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+    replay: 'M1 4v6h6M3.51 15a9 9 0 1 0 2.13-9.36L1 10',
+    profile: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+    insights: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
+  };
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d[id] ?? ''} />
+    </svg>
+  );
+}
+
+/* ── Sidebar ── */
+
+const NAV_ITEMS: { id: Section; label: string }[] = [
+  { id: 'live', label: 'Live Dashboard' },
+  { id: 'shadow', label: 'Shadow' },
+  { id: 'replay', label: 'Replay' },
+  { id: 'profile', label: 'Player Profile' },
+  { id: 'insights', label: 'Insights' },
+];
+
+const SECTION_TITLES: Record<Section, [string, string]> = {
+  live: ['LIVE DASHBOARD', 'Live Dashboard'],
+  shadow: ['SHADOW', 'Shadow'],
+  replay: ['REPLAY', 'Replay'],
+  profile: ['PLAYER PROFILE', 'Player Profile'],
+  insights: ['INSIGHTS', 'Insights'],
+};
+
+function Sidebar({ section, onNav, statusClass }: { section: Section; onNav: (s: Section) => void; statusClass: string }) {
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
+      <div className="sidebar-brand">
+        <span className="sidebar-logo">⌘</span>
+        {!collapsed && (
+          <div className="sidebar-title">
+            <span className="sidebar-name">BIOBASE</span>
+            <span className="sidebar-sub">Performance Lab</span>
+          </div>
+        )}
+        <button className="sidebar-collapse" onClick={() => setCollapsed(!collapsed)}>{collapsed ? '»' : '«'}</button>
+      </div>
+      <nav className="sidebar-nav">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            className={`sidebar-item${section === item.id ? ' active' : ''}`}
+            onClick={() => onNav(item.id)}
+          >
+            <NavIcon id={item.id} />
+            {!collapsed && <span>{item.label}</span>}
+          </button>
+        ))}
+      </nav>
+      <div className="sidebar-footer">
+        <span className={`pill-dot ${statusClass}`} />
+        {!collapsed && <span className="sidebar-status">{statusClass === 'live' ? 'Live' : statusClass === 'online' ? 'Ready' : 'Offline'}</span>}
+      </div>
+    </aside>
+  );
+}
+
+/* ── Section header ── */
+
+function SectionHeader({ section, children }: { section: Section; children?: React.ReactNode }) {
+  const [label, title] = SECTION_TITLES[section];
+  return (
+    <div className="section-header">
+      <div>
+        <span className="section-label">{label}</span>
+        <h1 className="section-title">{title}</h1>
+      </div>
+      {children && <div className="section-actions">{children}</div>}
+    </div>
+  );
+}
+
 /* ── Version / update ── */
 
 function VersionTag({ onStatus }: { onStatus?: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+
+  function showFeedback(message: string) {
+    setFeedback(message);
+    onStatus?.(message);
+  }
+
   async function handleClick() {
-    if (busy || !window.biobaseDesktop?.triggerUpdate) return;
+    if (busy) return;
+    if (!window.biobaseDesktop?.triggerUpdate) {
+      showFeedback('Update check unavailable in this build');
+      return;
+    }
     setBusy(true);
-    onStatus?.('Checking for updates…');
+    showFeedback('Checking for updates…');
     try {
       const status = await window.biobaseDesktop.triggerUpdate();
-      if (status.state === 'ready') { onStatus?.(`v${status.latestVersion ?? ''} ready — use Restart in banner`); return; }
-      if (status.state === 'checking' || status.state === 'downloading' || status.state === 'available') { onStatus?.(status.message ?? 'Downloading update…'); return; }
-      if (status.state === 'not-available') { onStatus?.('Already on the latest version'); return; }
-      if (status.message?.includes('Mac download')) { onStatus?.('Opening Mac download in your browser…'); return; }
-      if (status.state === 'error') { onStatus?.(status.message ?? 'Update check failed'); return; }
-      onStatus?.('Update check started');
-    } catch { onStatus?.('Update check failed'); } finally { setBusy(false); }
+      showFeedback(formatVersionClickFeedback(status));
+    } catch {
+      showFeedback('Update check failed');
+    } finally {
+      setBusy(false);
+    }
   }
+
   return (
-    <button type="button" className={`version-tag${busy ? ' busy' : ''}`} title="Check for updates" disabled={busy} onClick={() => { void handleClick(); }}>
-      v{__APP_VERSION__}
-    </button>
+    <div className="version-check">
+      <button
+        type="button"
+        className={`version-tag${busy ? ' busy' : ''}`}
+        title={feedback || 'Check for updates'}
+        disabled={busy}
+        onClick={() => { void handleClick(); }}
+      >
+        v{__APP_VERSION__}
+      </button>
+      {feedback ? <span className="version-feedback" role="status" aria-live="polite">{feedback}</span> : null}
+    </div>
   );
 }
 
@@ -82,7 +188,7 @@ function UpdateBanner() {
   );
 }
 
-/* ── Movement panel (hero) ── */
+/* ── Movement panel ── */
 
 function MovementPanel({ frame, live }: { frame: TimelineFrame; live: boolean }) {
   const m = frame.movement;
@@ -122,15 +228,119 @@ function ShootingPanel() {
   );
 }
 
+/* ── Shadow section (placeholder) ── */
+
+function ShadowSection({ frame, live }: { frame: TimelineFrame; live: boolean }) {
+  const m = frame.movement;
+  return (
+    <div className="live-stack">
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Performance Comparison</h2>
+          <Badge status={live ? 'live' : 'idle'} />
+        </div>
+        <p className="panel-hint">Compare your real-time stats against benchmarks. Shadow mode adapts to your averages and highlights where you can improve.</p>
+        <div className="shadow-grid">
+          <div className="shadow-col">
+            <h3 className="shadow-col-label">Your Stats</h3>
+            <div className="stat-grid">
+              <StatCell label="speed" value={m.speed} />
+              <StatCell label="counter-strafe" value={m.counterStrafeScore.toFixed(2)} />
+              <StatCell label="path efficiency" value={m.pathEfficiency.toFixed(2)} />
+              <StatCell label="tick" value={frame.currentTick} />
+            </div>
+          </div>
+          <div className="shadow-col">
+            <h3 className="shadow-col-label">Benchmark</h3>
+            <div className="stat-grid">
+              <StatCell label="speed" value={245} accent />
+              <StatCell label="counter-strafe" value="0.92" accent />
+              <StatCell label="path efficiency" value="0.88" accent />
+              <StatCell label="target" value="—" />
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-head"><h2>Shadow Modes</h2></div>
+        <div className="shadow-modes">
+          <div className="shadow-mode active">
+            <b>Personal Average</b>
+            <span>Compare against your own rolling average</span>
+          </div>
+          <div className="shadow-mode">
+            <b>Pro Benchmark</b>
+            <span>Compare against shared pro player profiles</span>
+          </div>
+          <div className="shadow-mode">
+            <b>Custom Threshold</b>
+            <span>Set your own target values to train against</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ── Player Profile section (placeholder) ── */
+
+function PlayerProfileSection() {
+  return (
+    <div className="live-stack">
+      <section className="panel">
+        <div className="panel-head"><h2>Performance Scores</h2></div>
+        <div className="stat-grid stat-grid--hero">
+          <div className="stat-cell score-card">
+            <span className="score-label">MOVEMENT QUALITY</span>
+            <b>—</b>
+            <span>Play a session to establish baseline</span>
+          </div>
+          <div className="stat-cell score-card">
+            <span className="score-label">COUNTER-STRAFE</span>
+            <b>—</b>
+            <span>Stop accuracy and timing</span>
+          </div>
+          <div className="stat-cell score-card">
+            <span className="score-label">PATH EFFICIENCY</span>
+            <b>—</b>
+            <span>Route optimization score</span>
+          </div>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-head"><h2>Session History</h2></div>
+        <p className="panel-placeholder">Your performance trends will appear here after you play sessions on Biobase.</p>
+      </section>
+    </div>
+  );
+}
+
+/* ── Insights section (placeholder) ── */
+
+function InsightsSection() {
+  return (
+    <div className="live-stack">
+      <section className="panel">
+        <div className="panel-head"><h2>Immediate</h2></div>
+        <p className="panel-placeholder">Play a few sessions to generate movement insights and recommendations.</p>
+      </section>
+      <section className="panel">
+        <div className="panel-head"><h2>Trends</h2></div>
+        <p className="panel-placeholder">Long-term performance patterns will appear here as your profile builds.</p>
+      </section>
+    </div>
+  );
+}
+
 /* ── Server pill (top bar compact + dropdown) ── */
 
-function ServerPill({ status, trackedPlayer, onPickPlayer, isWindows, onLaunchCs2, launchBusy }: {
+function ServerPill({ status, trackedPlayer, onPickPlayer, onLaunchCs2, launchBusy, statusClass }: {
   status: LiveServerStatus | null;
   trackedPlayer: string;
   onPickPlayer: (name: string) => void;
-  isWindows: boolean;
   onLaunchCs2: () => void;
   launchBusy: boolean;
+  statusClass: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -153,10 +363,8 @@ function ServerPill({ status, trackedPlayer, onPickPlayer, isWindows, onLaunchCs
   return (
     <div className="pill-wrap" ref={ref}>
       <button className={`header-pill${isOnline ? ' pill--online' : ' pill--offline'}`} onClick={() => setOpen(!open)}>
-        <span className={`pill-dot ${isOnline ? 'online' : 'offline'}`} />
-        <span className="pill-label">{mapName}</span>
-        {isOnline && <span className="pill-sep">&middot;</span>}
-        {isOnline && <span className="pill-count">{humans.length}</span>}
+        <span className={`pill-dot ${statusClass}`} />
+        <span className="pill-label">{isOnline ? mapName : 'Not connected'}</span>
         <span className="pill-arrow">{open ? '▴' : '▾'}</span>
       </button>
       {open && (
@@ -195,22 +403,26 @@ function ServerPill({ status, trackedPlayer, onPickPlayer, isWindows, onLaunchCs
             </div>
           )}
           {humans.length === 0 && <p className="dropdown-empty">No players on server.</p>}
-          {isWindows && (
-            <div className="dropdown-section dropdown-footer">
-              <button className="launch-btn" disabled={launchBusy} onClick={() => { onLaunchCs2(); setOpen(false); }}>
-                {launchBusy ? 'Launching…' : 'Launch CS2 on Biobase'}
-              </button>
-            </div>
-          )}
+          <div className="dropdown-section dropdown-footer">
+            <button className="launch-btn" disabled={launchBusy} onClick={() => { onLaunchCs2(); setOpen(false); }}>
+              {launchBusy ? 'Connecting…' : 'Connect to Server'}
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-/* ── Companion button (top bar + popover) ── */
+/* ── App menu (⋯) ── */
 
-function CompanionButton({ onStatus }: { onStatus: (msg: string) => void }) {
+function AppMenu({ onStatus, overlayOn, overlayDisabled, onToggleOverlay, isWindows }: {
+  onStatus: (msg: string) => void;
+  overlayOn: boolean;
+  overlayDisabled: boolean;
+  onToggleOverlay: () => void;
+  isWindows: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [companionUrl, setCompanionUrl] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
@@ -226,81 +438,71 @@ function CompanionButton({ onStatus }: { onStatus: (msg: string) => void }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  async function create() {
+  async function createSideView() {
     setBusy(true);
     try {
       const result = await window.biobaseDesktop?.createCompanionLink();
-      if (!result?.ok || !result.url) { onStatus(result?.error ?? 'Could not create companion link'); return; }
+      if (!result?.ok || !result.url) { onStatus(result?.error ?? 'Could not create SideView link'); return; }
       setCompanionUrl(result.url);
-      const dataUrl = await QRCode.toDataURL(result.url, { margin: 1, width: 200, color: { dark: '#eef2ff', light: '#00000000' } });
+      const dataUrl = await QRCode.toDataURL(result.url, { margin: 1, width: 200, color: { dark: '#e2e8f0', light: '#00000000' } });
       setQrDataUrl(dataUrl);
-      onStatus('Companion ready');
+      onStatus('SideView ready');
     } finally { setBusy(false); }
   }
 
-  async function copy() {
+  async function copySideViewLink() {
     if (!companionUrl) return;
-    try { await navigator.clipboard.writeText(companionUrl); onStatus('Companion link copied'); } catch { onStatus(companionUrl); }
+    try { await navigator.clipboard.writeText(companionUrl); onStatus('SideView link copied'); } catch { onStatus(companionUrl); }
   }
 
   function handleOpen() {
     const willOpen = !open;
     setOpen(willOpen);
-    if (willOpen && !qrDataUrl) void create();
+    if (willOpen && !qrDataUrl) void createSideView();
   }
 
   return (
     <div className="pill-wrap" ref={ref}>
-      <button className={`header-pill pill--companion${qrDataUrl ? ' has-qr' : ''}`} onClick={handleOpen} title="Phone companion">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
-          <line x1="12" y1="18" x2="12.01" y2="18" />
-        </svg>
-      </button>
+      <button className="header-pill menu-trigger" onClick={handleOpen} title="Menu">⋯</button>
       {open && (
-        <div className="dropdown companion-dropdown">
+        <div className="dropdown app-menu">
           <div className="dropdown-section">
-            <div className="dropdown-row-between">
-              <span className="dropdown-label">Phone Companion</span>
-              <button className="dropdown-close" onClick={() => setOpen(false)}>&times;</button>
-            </div>
-            <p className="dropdown-hint">Scan QR on your phone for live stats while you play.</p>
+            <span className="dropdown-label">SideView</span>
+            <p className="dropdown-hint">Open stats on another screen</p>
           </div>
-          {busy && <p className="dropdown-hint" style={{ textAlign: 'center' }}>Generating...</p>}
+          {busy && <p className="dropdown-hint" style={{ textAlign: 'center' }}>Generating…</p>}
           {qrDataUrl && (
             <div className="companion-qr-section">
-              <img className="companion-qr" src={qrDataUrl} alt="Companion QR" />
+              <img className="companion-qr" src={qrDataUrl} alt="SideView QR" />
             </div>
           )}
           <div className="dropdown-section dropdown-footer">
             <div className="companion-actions">
-              <button type="button" disabled={busy} onClick={() => { void create(); }}>
+              <button type="button" disabled={busy} onClick={() => { void createSideView(); }}>
                 {busy ? 'Creating…' : 'New QR'}
               </button>
-              <button type="button" disabled={!companionUrl} onClick={() => { void copy(); }}>
+              <button type="button" disabled={!companionUrl} onClick={() => { void copySideViewLink(); }}>
                 Copy link
               </button>
             </div>
           </div>
+          {isWindows && (
+            <div className="dropdown-section">
+              <div className="menu-toggle-row">
+                <div>
+                  <span className="dropdown-label">Game HUD</span>
+                  <p className="dropdown-hint">Show stats overlay in CS2</p>
+                </div>
+                <label className="toggle">
+                  <input type="checkbox" checked={overlayOn} disabled={overlayDisabled} onChange={onToggleOverlay} />
+                  <span className="toggle-ui" />
+                </label>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
-  );
-}
-
-/* ── Overlay toggle (top bar) ── */
-
-function OverlayToggle({ on, disabled, onToggle }: { on: boolean; disabled: boolean; onToggle: () => void }) {
-  return (
-    <button
-      className={`header-pill pill--overlay${on ? ' on' : ''}`}
-      disabled={disabled}
-      onClick={onToggle}
-      title={on ? 'Hide game overlay (Ctrl+Shift+O)' : 'Show game overlay (Ctrl+Shift+O)'}
-    >
-      <span className={`pill-dot ${on ? 'live' : ''}`} />
-      Overlay
-    </button>
   );
 }
 
@@ -334,13 +536,13 @@ function OverlayRoute() {
     <main className="overlay-stage">
       <div className="hud-card">
         <MovementPanel frame={frame} live={live} />
-        <div className="hud-hint">Ctrl+Shift+M free mouse &middot; Ctrl+Shift+O toggle &middot; Esc hide</div>
+        <div className="hud-hint">Ctrl+Shift+M free mouse · Ctrl+Shift+O toggle · Esc hide</div>
       </div>
     </main>
   );
 }
 
-/* ── Review tab ── */
+/* ── Replay tab ── */
 
 function usePlaybackClock(): TimelineFrame {
   const [timeSec, setTimeSec] = useState(18);
@@ -366,7 +568,7 @@ function frameFromParsed(parsed: ParsedDemoSummary | null, timeSec: number): Tim
   return { ...frame, currentTick: sample.tick, movement: { ...frame.movement, tick: sample.tick, timeSec: sample.timeSec, steamid: sample.steamid, name: sample.name, speed: sample.speed, counterStrafeScore: sample.counterStrafeScore, pathEfficiency: sample.pathEfficiency, x: sample.x, y: sample.y, z: sample.z } };
 }
 
-function ReviewRoute(props: {
+function ReplayRoute(props: {
   demos: LocalDemoFile[]; selected: LocalDemoFile | null; setSelected: React.Dispatch<React.SetStateAction<LocalDemoFile | null>>;
   parsed: ParsedDemoSummary | null; busy: boolean; playback: PlaybackState | null; queue: UploadQueueItem[];
   syncStatus: string; chooseDemo: () => Promise<void>; parseSelectedDemo: () => Promise<void>;
@@ -381,13 +583,13 @@ function ReviewRoute(props: {
         <div className="panel-head"><h2>Local Demos</h2></div>
         <div className="demo-list">
           {props.demos.length === 0 && <div className="empty">No demos auto-detected. Use Import .dem in the sidebar.</div>}
-          {props.demos.map((d) => <button key={d.path} className={props.selected?.path === d.path ? 'demo-row selected' : 'demo-row'} onClick={() => props.setSelected(d)}><span>{d.name}</span><em>{(d.bytes / 1024 / 1024).toFixed(1)} MB &middot; {d.source}</em></button>)}
+          {props.demos.map((d) => <button key={d.path} className={props.selected?.path === d.path ? 'demo-row selected' : 'demo-row'} onClick={() => props.setSelected(d)}><span>{d.name}</span><em>{(d.bytes / 1024 / 1024).toFixed(1)} MB · {d.source}</em></button>)}
         </div>
       </section>
       <section className="panel">
         <div className="panel-head"><h2>Timeline</h2></div>
         <div className="timeline-bar"><span style={{ width: `${Math.min(100, ((props.playback?.currentTimeSec ?? 0) / (props.parsed?.durationSec || 120)) * 100)}%` }} /></div>
-        <div className="timeline-meta">{(props.playback?.currentTimeSec ?? frame.currentTimeSec).toFixed(2)}s &middot; tick {frame.currentTick}</div>
+        <div className="timeline-meta">{(props.playback?.currentTimeSec ?? frame.currentTimeSec).toFixed(2)}s · tick {frame.currentTick}</div>
       </section>
       <section className="panel">
         <div className="panel-head"><h2>Upload Queue</h2></div>
@@ -396,7 +598,7 @@ function ReviewRoute(props: {
           {props.queue.slice(0, 8).map((item) => <div key={item.id} className={`queue-row ${item.status}`}><span>{item.demoName}</span><em>{item.status}{item.lastError ? ` · ${item.lastError}` : ''}</em></div>)}
         </div>
       </section>
-      <p className="hint-line">Sync: {props.syncStatus} &middot; Parser: {props.parsed?.parser ?? 'not run'} &middot; Samples: {props.parsed?.movementSamples.length ?? 0}</p>
+      <p className="hint-line">Sync: {props.syncStatus} · Parser: {props.parsed?.parser ?? 'not run'} · Samples: {props.parsed?.movementSamples.length ?? 0}</p>
     </>
   );
 }
@@ -404,7 +606,7 @@ function ReviewRoute(props: {
 /* ── Main dashboard ── */
 
 function DashboardRoute() {
-  const [appMode, setAppMode] = useState<AppMode>('live');
+  const [section, setSection] = useState<Section>('live');
   const [demos, setDemos] = useState<LocalDemoFile[]>([]);
   const [selected, setSelected] = useState<LocalDemoFile | null>(null);
   const [parsed, setParsed] = useState<ParsedDemoSummary | null>(null);
@@ -431,7 +633,7 @@ function DashboardRoute() {
     setConnectBusy(true);
     try {
       const result = await bridge.connectCs2({ host: connectTarget.host, port: connectTarget.port });
-      if (result.ok) { setSyncStatus(`Launching CS2 → ${connectTarget.host}:${connectTarget.port}`); return true; }
+      if (result.ok) { setSyncStatus(`Connecting to ${connectTarget.host}:${connectTarget.port}`); return true; }
       setSyncStatus(result.error);
       return false;
     } finally { setConnectBusy(false); }
@@ -453,6 +655,7 @@ function DashboardRoute() {
     window.biobaseDesktop?.startLivePolling().catch(() => undefined);
     window.biobaseDesktop?.startMovementPolling().catch(() => undefined);
     window.biobaseDesktop?.isOverlayKillSwitch?.().then((b) => { if (active) setOverlayKillSwitch(Boolean(b)); }).catch(() => undefined);
+    void connectToCs2Server();
     const heartbeat = () => { void window.biobaseDesktop?.sendMainHeartbeat?.(); };
     heartbeat();
     const t4 = window.setInterval(heartbeat, 15_000);
@@ -521,43 +724,48 @@ function DashboardRoute() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <div className="brand">Biobase <VersionTag onStatus={setSyncStatus} /></div>
-        <nav className="nav-tabs">
-          <button className={appMode === 'live' ? 'active' : ''} onClick={() => setAppMode('live')}>Live</button>
-          <button className={appMode === 'review' ? 'active' : ''} onClick={() => setAppMode('review')}>Playback</button>
-        </nav>
-        <div className="header-spacer" />
-        <ServerPill
-          status={liveStatus}
-          trackedPlayer={settings.trackedPlayerName ?? ''}
-          onPickPlayer={pickPlayer}
-          isWindows={isWindows}
-          onLaunchCs2={() => { void launchCs2(); }}
-          launchBusy={liveSessionBusy || connectBusy}
-        />
-        <CompanionButton onStatus={setSyncStatus} />
-        {isWindows && (
-          <OverlayToggle on={gameOverlayOn} disabled={overlayKillSwitch || liveSessionBusy} onToggle={() => { void toggleGameOverlay(); }} />
-        )}
-        <span className={`status-dot ${statusClass}`} title={movementLive ? 'Live' : serverOnline ? 'Server up' : 'Offline'} />
-      </header>
-      <UpdateBanner />
-      <main className="app-main">
-        <div className="app-main-inner">
-          {appMode === 'live' && (
+      <Sidebar section={section} onNav={setSection} statusClass={statusClass} />
+      <div className="app-content">
+        <header className="content-header">
+          <SectionHeader section={section}>
+            <VersionTag onStatus={setSyncStatus} />
+          </SectionHeader>
+          <div className="content-header-right">
+            <ServerPill
+              status={liveStatus}
+              trackedPlayer={settings.trackedPlayerName ?? ''}
+              onPickPlayer={pickPlayer}
+              onLaunchCs2={() => { void launchCs2(); }}
+              launchBusy={liveSessionBusy || connectBusy}
+              statusClass={statusClass}
+            />
+            <AppMenu
+              onStatus={setSyncStatus}
+              overlayOn={gameOverlayOn}
+              overlayDisabled={overlayKillSwitch || liveSessionBusy}
+              onToggleOverlay={() => { void toggleGameOverlay(); }}
+              isWindows={isWindows}
+            />
+          </div>
+        </header>
+        <UpdateBanner />
+        <main className="app-main">
+          {section === 'live' && (
             <div className="live-stack">
               <MovementPanel frame={liveFrame} live={movementLive} />
               <ShootingPanel />
             </div>
           )}
-          {appMode === 'review' && (
-            <ReviewRoute
+          {section === 'shadow' && <ShadowSection frame={liveFrame} live={movementLive} />}
+          {section === 'replay' && (
+            <ReplayRoute
               demos={demos} selected={selected} setSelected={setSelected} parsed={parsed} busy={busy}
               playback={playback} queue={queue} syncStatus={syncStatus} chooseDemo={chooseDemo}
               parseSelectedDemo={parseSelectedDemo} uploadSummary={uploadSummary} seek={seek} togglePlayback={togglePlayback}
             />
           )}
+          {section === 'profile' && <PlayerProfileSection />}
+          {section === 'insights' && <InsightsSection />}
           <details className="advanced">
             <summary>Advanced</summary>
             <div className="advanced-grid">
@@ -569,7 +777,7 @@ function DashboardRoute() {
               </label>
             </div>
             <div className="advanced-grid">
-              <button onClick={() => { void connectToCs2Server(); }}>Reconnect CS2</button>
+              <button onClick={() => { void connectToCs2Server(); }}>Connect to Server</button>
               <button onClick={() => { void window.biobaseDesktop?.releaseMouse?.(); }}>Release mouse (Ctrl+Shift+M)</button>
               <button onClick={() => { void window.biobaseDesktop?.createCs2Shortcut().then((r) => r && setSyncStatus(r.ok ? 'Desktop icon created' : r.error)); }}>Desktop Play icon</button>
             </div>
@@ -585,8 +793,8 @@ function DashboardRoute() {
             <span>{liveStatus?.map ?? 'server offline'}</span>
             <span>{movementLive ? 'movement feed live' : 'ready'}</span>
           </footer>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

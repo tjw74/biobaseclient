@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -11,7 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import {
   Table,
@@ -55,15 +56,65 @@ function formatWhen(iso: string, unix: number): string {
   })
 }
 
+function formatPickedSummary(files: File[]): string {
+  if (files.length === 0) {
+    return ""
+  }
+  const maxShow = 4
+  const shown = files.slice(0, maxShow).map((f) => f.name)
+  const extra = files.length - shown.length
+  const tail = extra > 0 ? ` (+${extra} more)` : ""
+  return `${files.length} selected: ${shown.join(", ")}${tail}`
+}
+
+/** Browser folder picks expose relative paths; sort for stable upload order. */
+function filesFromFolderInput(fileList: FileList | File[]): File[] {
+  const raw = Array.from(fileList)
+  if (raw.length === 0) {
+    return raw
+  }
+  return [...raw].sort((a, b) => {
+    const pa = a.webkitRelativePath || a.name
+    const pb = b.webkitRelativePath || b.name
+    return pa.localeCompare(pb, undefined, { numeric: true, sensitivity: "base" })
+  })
+}
+
+function pickedSummaryTitle(files: File[]): string {
+  return files.map((f) => (f.webkitRelativePath || f.name).trim() || f.name).join(", ")
+}
+
+/** Match `components/ui/input` styling; native `<input>` avoids Base UI FieldControl + `type="file"` quirks. */
+const clipsFileInputClassName = cn(
+  "h-8 w-full min-w-0 max-w-md rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none file:mr-2 file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-xs file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+  "cursor-pointer",
+)
+
 export function ClipsUploadPanel() {
-  const [file, setFile] = useState<File | null>(null)
+  const [picked, setPicked] = useState<File[]>([])
+  const [folderMode, setFolderMode] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** 1-based index while uploading (sequential); null when idle. */
+  const [uploadPos, setUploadPos] = useState<number | null>(null)
   const [listBusy, setListBusy] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
   const [items, setItems] = useState<UploadListItem[]>([])
   /** From last successful GET /api/uploads — server-side clips path hint (VM bind). */
   const [clipsPathHint, setClipsPathHint] = useState<string | null>(null)
   const { refresh } = useAuth()
+  const folderInputRef = useRef<HTMLInputElement>(null)
+
+  useLayoutEffect(() => {
+    if (!folderMode) {
+      return
+    }
+    const el = folderInputRef.current
+    if (!el) {
+      return
+    }
+    el.multiple = true
+    el.webkitdirectory = true
+  }, [folderMode])
 
   const loadList = useCallback(async () => {
     setListBusy(true)
@@ -117,31 +168,68 @@ export function ClipsUploadPanel() {
   }
 
   async function onUpload() {
-    if (!file) {
+    if (picked.length === 0) {
       return
     }
     setBusy(true)
+    const pendingFiles = picked
+    let okCount = 0
+    let lastOk: {
+      saved_as?: string
+      bytes?: number
+      vm_clips_path?: string | null
+      host?: string
+    } = {}
+    const failures: string[] = []
     try {
-      const d = await uploadClip(file)
-      if (d.httpStatus === 401) {
-        await refresh()
-        toast.error("Session expired — sign in again")
-        return
+      for (let i = 0; i < pendingFiles.length; i++) {
+        setUploadPos(i + 1)
+        const f = pendingFiles[i]
+        const d = await uploadClip(f)
+        if (d.httpStatus === 401) {
+          await refresh()
+          toast.error("Session expired — sign in again")
+          return
+        }
+        if (d.ok && d.saved_as) {
+          okCount++
+          lastOk = {
+            saved_as: d.saved_as,
+            bytes: d.bytes,
+            vm_clips_path: d.vm_clips_path,
+            host: d.host,
+          }
+        } else {
+          failures.push(`${f.name}: ${d.detail ?? "Upload failed"}`)
+        }
       }
-      if (d.ok && d.saved_as) {
-        const where =
-          d.vm_clips_path && d.vm_clips_path.length > 0 ? ` — saved under ${d.vm_clips_path}/` : ""
-        const srv = d.host ? ` [server: ${d.host}]` : ""
-        toast.success(`Saved: ${d.saved_as} (${d.bytes ?? 0} B)${where}${srv}`)
-        setFile(null)
+
+      if (okCount > 0) {
+        if (pendingFiles.length === 1 && lastOk.saved_as) {
+          const where = lastOk.vm_clips_path?.trim()
+            ? ` — saved under ${lastOk.vm_clips_path.trim()}/`
+            : ""
+          const srv = lastOk.host ? ` [server: ${lastOk.host}]` : ""
+          toast.success(`Saved: ${lastOk.saved_as} (${lastOk.bytes ?? 0} B)${where}${srv}`)
+        } else {
+          const where = lastOk.vm_clips_path?.trim() ? ` — under ${lastOk.vm_clips_path.trim()}/` : ""
+          const srv = lastOk.host ? ` [${lastOk.host}]` : ""
+          toast.success(`Saved ${okCount} file${okCount === 1 ? "" : "s"}${where}${srv}`)
+        }
+        setPicked([])
         await loadList()
-      } else {
-        toast.error(d.detail ?? "Upload failed")
+      }
+      if (failures.length > 0) {
+        toast.error(
+          `Failed ${failures.length} file${failures.length === 1 ? "" : "s"}`,
+          { description: failures.join("\n") },
+        )
       }
     } catch {
       toast.error("Upload failed")
     } finally {
       setBusy(false)
+      setUploadPos(null)
     }
   }
 
@@ -316,19 +404,74 @@ export function ClipsUploadPanel() {
           <Separator />
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Input
-              type="file"
-              className="h-8 max-w-md cursor-pointer text-sm file:mr-2 file:text-xs"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="clips-upload-folder-mode"
+                    checked={folderMode}
+                    onCheckedChange={(v) => {
+                      setFolderMode(v === true)
+                      setPicked([])
+                    }}
+                  />
+                  <Label
+                    htmlFor="clips-upload-folder-mode"
+                    className="text-muted-foreground cursor-pointer font-normal text-xs"
+                  >
+                    Upload folder
+                  </Label>
+                </div>
+              </div>
+              {folderMode ? (
+                <input
+                  key="clips-folder-input"
+                  ref={folderInputRef}
+                  type="file"
+                  className={clipsFileInputClassName}
+                  onChange={(e) => {
+                    const input = e.currentTarget
+                    setPicked(filesFromFolderInput(input.files ?? []))
+                    input.value = ""
+                  }}
+                />
+              ) : (
+                <input
+                  key="clips-files-input"
+                  type="file"
+                  multiple
+                  className={clipsFileInputClassName}
+                  onChange={(e) => {
+                    const input = e.currentTarget
+                    setPicked(Array.from(input.files ?? []))
+                    input.value = ""
+                  }}
+                />
+              )}
+              {picked.length > 0 ? (
+                <p
+                  className="text-muted-foreground max-w-md text-[0.65rem] leading-snug"
+                  title={pickedSummaryTitle(picked)}
+                >
+                  {formatPickedSummary(picked)}
+                </p>
+              ) : null}
+              {busy && uploadPos !== null ? (
+                <p className="text-muted-foreground text-[0.65rem]" aria-live="polite">
+                  {picked.length > 1
+                    ? `Uploading file ${uploadPos} of ${picked.length}…`
+                    : "Uploading…"}
+                </p>
+              ) : null}
+            </div>
             <Button
               type="button"
               size="sm"
               className="h-7 w-fit shrink-0"
-              disabled={busy || !file}
+              disabled={busy || picked.length === 0}
               onClick={() => void onUpload()}
             >
-              Upload
+              {busy ? <Loader2Icon className="size-3.5 animate-spin" /> : "Upload"}
             </Button>
           </div>
         </CardContent>

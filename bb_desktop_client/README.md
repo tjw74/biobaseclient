@@ -4,13 +4,13 @@ Windows desktop client for Biobase CS2 demo review.
 
 ## Download for Windows
 
-[Download Biobase-Client-Setup.exe](https://github.com/biobaselive/biobaseclient/releases/latest/download/Biobase-Client-Setup.exe)
+[Download biobase-client-setup.exe](https://cs2.clarionlab.dev/client)
 
 Double-click the downloaded file, follow the installer prompts, then launch **Biobase Client** from the Start Menu or desktop shortcut.
 
 No command line, Node.js, npm, or developer tools are required for the test user.
 
-If the release asset is not available yet, open this repo's **Actions** tab, open the latest successful **Windows Installer Build** run, download **Biobase-Client-Setup**, unzip it, and double-click **Biobase-Client-Setup.exe**.
+If the release asset is not available yet, use the public installer at `https://cs2.clarionlab.dev/client` or open this repo's **Actions** tab for a Windows build artifact named `biobase-client-setup.exe`.
 
 ### Windows security warning
 

@@ -1,11 +1,11 @@
 ---
 title: Wiki Index
-updated: 2026-06-21T23:00:00Z
+updated: 2026-06-24T01:20:47Z
 ---
 
 # Wiki Index
 
-*Last updated: 2026-06-21T23:00:00Z*
+*Last updated: 2026-06-24T01:20:47Z*
 
 ## LLM updates (attribution)
 
@@ -46,6 +46,9 @@ Format: `[ISO8601] WIKI_UPDATE agent=<id> project=<biobase|meta|…> — <one-li
 
 ### Biobase
 
+- [Performance Review UI Doctrine](projects/biobase/concepts/biobase-performance-review-ui-doctrine.md) — Single-page review cockpit with category rail, expandable sections, and optional deep dives
+- [Performance Dataset Contract](projects/biobase/concepts/biobase-performance-contract.md) — Versioned source, confidence, availability, scoring, and client-session persistence contract
+- [Performance Dataset Roadmap](projects/biobase/concepts/biobase-performance-dataset-roadmap.md) — Canonical pro-player performance categories, metrics, and implementation phases
 - [Biobase](projects/biobase/biobase.md) — CS2 game analytics platform overview
 - [Session Ingest](projects/biobase/concepts/biobase-session-ingest.md) — session lifecycle, RCON polling, Loki query
 - [Telemetry Schema](projects/biobase/concepts/biobase-telemetry-schema.md) — `public` / `ops` / `game` tables + CLI inspection

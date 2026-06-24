@@ -22,6 +22,9 @@ class DemoParsePreviewTests(unittest.TestCase):
         self.assertTrue(meta.get("sha256"))
         disc = got.get("discovered") or {}
         self.assertIsInstance(disc.get("ticks_columns"), list)
+        samples = disc.get("header_field_samples")
+        self.assertIsInstance(samples, dict)
+        self.assertGreater(len(samples), 0, "expected header_field_samples from parse")
 
 
 if __name__ == "__main__":

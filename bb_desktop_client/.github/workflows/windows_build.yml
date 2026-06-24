@@ -29,25 +29,28 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force installer | Out-Null
-          $installer = Get-ChildItem release -Filter "Biobase-Client-Setup-*.exe" | Select-Object -First 1
+          $installer = Get-ChildItem release -Filter "biobase-client-setup.exe" | Select-Object -First 1
           if (-not $installer) { throw "Installer executable not found" }
-          Copy-Item $installer.FullName installer/Biobase-Client-Setup.exe
+          Copy-Item $installer.FullName installer/biobase-client-setup.exe
+          $yml = Join-Path release "latest.yml"
+          if (-not (Test-Path $yml)) { throw "latest.yml not found in release/" }
+          Copy-Item $yml installer/latest.yml
       - uses: actions/upload-artifact@v4
         with:
-          name: Biobase-Client-Setup
-          path: installer/Biobase-Client-Setup.exe
+          name: biobase-client-setup
+          path: installer/biobase-client-setup.exe
       - name: Publish latest release asset
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $asset = "installer/Biobase-Client-Setup.exe"
+          $asset = "installer/biobase-client-setup.exe"
           if (-not (Test-Path $asset)) { throw "Installer asset missing: $asset" }
           gh release view latest *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create latest $asset --title "Latest Biobase Client" --notes "Unsigned latest Windows test build. Download and run Biobase-Client-Setup.exe." --latest
+            gh release create latest $asset --title "Latest Biobase Client" --notes "Unsigned latest Windows test build. Download and run biobase-client-setup.exe." --latest
           } else {
             gh release upload latest $asset --clobber
-            gh release edit latest --title "Latest Biobase Client" --notes "Unsigned latest Windows test build. Download and run Biobase-Client-Setup.exe." --latest
+            gh release edit latest --title "Latest Biobase Client" --notes "Unsigned latest Windows test build. Download and run biobase-client-setup.exe." --latest
           }

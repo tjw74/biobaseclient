@@ -19,7 +19,7 @@ npm run dev
 Two windows launch:
 
 - **Biobase Client** — dashboard (demos, parse, settings)
-- After you click **Show HUD Overlay** — fullscreen transparent HUD on top of everything
+- After you click **Show HUD** — small floating widget (top-right), not fullscreen
 
 Leave the terminal open while developing. Press `Ctrl+C` to stop.
 

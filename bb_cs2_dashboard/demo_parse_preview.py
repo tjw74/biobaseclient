@@ -65,6 +65,38 @@ def _rows_append(
     rows.append({"group": group, "key": key, "detail": detail})
 
 
+def _scalar_preview(val: Any, *, max_str: int = 96) -> Any:
+    """JSON-safe-ish preview of a header or small value (strings truncated)."""
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return val
+    if isinstance(val, bytes):
+        return f"<bytes len={len(val)}>"
+    s = str(val)
+    if len(s) > max_str:
+        return s[: max_str - 1] + "…"
+    return s
+
+
+def _header_field_samples(header: Any, header_keys: list[str], *, max_keys: int = 64) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    get = getattr(header, "get", None)
+    for k in header_keys[:max_keys]:
+        raw = None
+        if callable(get):
+            raw = get(k)
+        else:
+            try:
+                raw = header[k]
+            except Exception:  # noqa: BLE001
+                raw = None
+        out[str(k)] = _scalar_preview(raw)
+    return out
+
+
 def build_discovery_from_path(
     path: Path,
     *,
@@ -164,6 +196,7 @@ def build_discovery_from_path(
         "meta": _meta_block(name, nbytes, sha256),
         "discovered": {
             "header_keys": header_keys,
+            "header_field_samples": _header_field_samples(demo.header, header_keys),
             "list_game_events": game_events,
             "list_updated_fields": updated_fields,
             "event_columns_from_parse_event": event_columns,

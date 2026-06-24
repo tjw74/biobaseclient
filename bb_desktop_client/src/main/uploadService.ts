@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ParsedDemoSummary, UploadQueueItem, ClientSettings, PairDeviceResult } from '../shared/types.js';
 import { buildApiUrl, createAuthHeaders, normalizeApiBaseUrl, normalizePairingCode, sanitizeDeviceName } from '../shared/apiClient.js';
+import { DEFAULT_API_BASE_URL } from '../shared/biobaseEndpoints.js';
+import { resolveLiveApiBaseUrl } from '../shared/resolveApiBaseUrl.js';
 
 const SETTINGS_FILE = 'settings.json';
 const QUEUE_FILE = 'upload_queue.json';
@@ -16,9 +18,10 @@ function dataPath(name: string) {
 
 function defaultSettings(): ClientSettings {
   return {
-    apiBaseUrl: process.env.VITE_BIOBASE_API_URL ?? '',
+    apiBaseUrl: process.env.VITE_BIOBASE_API_URL ?? DEFAULT_API_BASE_URL,
     deviceName: sanitizeDeviceName(os.hostname()),
     serverName: process.env.VITE_BIOBASE_SERVER_NAME ?? 'Biobase CS2',
+    shareStatsOnServer: true,
   };
 }
 
@@ -57,18 +60,40 @@ function settingsForStorage(settings: ClientSettings): StoredClientSettings {
   return stored;
 }
 
+function normalizeStoredApiUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return DEFAULT_API_BASE_URL;
+  try {
+    const normalized = normalizeApiBaseUrl(trimmed);
+    return normalized.endsWith('/admin') ? normalized : DEFAULT_API_BASE_URL;
+  } catch {
+    return DEFAULT_API_BASE_URL;
+  }
+}
+
 export async function getSettings(): Promise<ClientSettings> {
   const saved = await readJson<StoredClientSettings>(SETTINGS_FILE, {});
   const deviceToken = decryptStoredToken(saved);
   const { deviceTokenEncrypted: _deviceTokenEncrypted, ...publicSaved } = saved;
-  return { ...defaultSettings(), ...publicSaved, ...(deviceToken ? { deviceToken } : {}) };
+  const merged = { ...defaultSettings(), ...publicSaved, ...(deviceToken ? { deviceToken } : {}) };
+  merged.apiBaseUrl = resolveLiveApiBaseUrl(normalizeStoredApiUrl(merged.apiBaseUrl ?? ''));
+  if (saved.apiBaseUrl !== merged.apiBaseUrl) {
+    await writeJson(SETTINGS_FILE, settingsForStorage(merged));
+  }
+  return merged;
 }
 
 export async function saveSettings(patch: Partial<ClientSettings>): Promise<ClientSettings> {
   const next = { ...(await getSettings()), ...patch };
-  next.apiBaseUrl = normalizeApiBaseUrl(next.apiBaseUrl ?? '');
+  next.apiBaseUrl = normalizeStoredApiUrl(next.apiBaseUrl ?? '');
   next.deviceName = sanitizeDeviceName(next.deviceName ?? os.hostname());
   next.serverName = (next.serverName ?? '').trim() || 'Biobase CS2';
+  await writeJson(SETTINGS_FILE, settingsForStorage(next));
+  return next;
+}
+
+export async function resetSettings(): Promise<ClientSettings> {
+  const next = defaultSettings();
   await writeJson(SETTINGS_FILE, settingsForStorage(next));
   return next;
 }
@@ -167,7 +192,7 @@ export async function pairDevice(input: { pairingCode: string }): Promise<PairDe
         pairingCode,
         deviceName: sanitizeDeviceName(settings.deviceName),
         serverName: settings.serverName,
-        appVersion: '0.1.0',
+        appVersion: app.getVersion(),
       }),
     });
     if (!response.ok) throw new Error(`http_${response.status}`);

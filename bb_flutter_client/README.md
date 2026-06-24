@@ -1,6 +1,6 @@
-# biobase_client
+# Biobase Performance Lab
 
-A new Flutter project.
+Windows-first CS2 performance analytics client with live movement telemetry, Shadow drills, replay tooling, and a provenance-aware Performance Review.
 
 ## Getting Started
 

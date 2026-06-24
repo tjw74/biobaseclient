@@ -1,11 +1,11 @@
 ---
 title: Wiki Index
-updated: 2026-06-24T01:20:47Z
+updated: 2026-06-24T06:01:10Z
 ---
 
 # Wiki Index
 
-*Last updated: 2026-06-24T01:20:47Z*
+*Last updated: 2026-06-24T06:01:10Z*
 
 ## LLM updates (attribution)
 
@@ -46,7 +46,7 @@ Format: `[ISO8601] WIKI_UPDATE agent=<id> project=<biobase|meta|…> — <one-li
 
 ### Biobase
 
-- [Performance Review UI Doctrine](projects/biobase/concepts/biobase-performance-review-ui-doctrine.md) — Single-page review cockpit with category rail, expandable sections, and optional deep dives
+- [Performance Review UI Doctrine](projects/biobase/concepts/biobase-performance-review-ui-doctrine.md) — Single-page review cockpit with persistent reorderable accordion sections, full metric inventories, and optional deep dives
 - [Performance Dataset Contract](projects/biobase/concepts/biobase-performance-contract.md) — Versioned source, confidence, availability, scoring, and client-session persistence contract
 - [Performance Dataset Roadmap](projects/biobase/concepts/biobase-performance-dataset-roadmap.md) — Canonical pro-player performance categories, metrics, and implementation phases
 - [Biobase](projects/biobase/biobase.md) — CS2 game analytics platform overview

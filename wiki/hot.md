@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-24T01:20:47Z
+updated: 2026-06-24T06:01:10Z
 ---
 
 # Hot Cache
@@ -8,6 +8,8 @@ updated: 2026-06-24T01:20:47Z
 *A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
+
+- [2026-06-24T06:01:10Z] WIKI_UPDATE agent=Codex project=biobase — **Personalized Performance Review** — Flutter now presents all 12 categories as reorderable, persistent accordion rows; multiple dashboards can remain open; all 121 canonical metrics appear with explicit evidence state.
 
 - [2026-06-24T01:20:47Z] WIKI_UPDATE agent=Codex project=biobase — **Release performance contract** — Flutter Performance Review now distinguishes observed, estimated, and not-measured categories with confidence-weighted scoring; fixed settings startup race; added authenticated SQLite client-session history; canonical contract is `biobase-performance-v1`.
 
@@ -28,9 +30,11 @@ updated: 2026-06-24T01:20:47Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI. Current focus is trustworthy Performance Review output: source, evidence state, confidence, explicit unavailable states, and durable paired-device session history.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI. Current focus is the personalized Performance Review: persistent row order, multi-open comparison, full metric visibility, trustworthy evidence state, and durable paired-device session history.
 
 ## Key Takeaways
+
+**Personalization must not weaken the contract.** Players can reorder and expand categories, but all 12 canonical groups and all 121 metrics remain visible; unavailable metrics stay explicitly not measured.
 
 **Performance scores must be evidence-aware.** `biobase-performance-v1` forbids treating unavailable data as zero, requires confidence on derived metrics, and excludes missing categories from the overall score. Biometrics require a real device stream.
 

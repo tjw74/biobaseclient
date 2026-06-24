@@ -2,28 +2,32 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../models/performance_contract.dart';
+import '../models/performance_metric_catalog.dart';
 import '../models/performance_review.dart';
 import '../models/session_stats.dart';
+import '../services/settings_service.dart';
 import '../widgets/performance_evidence.dart';
 
-const _cats = [
-  'Movement',
-  'Aim',
-  'Combat',
-  'Utility',
-  'Positioning',
-  'Decision Making',
-  'Teamplay',
-  'Economy',
-  'Round Performance',
-  'Consistency',
-  'Mechanical Execution',
-  'BioBase Biometrics',
+const _defaultCategoryOrder = [
+  PerformanceCategoryId.movement,
+  PerformanceCategoryId.aim,
+  PerformanceCategoryId.combat,
+  PerformanceCategoryId.utility,
+  PerformanceCategoryId.positioning,
+  PerformanceCategoryId.decisionMaking,
+  PerformanceCategoryId.teamplay,
+  PerformanceCategoryId.economy,
+  PerformanceCategoryId.roundPerformance,
+  PerformanceCategoryId.consistency,
+  PerformanceCategoryId.mechanicalExecution,
+  PerformanceCategoryId.biometrics,
 ];
 
 class ProfileScreen extends StatefulWidget {
   final SessionStats stats;
-  const ProfileScreen({super.key, required this.stats});
+  final SettingsService settings;
+
+  const ProfileScreen({super.key, required this.stats, required this.settings});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -31,13 +35,58 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _scroll = ScrollController();
-  final Set<int> _expanded = {};
-  final List<GlobalKey> _keys = List.generate(12, (_) => GlobalKey());
+  final Set<PerformanceCategoryId> _expanded = {};
+  final Map<PerformanceCategoryId, GlobalKey> _keys = {
+    for (final id in _defaultCategoryOrder) id: GlobalKey(),
+  };
+  late List<PerformanceCategoryId> _categoryOrder;
 
-  void _scrollTo(int i) {
-    setState(() => _expanded.add(i));
+  @override
+  void initState() {
+    super.initState();
+    _categoryOrder = _restoreIds(
+      widget.settings.performanceCategoryOrder,
+      fallback: _defaultCategoryOrder,
+    );
+    _expanded.addAll(
+      _restoreIds(widget.settings.expandedPerformanceCategories),
+    );
+  }
+
+  List<PerformanceCategoryId> _restoreIds(
+    List<String> stored, {
+    List<PerformanceCategoryId> fallback = const [],
+  }) {
+    final restored = <PerformanceCategoryId>[];
+    for (final name in stored) {
+      for (final id in PerformanceCategoryId.values) {
+        if (id.name == name && !restored.contains(id)) restored.add(id);
+      }
+    }
+    if (restored.isEmpty) return List.of(fallback);
+    for (final id in _defaultCategoryOrder) {
+      if (!restored.contains(id)) restored.add(id);
+    }
+    return restored;
+  }
+
+  void _persistOrder() {
+    widget.settings.setPerformanceCategoryOrder(
+      _categoryOrder.map((id) => id.name).toList(),
+    );
+  }
+
+  void _persistExpanded() {
+    widget.settings.setExpandedPerformanceCategories(
+      _expanded.map((id) => id.name).toList(),
+    );
+  }
+
+  void _scrollTo(PerformanceCategoryId id) {
+    setState(() => _expanded.add(id));
+    _persistExpanded();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final ctx = _keys[i].currentContext;
+      final ctx = _keys[id]?.currentContext;
       if (ctx != null) {
         Scrollable.ensureVisible(
           ctx,
@@ -48,14 +97,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
-  void _toggle(int i) {
+  void _toggle(PerformanceCategoryId id) {
     setState(() {
-      if (_expanded.contains(i)) {
-        _expanded.remove(i);
+      if (_expanded.contains(id)) {
+        _expanded.remove(id);
       } else {
-        _expanded.add(i);
+        _expanded.add(id);
       }
     });
+    _persistExpanded();
+  }
+
+  void _reorder(int oldIndex, int newIndex) {
+    setState(() {
+      final item = _categoryOrder.removeAt(oldIndex);
+      _categoryOrder.insert(newIndex, item);
+    });
+    _persistOrder();
+  }
+
+  void _resetOrder() {
+    setState(() => _categoryOrder = List.of(_defaultCategoryOrder));
+    _persistOrder();
+  }
+
+  void _expandAll() {
+    setState(() => _expanded.addAll(_categoryOrder));
+    _persistExpanded();
+  }
+
+  void _collapseAll() {
+    setState(() => _expanded.clear());
+    _persistExpanded();
   }
 
   @override
@@ -68,29 +141,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final s = widget.stats;
     final assessments = s.releaseAssessments;
+    final assessmentsById = {for (final a in assessments) a.id: a};
     return Column(
       children: [
         _TopSummary(stats: s, assessments: assessments),
         const SizedBox(height: 6),
-        _CategoryRail(assessments: assessments, onTap: _scrollTo),
+        _ReviewControls(
+          expandedCount: _expanded.length,
+          onExpandAll: _expandAll,
+          onCollapseAll: _collapseAll,
+          onResetOrder: _resetOrder,
+        ),
+        const SizedBox(height: 6),
+        _CategoryRail(
+          order: _categoryOrder,
+          assessments: assessmentsById,
+          onTap: _scrollTo,
+        ),
         const SizedBox(height: 6),
         Expanded(
-          child: ListView.builder(
-            controller: _scroll,
+          child: ReorderableListView.builder(
+            scrollController: _scroll,
+            buildDefaultDragHandles: false,
             padding: EdgeInsets.zero,
-            itemCount: _cats.length,
-            itemBuilder: (_, i) => Padding(
-              key: _keys[i],
-              padding: const EdgeInsets.only(bottom: 3),
-              child: _Section(
-                name: _cats[i],
-                index: i,
-                assessment: assessments[i],
-                expanded: _expanded.contains(i),
-                onToggle: () => _toggle(i),
-                stats: s,
-              ),
-            ),
+            itemCount: _categoryOrder.length,
+            onReorderItem: _reorder,
+            itemBuilder: (_, i) {
+              final id = _categoryOrder[i];
+              final assessment = assessmentsById[id]!;
+              return Padding(
+                key: ValueKey(id),
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Container(
+                  key: _keys[id],
+                  child: _Section(
+                    id: id,
+                    assessment: assessment,
+                    expanded: _expanded.contains(id),
+                    onToggle: () => _toggle(id),
+                    dragHandle: ReorderableDragStartListener(
+                      index: i,
+                      child: const MouseRegion(
+                        cursor: SystemMouseCursors.grab,
+                        child: Icon(
+                          Icons.drag_indicator_rounded,
+                          size: 17,
+                          color: BiobaseColors.textTertiary,
+                        ),
+                      ),
+                    ),
+                    stats: s,
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -205,10 +309,80 @@ class _TopSummary extends StatelessWidget {
 // CATEGORY RAIL
 // ════════════════════════════════════════
 
+class _ReviewControls extends StatelessWidget {
+  final int expandedCount;
+  final VoidCallback onExpandAll;
+  final VoidCallback onCollapseAll;
+  final VoidCallback onResetOrder;
+
+  const _ReviewControls({
+    required this.expandedCount,
+    required this.onExpandAll,
+    required this.onCollapseAll,
+    required this.onResetOrder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(
+          Icons.drag_indicator_rounded,
+          size: 14,
+          color: BiobaseColors.textTertiary,
+        ),
+        const SizedBox(width: 5),
+        const Text(
+          'Drag categories to personalize your review',
+          style: TextStyle(fontSize: 9, color: BiobaseColors.textTertiary),
+        ),
+        const Spacer(),
+        Text(
+          expandedCount.toString() + ' open',
+          style: const TextStyle(
+            fontSize: 9,
+            color: BiobaseColors.textTertiary,
+          ),
+        ),
+        const SizedBox(width: 8),
+        _ReviewAction(label: 'Expand all', onTap: onExpandAll),
+        _ReviewAction(label: 'Collapse all', onTap: onCollapseAll),
+        _ReviewAction(label: 'Reset order', onTap: onResetOrder),
+      ],
+    );
+  }
+}
+
+class _ReviewAction extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _ReviewAction({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        minimumSize: const Size(0, 24),
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        foregroundColor: BiobaseColors.textSecondary,
+        textStyle: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+      ),
+      child: Text(label),
+    );
+  }
+}
+
 class _CategoryRail extends StatelessWidget {
-  final List<CategoryAssessment> assessments;
-  final ValueChanged<int> onTap;
-  const _CategoryRail({required this.assessments, required this.onTap});
+  final List<PerformanceCategoryId> order;
+  final Map<PerformanceCategoryId, CategoryAssessment> assessments;
+  final ValueChanged<PerformanceCategoryId> onTap;
+
+  const _CategoryRail({
+    required this.order,
+    required this.assessments,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -216,16 +390,17 @@ class _CategoryRail extends StatelessWidget {
       height: 28,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: _cats.length,
+        itemCount: order.length,
         separatorBuilder: (_, _) => const SizedBox(width: 4),
         itemBuilder: (_, i) {
-          final assessment = assessments[i];
-          final s = assessment.score;
+          final id = order[i];
+          final assessment = assessments[id]!;
+          final score = assessment.score;
           final live = assessment.available;
           return MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
-              onTap: () => onTap(i),
+              onTap: () => onTap(id),
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -239,7 +414,7 @@ class _CategoryRail extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _cats[i],
+                      assessment.label,
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w500,
@@ -250,11 +425,11 @@ class _CategoryRail extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      live ? '${s!.toInt()}' : '—',
+                      live ? score!.toInt().toString() : '—',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
-                        color: _scoreColor(s ?? 0),
+                        color: _scoreColor(score ?? 0),
                       ),
                     ),
                   ],
@@ -273,19 +448,19 @@ class _CategoryRail extends StatelessWidget {
 // ════════════════════════════════════════
 
 class _Section extends StatelessWidget {
-  final String name;
-  final int index;
+  final PerformanceCategoryId id;
   final CategoryAssessment assessment;
   final bool expanded;
   final VoidCallback onToggle;
+  final Widget dragHandle;
   final SessionStats stats;
 
   const _Section({
-    required this.name,
-    required this.index,
+    required this.id,
     required this.assessment,
     required this.expanded,
     required this.onToggle,
+    required this.dragHandle,
     required this.stats,
   });
 
@@ -309,6 +484,8 @@ class _Section extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
+                    dragHandle,
+                    const SizedBox(width: 7),
                     SizedBox(
                       width: 26,
                       height: 26,
@@ -324,7 +501,7 @@ class _Section extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        name,
+                        assessment.label,
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -369,7 +546,12 @@ class _Section extends StatelessWidget {
                       children: [
                         PerformanceEvidenceNote(assessment: assessment),
                         const SizedBox(height: 12),
-                        _buildContent(index, stats),
+                        _buildContent(id, stats),
+                        const SizedBox(height: 14),
+                        _MetricInventory(
+                          metrics: performanceMetricCatalog[id] ?? const [],
+                          assessment: assessment,
+                        ),
                       ],
                     ),
                   )
@@ -381,21 +563,20 @@ class _Section extends StatelessWidget {
   }
 }
 
-Widget _buildContent(int i, SessionStats s) {
-  return switch (i) {
-    0 => _MovementContent(s: s),
-    1 => _AimContent(s: s),
-    2 => _CombatContent(s: s),
-    3 => _UtilityContent(s: s),
-    4 => _PositioningContent(s: s),
-    5 => _DecisionContent(s: s),
-    6 => _TeamplayContent(s: s),
-    7 => _EconomyContent(s: s),
-    8 => _RoundContent(s: s),
-    9 => _ConsistencyContent(s: s),
-    10 => _MechanicsContent(s: s),
-    11 => _BiometricsContent(s: s),
-    _ => const SizedBox(),
+Widget _buildContent(PerformanceCategoryId id, SessionStats s) {
+  return switch (id) {
+    PerformanceCategoryId.movement => _MovementContent(s: s),
+    PerformanceCategoryId.aim => _AimContent(s: s),
+    PerformanceCategoryId.combat => _CombatContent(s: s),
+    PerformanceCategoryId.utility => _UtilityContent(s: s),
+    PerformanceCategoryId.positioning => _PositioningContent(s: s),
+    PerformanceCategoryId.decisionMaking => _DecisionContent(s: s),
+    PerformanceCategoryId.teamplay => _TeamplayContent(s: s),
+    PerformanceCategoryId.economy => _EconomyContent(s: s),
+    PerformanceCategoryId.roundPerformance => _RoundContent(s: s),
+    PerformanceCategoryId.consistency => _ConsistencyContent(s: s),
+    PerformanceCategoryId.mechanicalExecution => _MechanicsContent(s: s),
+    PerformanceCategoryId.biometrics => _BiometricsContent(s: s),
   };
 }
 
@@ -914,6 +1095,136 @@ class _BiometricsContent extends StatelessWidget {
     );
   }
 }
+
+const _releaseMetricIds = <PerformanceCategoryId, Set<String>>{
+  PerformanceCategoryId.movement: {
+    'velocity',
+    'strafing',
+    'bunny_hops',
+    'counter_strafes',
+    'jumps',
+    'air_control',
+    'positioning',
+    'movement_efficiency',
+  },
+  PerformanceCategoryId.aim: {'crosshair_placement', 'head_level_percent'},
+  PerformanceCategoryId.consistency: {
+    'performance_trend',
+    'movement_consistency',
+    'confidence_score',
+    'fatigue_score',
+  },
+  PerformanceCategoryId.mechanicalExecution: {
+    'accuracy_recovery',
+    'input_efficiency',
+  },
+};
+
+class _MetricInventory extends StatelessWidget {
+  final List<PerformanceMetricDefinition> metrics;
+  final CategoryAssessment assessment;
+
+  const _MetricInventory({required this.metrics, required this.assessment});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const _Label('FULL METRIC INVENTORY'),
+            const Spacer(),
+            Text(
+              metrics.length.toString() + ' metrics',
+              style: const TextStyle(
+                fontSize: 9,
+                color: BiobaseColors.textTertiary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 900
+                ? 4
+                : constraints.maxWidth >= 620
+                ? 3
+                : 2;
+            final width =
+                (constraints.maxWidth - ((columns - 1) * 6)) / columns;
+            return Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: metrics
+                  .map(
+                    (metric) => SizedBox(
+                      width: width,
+                      child: _MetricInventoryRow(
+                        metric: metric,
+                        assessment: assessment,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricInventoryRow extends StatelessWidget {
+  final PerformanceMetricDefinition metric;
+  final CategoryAssessment assessment;
+
+  const _MetricInventoryRow({required this.metric, required this.assessment});
+
+  @override
+  Widget build(BuildContext context) {
+    final supported =
+        assessment.available &&
+        (_releaseMetricIds[assessment.id]?.contains(metric.id) ?? false);
+    final label = supported ? assessment.stateLabel : 'Not measured';
+    final color = supported
+        ? BiobaseColors.warning
+        : BiobaseColors.textTertiary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: BiobaseColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: BiobaseColors.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              metric.label,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 9,
+                color: BiobaseColors.textSecondary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ════════════════════════════════════════
 // SHARED VISUALIZATION WIDGETS
 // ════════════════════════════════════════

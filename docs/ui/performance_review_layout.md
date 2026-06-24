@@ -1,6 +1,6 @@
 # Biobase Performance Review Layout
 
-Updated: 2026-06-22T22:15:47Z
+Updated: 2026-06-24T04:20:00Z
 
 ## Decision
 
@@ -21,9 +21,11 @@ Optional Deep Dive
 ## Behavior
 
 - Category rail click scrolls to and expands the category.
-- One section opens by default: highest improvement opportunity.
-- User can pin multiple sections open for comparison.
+- Categories are reorderable by drag handle; the personalized order persists.
+- Expansion state persists and multiple sections may remain open for comparison.
+- Expand all, collapse all, and reset order controls are always available.
 - Collapsed category rows must show score, trend, best signal, issue, and cost/opportunity.
+- Expanded sections retain the focused category dashboard and expose the full canonical metric inventory with measured/estimated/not-measured state.
 - Deep-dive screens are optional secondary workflows.
 
 ## Why

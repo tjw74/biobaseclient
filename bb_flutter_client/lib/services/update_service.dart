@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 const String _downloadBaseUrl = 'https://cs2.clarionlab.dev/client/';
-const String currentVersion = '0.7.2';
+const String currentVersion = '0.7.3';
 
 String get _updateFeedUrl {
   if (Platform.isMacOS) return '${_downloadBaseUrl}latest-mac.yml';
@@ -30,7 +30,10 @@ class UpdateService {
           .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         return UpdateInfo(
-            version: currentVersion, downloadUrl: '', available: false);
+          version: currentVersion,
+          downloadUrl: '',
+          available: false,
+        );
       }
 
       final body = response.body;
@@ -39,13 +42,17 @@ class UpdateService {
 
       if (versionMatch == null) {
         return UpdateInfo(
-            version: currentVersion, downloadUrl: '', available: false);
+          version: currentVersion,
+          downloadUrl: '',
+          available: false,
+        );
       }
 
       final remoteVersion = versionMatch.group(1)!.trim();
       final fileName = pathMatch?.group(1)?.trim() ?? '';
-      final downloadUrl =
-          fileName.isNotEmpty ? '$_downloadBaseUrl$fileName' : '';
+      final downloadUrl = fileName.isNotEmpty
+          ? '$_downloadBaseUrl$fileName'
+          : '';
 
       return UpdateInfo(
         version: remoteVersion,
@@ -54,7 +61,10 @@ class UpdateService {
       );
     } catch (_) {
       return UpdateInfo(
-          version: currentVersion, downloadUrl: '', available: false);
+        version: currentVersion,
+        downloadUrl: '',
+        available: false,
+      );
     }
   }
 
@@ -81,8 +91,9 @@ class UpdateService {
     final file = File(installerPath);
     await file.writeAsBytes(response.bodyBytes);
 
-    await Process.start(installerPath, ['/SILENT'],
-        mode: ProcessStartMode.detached);
+    await Process.start(installerPath, [
+      '/SILENT',
+    ], mode: ProcessStartMode.detached);
     exit(0);
   }
 
@@ -112,8 +123,10 @@ class UpdateService {
     await Process.run('rm', ['-rf', appBundle]);
     await Process.run('mv', [newApp, appBundle]);
 
-    await Process.start('open', ['-n', appBundle],
-        mode: ProcessStartMode.detached);
+    await Process.start('open', [
+      '-n',
+      appBundle,
+    ], mode: ProcessStartMode.detached);
     exit(0);
   }
 

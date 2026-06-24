@@ -1,7 +1,7 @@
 ---
 title: Biobase Performance Review UI Doctrine
 created: 2026-06-22
-updated: 2026-06-22T22:15:47Z
+updated: 2026-06-24T04:20:00Z
 category: concepts
 type: doctrine
 tags: [biobase, ui, design, performance-review, dashboard]
@@ -49,6 +49,18 @@ Do not make category switching mandatory full-page navigation. Use:
 - optional deep-dive button
 
 This keeps the player in one mental place: reviewing the match.
+
+## Personalization Contract
+
+- Every category row has an explicit drag handle.
+- User ordering persists locally and remains stable across launches.
+- Multiple categories may stay expanded for comparison.
+- Expansion state persists locally.
+- Provide Expand all, Collapse all, and Reset order.
+- The category rail follows the personalized row order.
+- Expanded sections list every canonical metric and its evidence state, even when the metric is not measured yet.
+
+This gives players control without hiding the canonical structure or implying that unavailable data is zero.
 
 ## Progressive Disclosure
 

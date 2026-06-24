@@ -15,11 +15,9 @@ import 'services/session_stats_service.dart';
 import 'screens/live_screen.dart';
 import 'screens/shadow_screen.dart';
 import 'screens/replay_screen.dart';
-import 'screens/profile_screen.dart';
-import 'screens/insights_screen.dart';
 import 'services/update_service.dart' show UpdateService, currentVersion;
 
-enum Section { live, shadow, replay, profile, insights }
+enum Section { live, shadow, replay }
 
 enum _UpdatePhase { idle, checking, downloading, done, current }
 
@@ -27,8 +25,6 @@ const _navItems = [
   (Section.live, 'Live', Icons.show_chart),
   (Section.replay, 'Replay', Icons.replay),
   (Section.shadow, 'Shadow', Icons.people_outline),
-  (Section.profile, 'Performance Review', Icons.assessment_outlined),
-  (Section.insights, 'Insights', Icons.layers_outlined),
 ];
 
 class AppShell extends StatefulWidget {
@@ -260,11 +256,6 @@ class _AppShellState extends State<AppShell> {
         live: live,
       ),
       Section.replay => const ReplayScreen(),
-      Section.profile => ProfileScreen(
-        stats: _sessionStats.stats,
-        settings: _settings,
-      ),
-      Section.insights => const InsightsScreen(),
     };
   }
 }

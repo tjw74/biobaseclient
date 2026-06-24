@@ -15,7 +15,9 @@ import 'services/session_stats_service.dart';
 import 'screens/live_screen.dart';
 import 'screens/shadow_screen.dart';
 import 'screens/replay_screen.dart';
+import 'screens/overlay_hud.dart';
 import 'services/update_service.dart' show UpdateService, currentVersion;
+import 'services/overlay_service.dart';
 
 enum Section { live, shadow, replay }
 
@@ -39,9 +41,11 @@ class _AppShellState extends State<AppShell> {
   final SettingsService _settings = SettingsService();
   final UpdateService _updater = UpdateService();
   final SessionStatsService _sessionStats = SessionStatsService();
+  final OverlayService _overlay = OverlayService();
 
   Section _section = Section.live;
   bool _sidebarCollapsed = false;
+  bool _overlayMode = false;
   LiveServerStatus? _serverStatus;
   LiveMovementStatus? _movementStatus;
   String _syncStatus = 'starting…';
@@ -59,6 +63,10 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _init() async {
     await _settings.init();
+    _overlay.onAutoClose = _exitOverlay;
+    _overlay.onStaleChanged = () {
+      if (mounted) setState(() {});
+    };
     _statusSub = _api.statusStream.listen((s) {
       if (mounted) setState(() => _serverStatus = s);
     });
@@ -71,6 +79,7 @@ class _AppShellState extends State<AppShell> {
             _movementHistory.removeAt(0);
           }
           _sessionStats.processSample(tracked);
+          if (_overlayMode) _overlay.recordHeartbeat();
         }
         setState(() => _movementStatus = m);
       }
@@ -165,16 +174,55 @@ class _AppShellState extends State<AppShell> {
     setState(() => _section = s);
   }
 
+  Future<void> _toggleOverlay() async {
+    if (_overlayMode) {
+      await _exitOverlay();
+    } else {
+      await _overlay.activate();
+      if (mounted) setState(() => _overlayMode = true);
+    }
+  }
+
+  Future<void> _exitOverlay() async {
+    await _overlay.deactivate();
+    if (mounted) setState(() => _overlayMode = false);
+  }
+
   @override
   void dispose() {
     _statusSub?.cancel();
     _movementSub?.cancel();
+    _overlay.dispose();
     _api.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyO,
+            control: true, shift: true): _toggleOverlay,
+        if (_overlayMode)
+          const SingleActivator(LogicalKeyboardKey.escape): _exitOverlay,
+      },
+      child: Focus(
+        autofocus: true,
+        child: _overlayMode ? _buildOverlay() : _buildApp(),
+      ),
+    );
+  }
+
+  Widget _buildOverlay() {
+    return OverlayHud(
+      frame: _liveFrame,
+      live: _movementStatus?.ok ?? false,
+      stale: _overlay.stale,
+      onExit: _exitOverlay,
+    );
+  }
+
+  Widget _buildApp() {
     final isMac = Platform.isMacOS;
     final topPad = isMac ? 38.0 : 6.0;
 
@@ -195,6 +243,7 @@ class _AppShellState extends State<AppShell> {
                 updatePhase: _updatePhase,
                 updateVersion: _updateVersion,
                 onCheckUpdate: _checkForUpdateManual,
+                onOverlay: _toggleOverlay,
               ),
               Expanded(
                 child: Column(
@@ -272,6 +321,7 @@ class _Sidebar extends StatelessWidget {
   final _UpdatePhase updatePhase;
   final String? updateVersion;
   final VoidCallback onCheckUpdate;
+  final VoidCallback onOverlay;
 
   const _Sidebar({
     required this.topPad,
@@ -283,6 +333,7 @@ class _Sidebar extends StatelessWidget {
     required this.updatePhase,
     required this.updateVersion,
     required this.onCheckUpdate,
+    required this.onOverlay,
   });
 
   @override
@@ -340,6 +391,18 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          // HUD overlay toggle
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: _SidebarNavItem(
+              icon: Icons.picture_in_picture_alt,
+              label: 'HUD',
+              active: false,
+              collapsed: collapsed,
+              onTap: onOverlay,
+            ),
+          ),
+          const SizedBox(height: 4),
           // Collapse toggle
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),

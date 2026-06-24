@@ -30,7 +30,8 @@ jobs:
       - name: Create installer with Inno Setup
         shell: pwsh
         run: |
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer\biobase_setup.iss
+          $version = (Select-String -Path 'lib/services/update_service.dart' -Pattern "currentVersion = '([^']+)'" | ForEach-Object { $_.Matches.Groups[1].Value })
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$version" installer\biobase_setup.iss
 
       - uses: actions/upload-artifact@v4
         with:
@@ -62,3 +63,78 @@ jobs:
         with:
           name: biobase-client-mac
           path: bb_flutter_client/build/macos/Build/Products/Release/biobase-client-mac.zip
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: bb_flutter_client/lib/services/update_service.dart
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: biobase-client-setup
+          path: artifacts/windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: biobase-client-mac
+          path: artifacts/mac
+
+      - name: Generate release manifests
+        run: |
+          VERSION=$(grep -oP "currentVersion = '\K[^']+" bb_flutter_client/lib/services/update_service.dart)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          SHA_WIN=$(sha512sum artifacts/windows/biobase-client-setup.exe | awk '{print $1}' | xxd -r -p | base64 -w0)
+          cat > artifacts/latest.yml <<EOF
+          version: $VERSION
+          files:
+            - url: biobase-client-setup.exe
+              sha512: $SHA_WIN
+          path: biobase-client-setup.exe
+          sha512: $SHA_WIN
+          releaseDate: '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'
+          EOF
+          sed -i 's/^          //' artifacts/latest.yml
+
+          SHA_MAC=$(sha512sum artifacts/mac/biobase-client-mac.zip | awk '{print $1}' | xxd -r -p | base64 -w0)
+          cat > artifacts/latest-mac.yml <<EOF
+          version: $VERSION
+          files:
+            - url: biobase-client-mac-${VERSION}.zip
+              sha512: $SHA_MAC
+          path: biobase-client-mac-${VERSION}.zip
+          sha512: $SHA_MAC
+          releaseDate: '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'
+          EOF
+          sed -i 's/^          //' artifacts/latest-mac.yml
+
+          cp artifacts/windows/biobase-client-setup.exe "artifacts/biobase-client-setup-${VERSION}.exe"
+          cp artifacts/mac/biobase-client-mac.zip "artifacts/biobase-client-mac-${VERSION}.zip"
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSETS=(
+            artifacts/windows/biobase-client-setup.exe
+            "artifacts/biobase-client-setup-${VERSION}.exe"
+            artifacts/mac/biobase-client-mac.zip
+            "artifacts/biobase-client-mac-${VERSION}.zip"
+            artifacts/latest.yml
+            artifacts/latest-mac.yml
+          )
+          if ! gh release view flutter-latest &>/dev/null; then
+            gh release create flutter-latest "${ASSETS[@]}" \
+              --title "Biobase Client v${VERSION}" \
+              --notes "Flutter client v${VERSION}" \
+              --latest=false
+          else
+            gh release upload flutter-latest "${ASSETS[@]}" --clobber
+            gh release edit flutter-latest \
+              --title "Biobase Client v${VERSION}" \
+              --notes "Flutter client v${VERSION}"
+          fi

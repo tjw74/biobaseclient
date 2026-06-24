@@ -1,6 +1,10 @@
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
+
 [Setup]
 AppName=Biobase Client
-AppVersion=0.5.1
+AppVersion={#MyAppVersion}
 AppPublisher=BioBase Live
 DefaultDirName={autopf}\Biobase Client
 DefaultGroupName=Biobase Client

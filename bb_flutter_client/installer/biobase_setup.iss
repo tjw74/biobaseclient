@@ -32,4 +32,4 @@ Name: "{autodesktop}\Biobase Client"; Filename: "{app}\biobase_client.exe"
 Name: "{group}\Biobase Client"; Filename: "{app}\biobase_client.exe"
 
 [Run]
-Filename: "{app}\biobase_client.exe"; Description: "Launch Biobase Client"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\biobase_client.exe"; Description: "Launch Biobase Client"; Flags: nowait postinstall

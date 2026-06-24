@@ -296,12 +296,6 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusLabel = switch (statusLevel) {
-      StatusLevel.live => 'Live',
-      StatusLevel.online => 'Connected',
-      StatusLevel.offline => 'Offline',
-    };
-
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeInOut,
@@ -315,44 +309,27 @@ class _Sidebar extends StatelessWidget {
           // Brand
           Padding(
             padding: EdgeInsets.symmetric(horizontal: collapsed ? 8 : 16),
-            child: collapsed
-                ? Column(
-                    children: [
-                      const Text(
-                        'B',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: BiobaseColors.text,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      _VersionIndicator(
-                        phase: updatePhase,
-                        updateVersion: updateVersion,
-                        onTap: onCheckUpdate,
-                      ),
-                    ],
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'BioBase',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: BiobaseColors.text,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      _VersionIndicator(
-                        phase: updatePhase,
-                        updateVersion: updateVersion,
-                        onTap: onCheckUpdate,
-                      ),
-                    ],
+            child: Row(
+              mainAxisAlignment: collapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
+              children: [
+                Text(
+                  collapsed ? 'B' : 'BioBase',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: collapsed ? FontWeight.w700 : FontWeight.w600,
+                    color: BiobaseColors.text,
                   ),
+                ),
+                SizedBox(width: collapsed ? 4 : 6),
+                _VersionIndicator(
+                  phase: updatePhase,
+                  updateVersion: updateVersion,
+                  onTap: onCheckUpdate,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 24),
           // Nav items
@@ -372,26 +349,6 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          // Status
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 16),
-            child: collapsed
-                ? Center(child: StatusDot(level: statusLevel))
-                : Row(
-                    children: [
-                      StatusDot(level: statusLevel),
-                      const SizedBox(width: 8),
-                      Text(
-                        statusLabel,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: BiobaseColors.textTertiary,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 10),
           // Collapse toggle
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -591,6 +548,8 @@ class _ContentHeader extends StatelessWidget {
       child: Row(
         children: [
           const Spacer(),
+          _TopStatusIndicator(statusLevel: statusLevel),
+          const SizedBox(width: 8),
           _ServerPill(
             status: serverStatus,
             statusLevel: statusLevel,
@@ -602,6 +561,36 @@ class _ContentHeader extends StatelessWidget {
           _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
         ],
       ),
+    );
+  }
+}
+
+class _TopStatusIndicator extends StatelessWidget {
+  final StatusLevel statusLevel;
+
+  const _TopStatusIndicator({required this.statusLevel});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (statusLevel) {
+      StatusLevel.live => 'Live',
+      StatusLevel.online => 'Connected',
+      StatusLevel.offline => 'Offline',
+    };
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        StatusDot(level: statusLevel),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: BiobaseColors.textTertiary,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -651,8 +640,6 @@ class _ServerPillState extends State<_ServerPill> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  StatusDot(level: widget.statusLevel),
-                  const SizedBox(width: 6),
                   Text(
                     isOnline ? mapName : 'Not connected',
                     style: const TextStyle(
@@ -1123,22 +1110,22 @@ class _VersionIndicator extends StatelessWidget {
           children: [
             if (showSpinner)
               Padding(
-                padding: const EdgeInsets.only(right: 4),
+                padding: const EdgeInsets.only(right: 3),
                 child: SizedBox(
-                  width: 10,
-                  height: 10,
+                  width: 8,
+                  height: 8,
                   child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
+                    strokeWidth: 1.25,
                     color: color,
                   ),
                 ),
               ),
             if (showCheck)
               Padding(
-                padding: const EdgeInsets.only(right: 3),
-                child: Icon(Icons.check, size: 11, color: color),
+                padding: const EdgeInsets.only(right: 2),
+                child: Icon(Icons.check, size: 9, color: color),
               ),
-            Text(versionText, style: TextStyle(fontSize: 11, color: color)),
+            Text(versionText, style: TextStyle(fontSize: 9, color: color)),
           ],
         ),
       ),

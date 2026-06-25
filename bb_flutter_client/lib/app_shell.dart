@@ -605,14 +605,9 @@ class _ContentHeader extends StatelessWidget {
       child: Row(
         children: [
           const Spacer(),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _TopStatusIndicator(statusLevel: statusLevel),
-              _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
-            ],
-          ),
+          _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
+          const SizedBox(width: 6),
+          _TopStatusIndicator(statusLevel: statusLevel),
         ],
       ),
     );
@@ -954,13 +949,10 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              child: const Text(
-                '⋯',
-                style: TextStyle(
-                  fontSize: 16,
-                  letterSpacing: 2,
-                  color: BiobaseColors.textTertiary,
-                ),
+              child: const Icon(
+                Icons.menu,
+                size: 16,
+                color: BiobaseColors.textTertiary,
               ),
             ),
           ),

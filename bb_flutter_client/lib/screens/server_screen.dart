@@ -139,15 +139,6 @@ class _ServerScreenState extends State<ServerScreen> {
     if (mounted) setState(() => _actionBusy = false);
   }
 
-  Future<void> _toggleCheats() async {
-    final current = _caps?.cheatsState ?? 'unknown';
-    final enable = current != 'on';
-    setState(() => _actionBusy = true);
-    await _server.setCheats(_info, enable);
-    await _refreshGameState();
-    if (mounted) setState(() => _actionBusy = false);
-  }
-
   Future<void> _sendRcon() async {
     final cmd = _rconController.text.trim();
     if (cmd.isEmpty) return;
@@ -331,21 +322,20 @@ class _ServerScreenState extends State<ServerScreen> {
           ),
           const SizedBox(height: 12),
 
-          // ── Service controls ──
+          // ── Server power + connect ──
           Row(
             children: [
-              if (!isRunning)
-                _ActionButton(label: 'Start', onTap: _actionBusy ? null : () => _doAction(_server.start), primary: true),
-              if (isUp) ...[
-                _ActionButton(label: 'Stop', onTap: _actionBusy ? null : () => _doAction(_server.stop)),
-                const SizedBox(width: 8),
-                _ActionButton(label: 'Restart', onTap: _actionBusy ? null : () => _doAction(_server.restart)),
-              ],
+              _ActionButton(
+                label: isUp ? 'Stop Server' : 'Start Server',
+                icon: isUp ? Icons.stop : Icons.play_arrow,
+                onTap: _actionBusy ? null : () => _doAction(isUp ? _server.stop : _server.start),
+                primary: !isUp,
+              ),
               if (isUp) ...[
                 const SizedBox(width: 8),
                 _ActionButton(
-                  label: 'Connect',
-                  icon: Icons.play_arrow,
+                  label: 'Connect to Game',
+                  icon: Icons.sports_esports,
                   onTap: () => _server.connectToGame(_info),
                   primary: true,
                 ),
@@ -391,10 +381,11 @@ class _ServerScreenState extends State<ServerScreen> {
   }
 
   Widget _buildGameControls(ServerInfo? info, bool cheatsOn) {
+    final hasBots = (_gameStatus?.bots ?? 0) > 0;
+
     return _Panel(
       child: Column(
         children: [
-          // Map change
           _ControlRow(
             label: 'Map',
             child: _MapSelector(
@@ -409,82 +400,39 @@ class _ServerScreenState extends State<ServerScreen> {
             ),
           ),
           const _Divider(),
-          // Cheats toggle
-          _ControlRow(
-            label: 'sv_cheats',
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(cheatsOn ? 'ON' : 'OFF',
-                  style: TextStyle(
-                    fontSize: 11, fontWeight: FontWeight.w600,
-                    color: cheatsOn ? BiobaseColors.live : BiobaseColors.textTertiary,
-                  )),
-                const SizedBox(width: 8),
-                _SmallButton(
-                  label: cheatsOn ? 'Disable' : 'Enable',
-                  onTap: _actionBusy ? null : _toggleCheats,
-                ),
-              ],
-            ),
+          _ToggleRow(
+            label: 'Training mode',
+            description: 'noclip, infinite ammo, impacts, no round limits',
+            enabled: cheatsOn,
+            busy: _actionBusy,
+            onToggle: () async {
+              setState(() => _actionBusy = true);
+              if (!cheatsOn) {
+                await _server.sendRcon(info, 'exec biobase_dev');
+              } else {
+                await _server.sendRcon(info, 'exec biobase_play');
+              }
+              await Future.delayed(const Duration(milliseconds: 500));
+              await _refreshGameState();
+              if (mounted) setState(() => _actionBusy = false);
+            },
           ),
           const _Divider(),
-          // Bot controls
-          _ControlRow(
+          _ToggleRow(
             label: 'Bots',
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _SmallButton(
-                  label: 'Start bots',
-                  onTap: _actionBusy ? null : () async {
-                    setState(() => _actionBusy = true);
-                    await _server.startBots(info);
-                    await _refreshGameState();
-                    if (mounted) setState(() => _actionBusy = false);
-                  },
-                ),
-                const SizedBox(width: 6),
-                _SmallButton(
-                  label: 'Kick bots',
-                  onTap: _actionBusy ? null : () async {
-                    setState(() => _actionBusy = true);
-                    await _server.stopBots(info);
-                    await _refreshGameState();
-                    if (mounted) setState(() => _actionBusy = false);
-                  },
-                ),
-              ],
-            ),
-          ),
-          const _Divider(),
-          // Quick exec
-          _ControlRow(
-            label: 'Config',
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _SmallButton(
-                  label: 'Practice mode',
-                  onTap: _actionBusy ? null : () async {
-                    setState(() => _actionBusy = true);
-                    await _server.sendRcon(info, 'exec biobase_dev');
-                    await _refreshGameState();
-                    if (mounted) setState(() => _actionBusy = false);
-                  },
-                ),
-                const SizedBox(width: 6),
-                _SmallButton(
-                  label: 'Match mode',
-                  onTap: _actionBusy ? null : () async {
-                    setState(() => _actionBusy = true);
-                    await _server.sendRcon(info, 'exec biobase_play');
-                    await _refreshGameState();
-                    if (mounted) setState(() => _actionBusy = false);
-                  },
-                ),
-              ],
-            ),
+            description: hasBots ? '${_gameStatus!.bots} active' : 'fill server with bots',
+            enabled: hasBots,
+            busy: _actionBusy,
+            onToggle: () async {
+              setState(() => _actionBusy = true);
+              if (hasBots) {
+                await _server.stopBots(info);
+              } else {
+                await _server.startBots(info);
+              }
+              await _refreshGameState();
+              if (mounted) setState(() => _actionBusy = false);
+            },
           ),
         ],
       ),
@@ -798,6 +746,88 @@ class _ControlRow extends StatelessWidget {
             child: Text(label, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary))),
           Expanded(child: child),
         ],
+      ),
+    );
+  }
+}
+
+class _ToggleRow extends StatefulWidget {
+  final String label;
+  final String description;
+  final bool enabled;
+  final bool busy;
+  final VoidCallback onToggle;
+  const _ToggleRow({
+    required this.label,
+    required this.description,
+    required this.enabled,
+    required this.busy,
+    required this.onToggle,
+  });
+
+  @override
+  State<_ToggleRow> createState() => _ToggleRowState();
+}
+
+class _ToggleRowState extends State<_ToggleRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.enabled;
+    return MouseRegion(
+      cursor: widget.busy ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.busy ? null : widget.onToggle,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          color: _hovered ? BiobaseColors.surfaceHover.withValues(alpha: 0.3) : Colors.transparent,
+          child: Row(
+            children: [
+              SizedBox(width: 100,
+                child: Text(widget.label, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary))),
+              Expanded(
+                child: Text(widget.description, style: const TextStyle(fontSize: 10, color: BiobaseColors.textTertiary)),
+              ),
+              const SizedBox(width: 8),
+              _TogglePill(enabled: on),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TogglePill extends StatelessWidget {
+  final bool enabled;
+  const _TogglePill({required this.enabled});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: 36,
+      height: 20,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: enabled ? BiobaseColors.live : BiobaseColors.surfaceHover,
+        border: Border.all(
+          color: enabled ? BiobaseColors.live : BiobaseColors.border,
+        ),
+      ),
+      alignment: enabled ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: enabled ? Colors.white : BiobaseColors.textTertiary,
+        ),
       ),
     );
   }

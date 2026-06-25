@@ -157,12 +157,15 @@ class ServerService {
       final output = (result.stdout as String).trim();
       if (output.isEmpty) return ServerRunState.stopped;
 
+      const coreServices = {'bb_cs2_server', 'bb_cs2_control', 'bb_cs2_dashboard'};
       final lines = output.split('\n');
       var running = 0;
       var total = 0;
       for (final line in lines) {
         try {
           final c = jsonDecode(line) as Map<String, dynamic>;
+          final service = c['Service'] as String? ?? c['Name'] as String? ?? '';
+          if (!coreServices.contains(service)) continue;
           total++;
           if (c['State'] == 'running') running++;
         } catch (_) {}

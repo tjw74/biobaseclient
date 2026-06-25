@@ -10,8 +10,8 @@ services:
       SRCDS_TOKEN: ${SRCDS_TOKEN:-}
       CS2_SERVERNAME: ${CS2_SERVERNAME:-Biobase CS2}
       CS2_RCONPW: ${CS2_RCONPW:-changeme}
-      # joedwards32/cs2: CS2_CHEATS=1 → sv_cheats enabled at launch (practice profile often sets CS2_CHEATS=1 in .env)
-      CS2_CHEATS: ${CS2_CHEATS:-0}
+      # joedwards32/cs2: CS2_CHEATS=1 → sv_cheats enabled at launch (training tools require cheats for noclip, impacts, etc.)
+      CS2_CHEATS: ${CS2_CHEATS:-1}
       # play = standard combat (no CS2KZ, biobase_play.cfg). practice|kz = legacy dev stack (CS2KZ + biobase_dev.cfg).
       BB_CS2_SERVER_PROFILE: ${BB_CS2_SERVER_PROFILE:-play}
       # CounterStrikeSharp MatchZy plugin (bundled ZIP in image; pre.sh unzip). Set 0|false to skip.

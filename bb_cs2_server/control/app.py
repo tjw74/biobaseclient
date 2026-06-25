@@ -464,8 +464,22 @@ def api_change_map(
     )
 
 
+class RconBody(BaseModel):
+    command: str = Field(..., min_length=1, max_length=512)
+
+
+@app.post("/api/rcon")
+def api_rcon(
+    body: RconBody,
+    authorization: str | None = Header(None),
+    x_api_key: str | None = Header(None, alias="X-Api-Key"),
+) -> JSONResponse:
+    require_token(authorization, x_api_key)
+    code, out = mcrcon_run(body.command)
+    return JSONResponse({"ok": code == 0, "exit_code": code, "output": out[:4000]})
+
+
 @app.get("/")
-def index() -> FileResponse:
     p = STATIC / "bb_cs2_bot_game.html"
     if not p.is_file():
         raise HTTPException(status_code=500, detail="static UI missing")

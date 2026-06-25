@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 
 const String _downloadBaseUrl =
     'https://github.com/tjw74/biobaseclient/releases/download/flutter-latest/';
-const String currentVersion = '0.11.0';
+const String currentVersion = '0.11.1';
 
 String get _updateFeedUrl {
   if (Platform.isMacOS) return '${_downloadBaseUrl}latest-mac.yml';
@@ -92,9 +92,16 @@ class UpdateService {
     final file = File(installerPath);
     await file.writeAsBytes(response.bodyBytes);
 
-    await Process.start(installerPath, [
-      '/SILENT',
-    ], mode: ProcessStartMode.detached);
+    final appExe = Platform.resolvedExecutable;
+    final script = p.join(tempDir.path, 'biobase_update.cmd');
+    await File(script).writeAsString(
+      '@echo off\r\n'
+      '"$installerPath" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART\r\n'
+      'start "" "$appExe"\r\n'
+      'del "%~f0"\r\n',
+    );
+
+    await Process.start('cmd', ['/c', script], mode: ProcessStartMode.detached);
     exit(0);
   }
 

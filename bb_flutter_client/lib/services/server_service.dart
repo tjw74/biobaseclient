@@ -439,9 +439,8 @@ class ServerService {
     return ok;
   }
 
-  Future<void> connectToGame(ServerInfo? info) async {
-    final port = info?.gamePort ?? 27015;
-    final uri = Uri.parse('steam://connect/localhost:$port');
+  Future<void> connectToServer(String address) async {
+    final uri = Uri.parse('steam://connect/$address');
     await launchUrl(uri);
   }
 

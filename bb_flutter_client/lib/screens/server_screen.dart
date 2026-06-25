@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme.dart';
 import '../services/server_service.dart';
+import '../services/settings_service.dart';
 
 class ServerScreen extends StatefulWidget {
   const ServerScreen({super.key});
@@ -13,6 +14,7 @@ class ServerScreen extends StatefulWidget {
 
 class _ServerScreenState extends State<ServerScreen> {
   final ServerService _server = ServerService();
+  final SettingsService _settings = SettingsService();
 
   ServerInstallState _installState = ServerInstallState.notInstalled;
   ServerRunState _runState = ServerRunState.unknown;
@@ -23,6 +25,7 @@ class _ServerScreenState extends State<ServerScreen> {
   String? _errorMessage;
   bool _actionBusy = false;
   Timer? _pollTimer;
+  bool _settingsReady = false;
 
   final _rconController = TextEditingController();
   final _rconFocus = FocusNode();
@@ -31,6 +34,12 @@ class _ServerScreenState extends State<ServerScreen> {
   @override
   void initState() {
     super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _settings.init();
+    if (mounted) setState(() => _settingsReady = true);
     _checkState();
   }
 
@@ -151,52 +160,221 @@ class _ServerScreenState extends State<ServerScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return switch (_installState) {
-      ServerInstallState.notInstalled => _buildPreInstall(),
-      ServerInstallState.downloading => _buildDownloading(),
-      ServerInstallState.installing => _buildInstalling(),
-      ServerInstallState.installed => _buildManagement(),
-      ServerInstallState.error => _buildError(),
-    };
+  String get _activeAddress => _settings.activeServerAddress;
+  List<SavedServer> get _servers => _settingsReady ? _settings.savedServers : [];
+  Future<void> _selectServer(String address) async {
+    await _settings.setActiveServer(address);
+    if (mounted) setState(() {});
   }
 
-  // ── Pre-install ──
+  Future<void> _addCustomServer(String name, String host, int port) async {
+    await _settings.addServer(SavedServer(name: name, host: host, port: port));
+    await _settings.setActiveServer('$host:$port');
+    if (mounted) setState(() {});
+  }
 
-  Widget _buildPreInstall() {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.dns_outlined, size: 40, color: BiobaseColors.textTertiary),
-            const SizedBox(height: 16),
-            const Text('Run your own CS2 server',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: BiobaseColors.text)),
-            const SizedBox(height: 8),
-            const Text('Zero-lag practice on your local network. Server installs and runs automatically.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: BiobaseColors.textTertiary, height: 1.5)),
-            const SizedBox(height: 24),
-            _ActionButton(label: 'Install Server', onTap: _startInstall, primary: true),
-          ],
-        ),
+  Future<void> _removeServer(SavedServer server) async {
+    await _settings.removeServer(server);
+    if (_activeAddress == server.address) {
+      await _settings.setActiveServer('cs2.clarionlab.dev:27015');
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_settingsReady) return const SizedBox.shrink();
+
+    final installing = _installState == ServerInstallState.downloading ||
+        _installState == ServerInstallState.installing;
+    if (installing) return _buildInstalling();
+    if (_installState == ServerInstallState.error) return _buildError();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildServerSelector(),
+          const SizedBox(height: 20),
+          _SectionLabel('LOCAL SERVER'),
+          const SizedBox(height: 8),
+          _buildLocalServer(),
+        ],
       ),
     );
   }
 
-  Widget _buildDownloading() {
-    return const Center(
+  // ── Server selector + play ──
+
+  Widget _buildServerSelector() {
+    final servers = _servers;
+    final localAddr = 'localhost:${_info?.gamePort ?? 27015}';
+    final isUp = _runState == ServerRunState.running || _runState == ServerRunState.partial;
+
+    final allServers = <(String, String, bool)>[
+      for (final s in servers)
+        (s.name, s.address, false),
+      if (isUp && !servers.any((s) => s.address == localAddr))
+        ('Local Server', localAddr, false),
+    ];
+
+    return _Panel(
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 24, height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2, color: BiobaseColors.accent)),
-          SizedBox(height: 16),
-          Text('Downloading server installer...',
-            style: TextStyle(fontSize: 13, color: BiobaseColors.textSecondary)),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final (name, addr, _) in allServers)
+                      _ServerOption(
+                        name: name,
+                        address: addr,
+                        selected: _activeAddress == addr,
+                        onTap: () => _selectServer(addr),
+                        onRemove: servers.any((s) => s.address == addr) && addr != 'cs2.clarionlab.dev:27015'
+                          ? () => _removeServer(servers.firstWhere((s) => s.address == addr))
+                          : null,
+                      ),
+                    _AddServerRow(onAdd: _addCustomServer),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              _ActionButton(
+                label: 'Play',
+                icon: Icons.sports_esports,
+                onTap: () => _server.connectToServer(_activeAddress),
+                primary: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Local server section ──
+
+  Widget _buildLocalServer() {
+    if (!_server.isInstalled) return _buildPreInstall();
+
+    final isRunning = _runState == ServerRunState.running;
+    final isPartial = _runState == ServerRunState.partial;
+    final isUp = isRunning || isPartial;
+    final cheatsOn = _caps?.cheatsState == 'on';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Panel(
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8, height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isRunning ? BiobaseColors.live
+                          : isPartial ? BiobaseColors.warning
+                          : BiobaseColors.textTertiary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isRunning ? 'Running' : isPartial ? 'Degraded' : 'Stopped',
+                    style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600,
+                      color: isRunning ? BiobaseColors.live
+                          : isPartial ? BiobaseColors.warning
+                          : BiobaseColors.textTertiary,
+                    ),
+                  ),
+                  if (_gameStatus?.map != null) ...[
+                    const SizedBox(width: 10),
+                    Text(_gameStatus!.map!, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                  ],
+                  if (_gameStatus != null && _gameStatus!.rconOk) ...[
+                    const SizedBox(width: 10),
+                    Text('${_gameStatus!.humans}h ${_gameStatus!.bots}b',
+                      style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                  ],
+                  const Spacer(),
+                  if (_actionBusy)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: SizedBox(width: 14, height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: BiobaseColors.textTertiary)),
+                    ),
+                  _ActionButton(
+                    label: isUp ? 'Stop Server' : 'Start Server',
+                    icon: isUp ? Icons.stop : Icons.play_arrow,
+                    onTap: _actionBusy ? null : () => _doAction(isUp ? _server.stop : _server.start),
+                    primary: !isUp,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        if (isUp) ...[
+          const SizedBox(height: 20),
+          _SectionLabel('GAME CONTROLS'),
+          const SizedBox(height: 8),
+          _buildGameControls(_info, cheatsOn),
+
+          if (_gameStatus != null && _gameStatus!.players.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _SectionLabel('PLAYERS'),
+            const SizedBox(height: 8),
+            _buildPlayerList(),
+          ],
+
+          if (_caps != null && _caps!.plugins.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _SectionLabel('PLUGINS'),
+            const SizedBox(height: 8),
+            _buildPlugins(),
+          ],
+
+          const SizedBox(height: 20),
+          _SectionLabel('RCON'),
+          const SizedBox(height: 8),
+          _buildRconConsole(),
+        ],
+
+        const SizedBox(height: 20),
+        _SectionLabel('SERVER INFO'),
+        const SizedBox(height: 8),
+        _buildServerInfo(_info),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _buildPreInstall() {
+    return _Panel(
+      child: Row(
+        children: [
+          Icon(Icons.dns_outlined, size: 20, color: BiobaseColors.textTertiary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text('Run your own CS2 server',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: BiobaseColors.text)),
+                Text('Zero-lag practice on your local network',
+                  style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+              ],
+            ),
+          ),
+          _ActionButton(label: 'Install', onTap: _startInstall, primary: true),
         ],
       ),
     );
@@ -261,124 +439,6 @@ class _ServerScreenState extends State<ServerScreen> {
   }
 
   // ── Full management dashboard ──
-
-  Widget _buildManagement() {
-    final info = _info;
-    final isRunning = _runState == ServerRunState.running;
-    final isPartial = _runState == ServerRunState.partial;
-    final isUp = isRunning || isPartial;
-    final cheatsOn = _caps?.cheatsState == 'on';
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Header: status + controls ──
-          Row(
-            children: [
-              Container(
-                width: 8, height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isRunning ? BiobaseColors.live
-                      : isPartial ? BiobaseColors.warning
-                      : BiobaseColors.textTertiary,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                isRunning ? 'Running' : isPartial ? 'Degraded' : 'Stopped',
-                style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600,
-                  color: isRunning ? BiobaseColors.live
-                      : isPartial ? BiobaseColors.warning
-                      : BiobaseColors.textTertiary,
-                ),
-              ),
-              if (_gameStatus?.map != null) ...[
-                const SizedBox(width: 10),
-                Text(_gameStatus!.map!,
-                  style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
-              ],
-              if (_gameStatus != null && _gameStatus!.rconOk) ...[
-                const SizedBox(width: 10),
-                Text('${_gameStatus!.humans}h ${_gameStatus!.bots}b',
-                  style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
-              ],
-              const Spacer(),
-              if (_actionBusy)
-                const Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: SizedBox(width: 14, height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 1.5, color: BiobaseColors.textTertiary)),
-                ),
-              _ActionButton(
-                label: 'Refresh',
-                icon: Icons.refresh,
-                onTap: _actionBusy ? null : () => _doAction(() async {}),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // ── Server power + connect ──
-          Row(
-            children: [
-              _ActionButton(
-                label: isUp ? 'Stop Server' : 'Start Server',
-                icon: isUp ? Icons.stop : Icons.play_arrow,
-                onTap: _actionBusy ? null : () => _doAction(isUp ? _server.stop : _server.start),
-                primary: !isUp,
-              ),
-              if (isUp) ...[
-                const SizedBox(width: 8),
-                _ActionButton(
-                  label: 'Connect to Game',
-                  icon: Icons.sports_esports,
-                  onTap: () => _server.connectToGame(_info),
-                  primary: true,
-                ),
-              ],
-            ],
-          ),
-
-          if (isUp) ...[
-            const SizedBox(height: 20),
-            _SectionLabel('GAME CONTROLS'),
-            const SizedBox(height: 8),
-            _buildGameControls(info, cheatsOn),
-
-            if (_gameStatus != null && _gameStatus!.players.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _SectionLabel('PLAYERS'),
-              const SizedBox(height: 8),
-              _buildPlayerList(),
-            ],
-
-            if (_caps != null && _caps!.plugins.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _SectionLabel('PLUGINS'),
-              const SizedBox(height: 8),
-              _buildPlugins(),
-            ],
-
-            const SizedBox(height: 20),
-            _SectionLabel('RCON'),
-            const SizedBox(height: 8),
-            _buildRconConsole(),
-          ],
-
-          const SizedBox(height: 20),
-          _SectionLabel('SERVER INFO'),
-          const SizedBox(height: 8),
-          _buildServerInfo(info),
-
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
 
   Widget _buildGameControls(ServerInfo? info, bool cheatsOn) {
     final hasBots = (_gameStatus?.bots ?? 0) > 0;
@@ -682,6 +742,175 @@ class _MapSelectorState extends State<_MapSelector> {
           ],
         ),
       ],
+    );
+  }
+}
+
+// ── Server selector widgets ──
+
+class _ServerOption extends StatefulWidget {
+  final String name;
+  final String address;
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback? onRemove;
+  const _ServerOption({
+    required this.name,
+    required this.address,
+    required this.selected,
+    required this.onTap,
+    this.onRemove,
+  });
+
+  @override
+  State<_ServerOption> createState() => _ServerOptionState();
+}
+
+class _ServerOptionState extends State<_ServerOption> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+          color: _hovered ? BiobaseColors.surfaceHover.withValues(alpha: 0.3) : Colors.transparent,
+          child: Row(
+            children: [
+              Container(
+                width: 14, height: 14,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: widget.selected ? BiobaseColors.accent : BiobaseColors.border,
+                    width: widget.selected ? 4 : 1.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(widget.name, style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w500,
+                color: widget.selected ? BiobaseColors.text : BiobaseColors.textSecondary)),
+              const SizedBox(width: 8),
+              Text(widget.address, style: const TextStyle(
+                fontSize: 10, color: BiobaseColors.textTertiary)),
+              const Spacer(),
+              if (widget.onRemove != null)
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: widget.onRemove,
+                    child: const Icon(Icons.close, size: 12, color: BiobaseColors.textTertiary),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddServerRow extends StatefulWidget {
+  final Future<void> Function(String name, String host, int port) onAdd;
+  const _AddServerRow({required this.onAdd});
+
+  @override
+  State<_AddServerRow> createState() => _AddServerRowState();
+}
+
+class _AddServerRowState extends State<_AddServerRow> {
+  bool _expanded = false;
+  final _nameCtrl = TextEditingController();
+  final _hostCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _hostCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameCtrl.text.trim();
+    final raw = _hostCtrl.text.trim();
+    if (name.isEmpty || raw.isEmpty) return;
+
+    final parts = raw.split(':');
+    final host = parts[0];
+    final port = parts.length > 1 ? (int.tryParse(parts[1]) ?? 27015) : 27015;
+
+    widget.onAdd(name, host, port);
+    _nameCtrl.clear();
+    _hostCtrl.clear();
+    setState(() => _expanded = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_expanded) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4, left: 4),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => setState(() => _expanded = true),
+            child: Row(
+              children: const [
+                Icon(Icons.add, size: 12, color: BiobaseColors.textTertiary),
+                SizedBox(width: 4),
+                Text('Add server', style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, left: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 100,
+            child: TextField(
+              controller: _nameCtrl,
+              style: const TextStyle(fontSize: 11, color: BiobaseColors.text),
+              decoration: const InputDecoration(
+                hintText: 'Name',
+                hintStyle: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 4),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _hostCtrl,
+              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: BiobaseColors.text),
+              decoration: const InputDecoration(
+                hintText: 'host:port',
+                hintStyle: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 4),
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+          ),
+          _SmallButton(label: 'Add', onTap: _submit),
+          const SizedBox(width: 4),
+          _SmallButton(label: 'Cancel', onTap: () => setState(() => _expanded = false)),
+        ],
+      ),
     );
   }
 }

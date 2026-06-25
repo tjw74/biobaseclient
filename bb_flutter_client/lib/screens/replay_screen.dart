@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../theme.dart';
 import '../services/server_service.dart';
+import '../services/moves_service.dart';
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -14,6 +15,7 @@ class ReplayScreen extends StatefulWidget {
 
 class _ReplayScreenState extends State<ReplayScreen> {
   final ServerService _server = ServerService();
+  final MovesService _moves = MovesService();
 
   List<DemoFile>? _demos;
   bool _loading = true;
@@ -25,10 +27,22 @@ class _ReplayScreenState extends State<ReplayScreen> {
   bool _playing = false;
   bool _copying = false;
 
+  // Move marking state
+  double? _moveStart;
+  List<Move> _demoMoves = [];
+  String? _editingMoveId;
+  final TextEditingController _renameController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _loadDemos();
+  }
+
+  @override
+  void dispose() {
+    _renameController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDemos() async {
@@ -49,6 +63,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
           _demoSize = demo.sizeBytes;
           _playbackPosition = 0;
           _playing = false;
+          _moveStart = null;
+          _demoMoves = _moves.movesForDemo(demo.name);
         }
       });
     }
@@ -68,8 +84,59 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _demoSize = result.files.single.size;
         _playbackPosition = 0;
         _playing = false;
+        _moveStart = null;
+        _demoMoves = _moves.movesForDemo(result.files.single.name);
       });
     }
+  }
+
+  void _onMarkTap() {
+    if (_moveStart == null) {
+      setState(() => _moveStart = _playbackPosition);
+    } else {
+      final start = _moveStart!;
+      final end = _playbackPosition;
+      if ((end - start).abs() < 0.001) {
+        setState(() => _moveStart = null);
+        return;
+      }
+      final s = start < end ? start : end;
+      final e = start < end ? end : start;
+      _moves.addMove(demoName: _demoName!, startPosition: s, endPosition: e);
+      setState(() {
+        _moveStart = null;
+        _demoMoves = _moves.movesForDemo(_demoName!);
+      });
+    }
+  }
+
+  void _cancelMark() {
+    setState(() => _moveStart = null);
+  }
+
+  void _deleteMove(String id) {
+    _moves.deleteMove(id);
+    setState(() => _demoMoves = _moves.movesForDemo(_demoName!));
+  }
+
+  void _startRename(Move move) {
+    _renameController.text = move.name;
+    setState(() => _editingMoveId = move.id);
+  }
+
+  void _commitRename(String id) {
+    final name = _renameController.text.trim();
+    if (name.isNotEmpty) {
+      _moves.renameMove(id, name);
+    }
+    setState(() {
+      _editingMoveId = null;
+      _demoMoves = _moves.movesForDemo(_demoName!);
+    });
+  }
+
+  void _jumpToMove(Move move) {
+    setState(() => _playbackPosition = move.startPosition);
   }
 
   @override
@@ -82,7 +149,15 @@ class _ReplayScreenState extends State<ReplayScreen> {
           child: _buildLeft(),
         ),
         const SizedBox(width: 12),
-        Expanded(child: _RenderArea(demoPath: _demoPath, demoName: _demoName)),
+        Expanded(
+          child: _RenderArea(
+            demoPath: _demoPath,
+            demoName: _demoName,
+            moves: _demoMoves,
+            playbackPosition: _playbackPosition,
+            moveStart: _moveStart,
+          ),
+        ),
       ],
     );
   }
@@ -91,20 +166,20 @@ class _ReplayScreenState extends State<ReplayScreen> {
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        // Demo list
         _buildDemoList(),
         const SizedBox(height: 8),
-        // Playback controls
         _buildPlayback(),
         const SizedBox(height: 8),
-        // Round stats
+        _buildMovesSection(),
+        const SizedBox(height: 8),
         _buildStats(),
         const SizedBox(height: 8),
-        // Events
         _buildEvents(),
       ],
     );
   }
+
+  // ── Demo list ──
 
   Widget _buildDemoList() {
     return Container(
@@ -127,12 +202,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
               const Spacer(),
               if (_loading)
                 const SizedBox(
-                  width: 12,
-                  height: 12,
+                  width: 12, height: 12,
                   child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
-                    color: BiobaseColors.textTertiary,
-                  ),
+                      strokeWidth: 1.5, color: BiobaseColors.textTertiary),
                 )
               else
                 MouseRegion(
@@ -156,20 +228,18 @@ class _ReplayScreenState extends State<ReplayScreen> {
               ),
             )
           else if (_demos == null || _demos!.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
               child: Center(
-                child: Column(
-                  children: [
-                    const Text('No demos recorded yet',
-                        style: TextStyle(
-                            fontSize: 11, color: BiobaseColors.textTertiary)),
-                    const SizedBox(height: 4),
-                    const Text('Play a match to generate a demo',
-                        style: TextStyle(
-                            fontSize: 10, color: BiobaseColors.textTertiary)),
-                  ],
-                ),
+                child: Column(children: [
+                  Text('No demos recorded yet',
+                      style: TextStyle(
+                          fontSize: 11, color: BiobaseColors.textTertiary)),
+                  SizedBox(height: 4),
+                  Text('Play a match to generate a demo',
+                      style: TextStyle(
+                          fontSize: 10, color: BiobaseColors.textTertiary)),
+                ]),
               ),
             )
           else
@@ -183,12 +253,13 @@ class _ReplayScreenState extends State<ReplayScreen> {
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: _pickLocal,
-              child: Row(
+              child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.folder_open, size: 12, color: BiobaseColors.textTertiary),
-                  const SizedBox(width: 4),
-                  const Text('Open local file',
+                  Icon(Icons.folder_open,
+                      size: 12, color: BiobaseColors.textTertiary),
+                  SizedBox(width: 4),
+                  Text('Open local file',
                       style: TextStyle(
                           fontSize: 10, color: BiobaseColors.textTertiary)),
                 ],
@@ -199,6 +270,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
       ),
     );
   }
+
+  // ── Playback ──
 
   Widget _buildPlayback() {
     return Container(
@@ -217,16 +290,58 @@ class _ReplayScreenState extends State<ReplayScreen> {
                   fontWeight: FontWeight.w600,
                   color: BiobaseColors.text)),
           const SizedBox(height: 10),
+          _buildTimeline(),
+          const SizedBox(height: 4),
+          Row(children: [
+            Text(_formatTime(_playbackPosition),
+                style: const TextStyle(
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    color: BiobaseColors.textTertiary)),
+            const Spacer(),
+            Text(_formatTime(1.0),
+                style: const TextStyle(
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    color: BiobaseColors.textTertiary)),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            _controlBtn(Icons.skip_previous,
+                () => setState(() => _playbackPosition = 0)),
+            const SizedBox(width: 4),
+            _controlBtn(
+                _playing ? Icons.pause : Icons.play_arrow,
+                () => setState(() => _playing = !_playing),
+                primary: true),
+            const SizedBox(width: 4),
+            _controlBtn(Icons.skip_next,
+                () => setState(() => _playbackPosition = 1)),
+            const Spacer(),
+            ...([0.25, 0.5, 1.0, 2.0].map((s) => Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: _speedBtn(s, _playbackSpeed == s,
+                      () => setState(() => _playbackSpeed = s)),
+                ))),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeline() {
+    return LayoutBuilder(builder: (context, constraints) {
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
           SliderTheme(
             data: SliderThemeData(
               trackHeight: 3,
-              thumbShape:
-                  const RoundSliderThumbShape(enabledThumbRadius: 5),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
               activeTrackColor: BiobaseColors.accent,
               inactiveTrackColor: BiobaseColors.surfaceRaised,
               thumbColor: BiobaseColors.accent,
-              overlayShape:
-                  const RoundSliderOverlayShape(overlayRadius: 10),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
             ),
             child: Slider(
               value: _playbackPosition,
@@ -235,49 +350,131 @@ class _ReplayScreenState extends State<ReplayScreen> {
                   : null,
             ),
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(_formatTime(_playbackPosition),
+          // Move range markers on the track
+          for (final move in _demoMoves)
+            Positioned(
+              left: 12 + move.startPosition * (constraints.maxWidth - 24),
+              top: 6,
+              child: Container(
+                width: (move.endPosition - move.startPosition) *
+                    (constraints.maxWidth - 24),
+                height: 3,
+                decoration: BoxDecoration(
+                  color: BiobaseColors.live.withAlpha(140),
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              ),
+            ),
+          // Active mark-start indicator
+          if (_moveStart != null)
+            Positioned(
+              left: 12 + _moveStart! * (constraints.maxWidth - 24) - 1,
+              top: 2,
+              child: Container(
+                width: 2,
+                height: 11,
+                color: BiobaseColors.warning,
+              ),
+            ),
+        ],
+      );
+    });
+  }
+
+  // ── Moves ──
+
+  Widget _buildMovesSection() {
+    final hasDemo = _demoPath != null;
+    final marking = _moveStart != null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: BiobaseColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: marking ? BiobaseColors.warning.withAlpha(60) : BiobaseColors.border,
+        ),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('Moves',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: BiobaseColors.text)),
+            const Spacer(),
+            if (_demoMoves.isNotEmpty)
+              Text('${_demoMoves.length}',
                   style: const TextStyle(
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                      color: BiobaseColors.textTertiary)),
-              const Spacer(),
-              Text(_formatTime(1.0),
-                  style: const TextStyle(
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                      color: BiobaseColors.textTertiary)),
-            ],
-          ),
+                      fontSize: 10, color: BiobaseColors.textTertiary)),
+          ]),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              _controlBtn(Icons.skip_previous,
-                  () => setState(() => _playbackPosition = 0)),
-              const SizedBox(width: 4),
-              _controlBtn(
-                  _playing ? Icons.pause : Icons.play_arrow,
-                  () => setState(() => _playing = !_playing),
-                  primary: true),
-              const SizedBox(width: 4),
-              _controlBtn(Icons.skip_next,
-                  () => setState(() => _playbackPosition = 1)),
-              const Spacer(),
-              ...([0.25, 0.5, 1.0, 2.0].map((s) => Padding(
-                    padding: const EdgeInsets.only(left: 2),
-                    child: _speedBtn(
-                        s,
-                        _playbackSpeed == s,
-                        () => setState(() => _playbackSpeed = s)),
-                  ))),
-            ],
-          ),
+
+          // Mark button
+          if (hasDemo) ...[
+            Row(children: [
+              Expanded(
+                child: _MarkButton(
+                  marking: marking,
+                  onTap: _onMarkTap,
+                  startTime: marking ? _formatTime(_moveStart!) : null,
+                ),
+              ),
+              if (marking) ...[
+                const SizedBox(width: 6),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: _cancelMark,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: BiobaseColors.surfaceRaised,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: BiobaseColors.border),
+                      ),
+                      child: const Text('Cancel',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: BiobaseColors.textTertiary)),
+                    ),
+                  ),
+                ),
+              ],
+            ]),
+            const SizedBox(height: 10),
+          ],
+
+          // Moves list
+          if (!hasDemo)
+            const Text('Load a demo to mark moves',
+                style: TextStyle(
+                    fontSize: 11, color: BiobaseColors.textTertiary))
+          else if (_demoMoves.isEmpty && !marking)
+            const Text('No moves marked yet',
+                style: TextStyle(
+                    fontSize: 11, color: BiobaseColors.textTertiary))
+          else
+            ...(_demoMoves.map((m) => _MoveRow(
+                  move: m,
+                  editing: _editingMoveId == m.id,
+                  renameController: _renameController,
+                  formatTime: _formatTime,
+                  onTap: () => _jumpToMove(m),
+                  onRename: () => _startRename(m),
+                  onCommitRename: () => _commitRename(m.id),
+                  onDelete: () => _deleteMove(m.id),
+                ))),
         ],
       ),
     );
   }
+
+  // ── Stats ──
 
   Widget _buildStats() {
     return Container(
@@ -309,6 +506,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
     );
   }
 
+  // ── Events ──
+
   Widget _buildEvents() {
     return Container(
       decoration: BoxDecoration(
@@ -338,6 +537,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
       ),
     );
   }
+
+  // ── Shared helpers ──
 
   Widget _controlBtn(IconData icon, VoidCallback onTap,
       {bool primary = false}) {
@@ -412,6 +613,205 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 }
 
+// ── Mark button ──
+
+class _MarkButton extends StatefulWidget {
+  final bool marking;
+  final VoidCallback onTap;
+  final String? startTime;
+
+  const _MarkButton({
+    required this.marking,
+    required this.onTap,
+    this.startTime,
+  });
+
+  @override
+  State<_MarkButton> createState() => _MarkButtonState();
+}
+
+class _MarkButtonState extends State<_MarkButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final marking = widget.marking;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: marking
+                ? (_hovered ? BiobaseColors.warning : BiobaseColors.warning.withAlpha(200))
+                : (_hovered ? BiobaseColors.accentDim : BiobaseColors.surfaceRaised),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: marking ? BiobaseColors.warning : BiobaseColors.border,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                marking ? Icons.flag : Icons.flag_outlined,
+                size: 12,
+                color: marking ? BiobaseColors.bg : BiobaseColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                marking ? 'Mark End' : 'Mark Start',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: marking ? BiobaseColors.bg : BiobaseColors.textSecondary,
+                ),
+              ),
+              if (marking && widget.startTime != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  'from ${widget.startTime}',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: BiobaseColors.bg.withAlpha(180),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Move row ──
+
+class _MoveRow extends StatefulWidget {
+  final Move move;
+  final bool editing;
+  final TextEditingController renameController;
+  final String Function(double) formatTime;
+  final VoidCallback onTap;
+  final VoidCallback onRename;
+  final VoidCallback onCommitRename;
+  final VoidCallback onDelete;
+
+  const _MoveRow({
+    required this.move,
+    required this.editing,
+    required this.renameController,
+    required this.formatTime,
+    required this.onTap,
+    required this.onRename,
+    required this.onCommitRename,
+    required this.onDelete,
+  });
+
+  @override
+  State<_MoveRow> createState() => _MoveRowState();
+}
+
+class _MoveRowState extends State<_MoveRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.move;
+    final timeRange =
+        '${widget.formatTime(m.startPosition)} → ${widget.formatTime(m.endPosition)}';
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          margin: const EdgeInsets.only(bottom: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: _hovered ? BiobaseColors.surfaceHover : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 3,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: BiobaseColors.live,
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (widget.editing)
+                      SizedBox(
+                        height: 18,
+                        child: TextField(
+                          controller: widget.renameController,
+                          autofocus: true,
+                          style: const TextStyle(
+                              fontSize: 11, color: BiobaseColors.text),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                            border: InputBorder.none,
+                          ),
+                          onSubmitted: (_) => widget.onCommitRename(),
+                        ),
+                      )
+                    else
+                      Text(m.name,
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: BiobaseColors.text)),
+                    const SizedBox(height: 1),
+                    Text(timeRange,
+                        style: const TextStyle(
+                            fontSize: 9,
+                            fontFamily: 'monospace',
+                            color: BiobaseColors.textTertiary)),
+                  ],
+                ),
+              ),
+              if (_hovered && !widget.editing) ...[
+                GestureDetector(
+                  onTap: widget.onRename,
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(Icons.edit_outlined,
+                        size: 11, color: BiobaseColors.textTertiary),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: widget.onDelete,
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(Icons.close,
+                        size: 11, color: BiobaseColors.textTertiary),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Demo row ──
 
 class _DemoRow extends StatefulWidget {
@@ -455,38 +855,31 @@ class _DemoRowState extends State<_DemoRow> {
           ),
           child: Row(
             children: [
-              Icon(
-                Icons.videocam_outlined,
-                size: 12,
-                color: widget.selected
-                    ? BiobaseColors.accent
-                    : BiobaseColors.textTertiary,
-              ),
+              Icon(Icons.videocam_outlined,
+                  size: 12,
+                  color: widget.selected
+                      ? BiobaseColors.accent
+                      : BiobaseColors.textTertiary),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      d.name,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight:
-                            widget.selected ? FontWeight.w600 : FontWeight.w400,
-                        color: widget.selected
-                            ? BiobaseColors.accent
-                            : BiobaseColors.text,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    Text(d.name,
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: widget.selected
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                            color: widget.selected
+                                ? BiobaseColors.accent
+                                : BiobaseColors.text),
+                        overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 1),
                     Text(
-                      '${_formatSize(d.sizeBytes)}  ·  ${_formatDate(d.modified)}',
-                      style: const TextStyle(
-                        fontSize: 9,
-                        color: BiobaseColors.textTertiary,
-                      ),
-                    ),
+                        '${_formatSize(d.sizeBytes)}  ·  ${_formatDate(d.modified)}',
+                        style: const TextStyle(
+                            fontSize: 9, color: BiobaseColors.textTertiary)),
                   ],
                 ),
               ),
@@ -521,8 +914,17 @@ class _DemoRowState extends State<_DemoRow> {
 class _RenderArea extends StatelessWidget {
   final String? demoPath;
   final String? demoName;
+  final List<Move> moves;
+  final double playbackPosition;
+  final double? moveStart;
 
-  const _RenderArea({required this.demoPath, required this.demoName});
+  const _RenderArea({
+    required this.demoPath,
+    required this.demoName,
+    required this.moves,
+    required this.playbackPosition,
+    this.moveStart,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -578,12 +980,12 @@ class _RenderArea extends StatelessWidget {
             ],
           ),
         ),
+        // Minimap placeholder
         Positioned(
           top: 12,
           right: 12,
           child: Container(
-            width: 120,
-            height: 120,
+            width: 120, height: 120,
             decoration: BoxDecoration(
               color: BiobaseColors.bg.withAlpha(180),
               borderRadius: BorderRadius.circular(6),
@@ -596,6 +998,7 @@ class _RenderArea extends StatelessWidget {
             ),
           ),
         ),
+        // Round indicator
         Positioned(
           top: 12,
           left: 12,
@@ -610,6 +1013,36 @@ class _RenderArea extends StatelessWidget {
                     fontSize: 10, color: BiobaseColors.textTertiary)),
           ),
         ),
+        // Move marking indicator
+        if (moveStart != null)
+          Positioned(
+            bottom: 12,
+            left: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: BiobaseColors.warning.withAlpha(30),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: BiobaseColors.warning.withAlpha(60)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6, height: 6,
+                    decoration: const BoxDecoration(
+                      color: BiobaseColors.warning,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text('Marking move...',
+                      style: TextStyle(
+                          fontSize: 10, color: BiobaseColors.warning)),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }

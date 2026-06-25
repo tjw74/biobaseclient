@@ -148,32 +148,26 @@ class ServerService {
   Future<ServerRunState> getRunState() async {
     if (!isInstalled) return ServerRunState.unknown;
     try {
+      // docker inspect is consistent across platforms — avoids compose ps JSON format differences
       final result = await Process.run(
         'docker',
-        ['compose', '-f', _composeFile, 'ps', '--format', 'json'],
+        [
+          'inspect', '--format', '{{.State.Running}}',
+          'bb_cs2_server', 'bb_cs2_control', 'bb_cs2_dashboard',
+        ],
         stdoutEncoding: utf8,
+        stderrEncoding: utf8,
       );
-      if (result.exitCode != 0) return ServerRunState.stopped;
-      final output = (result.stdout as String).trim();
-      if (output.isEmpty) return ServerRunState.stopped;
-
-      const coreServices = {'bb_cs2_server', 'bb_cs2_control', 'bb_cs2_dashboard'};
-      final lines = output.split('\n');
-      var running = 0;
-      var total = 0;
-      for (final line in lines) {
-        try {
-          final c = jsonDecode(line) as Map<String, dynamic>;
-          final service = c['Service'] as String? ?? c['Name'] as String? ?? '';
-          if (!coreServices.contains(service)) continue;
-          total++;
-          if (c['State'] == 'running') running++;
-        } catch (_) {}
-      }
-      if (total == 0) return ServerRunState.stopped;
-      if (running == total) return ServerRunState.running;
-      if (running > 0) return ServerRunState.partial;
-      return ServerRunState.stopped;
+      final lines = (result.stdout as String)
+          .trim()
+          .split('\n')
+          .where((l) => l.trim().isNotEmpty)
+          .toList();
+      if (lines.isEmpty) return ServerRunState.stopped;
+      final running = lines.where((l) => l.trim() == 'true').length;
+      if (running == 0) return ServerRunState.stopped;
+      if (running == lines.length) return ServerRunState.running;
+      return ServerRunState.partial;
     } catch (_) {
       return ServerRunState.unknown;
     }

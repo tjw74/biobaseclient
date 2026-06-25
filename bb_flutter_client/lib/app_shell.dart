@@ -605,17 +605,14 @@ class _ContentHeader extends StatelessWidget {
       child: Row(
         children: [
           const Spacer(),
-          _TopStatusIndicator(statusLevel: statusLevel),
-          const SizedBox(width: 8),
-          _ServerPill(
-            status: serverStatus,
-            statusLevel: statusLevel,
-            trackedPlayer: trackedPlayer,
-            onPickPlayer: onPickPlayer,
-            onConnect: onConnect,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _TopStatusIndicator(statusLevel: statusLevel),
+              _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
+            ],
           ),
-          const SizedBox(width: 4),
-          _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
         ],
       ),
     );

@@ -16,10 +16,11 @@ import 'screens/live_screen.dart';
 import 'screens/shadow_screen.dart';
 import 'screens/replay_screen.dart';
 import 'screens/overlay_hud.dart';
+import 'screens/server_screen.dart';
 import 'services/update_service.dart' show UpdateService, currentVersion;
 import 'services/overlay_service.dart';
 
-enum Section { live, shadow, replay }
+enum Section { live, shadow, replay, server }
 
 enum _UpdatePhase { idle, checking, downloading, done, current }
 
@@ -27,6 +28,7 @@ const _navItems = [
   (Section.live, 'Live', Icons.show_chart),
   (Section.replay, 'Replay', Icons.replay),
   (Section.shadow, 'Shadow', Icons.people_outline),
+  (Section.server, 'Server', Icons.dns_outlined),
 ];
 
 class AppShell extends StatefulWidget {
@@ -305,6 +307,7 @@ class _AppShellState extends State<AppShell> {
         live: live,
       ),
       Section.replay => const ReplayScreen(),
+      Section.server => const ServerScreen(),
     };
   }
 }

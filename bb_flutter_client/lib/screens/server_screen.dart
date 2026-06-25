@@ -522,6 +522,17 @@ class _ServerScreenState extends State<ServerScreen> {
     );
   }
 
+  static const _toggleablePlugins = {'matchzy': 'MatchZy', 'kz': 'CS2KZ', 'biobase_pos': 'BiobasePosEmitter'};
+
+  Future<void> _togglePlugin(String cssName, bool currentlyEnabled) async {
+    setState(() => _actionBusy = true);
+    final cmd = currentlyEnabled ? 'css_plugins unload $cssName' : 'css_plugins load $cssName';
+    await _server.sendRcon(_info, cmd);
+    await Future.delayed(const Duration(seconds: 1));
+    await _refreshGameState();
+    if (mounted) setState(() => _actionBusy = false);
+  }
+
   Widget _buildPlugins() {
     final plugins = _caps?.plugins ?? {};
     return _Panel(
@@ -531,7 +542,22 @@ class _ServerScreenState extends State<ServerScreen> {
             if (i > 0) const _Divider(),
             _ControlRow(
               label: plugins.keys.elementAt(i),
-              child: _PluginBadge(state: plugins.values.elementAt(i)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _PluginBadge(state: plugins.values.elementAt(i)),
+                  if (_toggleablePlugins.containsKey(plugins.keys.elementAt(i))) ...[
+                    const SizedBox(width: 8),
+                    _SmallButton(
+                      label: plugins.values.elementAt(i) == 'enabled' ? 'Unload' : 'Load',
+                      onTap: _actionBusy ? null : () => _togglePlugin(
+                        _toggleablePlugins[plugins.keys.elementAt(i)]!,
+                        plugins.values.elementAt(i) == 'enabled',
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ],

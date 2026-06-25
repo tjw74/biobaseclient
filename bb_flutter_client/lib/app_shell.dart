@@ -603,6 +603,7 @@ class _ContentHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 4, 20, 0),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const Spacer(),
           _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
@@ -947,11 +948,11 @@ class _AppMenuButtonState extends State<_AppMenuButton> {
                 _overlayController.hide();
               }
             },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: const Icon(
                 Icons.menu,
-                size: 16,
+                size: 14,
                 color: BiobaseColors.textTertiary,
               ),
             ),

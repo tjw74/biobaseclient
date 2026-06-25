@@ -44,6 +44,22 @@ class ServerInfo {
   });
 }
 
+class DemoFile {
+  final String name;
+  final int sizeBytes;
+  final DateTime modified;
+
+  const DemoFile({
+    required this.name,
+    required this.sizeBytes,
+    required this.modified,
+  });
+}
+
+const _demoContainerDir =
+    '/home/steam/cs2-dedicated/game/csgo/MatchZy';
+const _containerName = 'bb_cs2_server';
+
 class ServerService {
   String get _installDir {
     final home = Platform.environment['USERPROFILE'] ??
@@ -193,6 +209,62 @@ class ServerService {
       map: env['CS2_STARTMAP'] ?? 'de_mirage',
       maxPlayers: int.tryParse(env['CS2_MAXPLAYERS'] ?? '') ?? 16,
     );
+  }
+
+  Future<List<DemoFile>> listDemos() async {
+    try {
+      final result = await Process.run(
+        'docker',
+        [
+          'exec', _containerName,
+          'find', _demoContainerDir,
+          '-name', '*.dem',
+          '-printf', r'%f\t%s\t%T@\n',
+        ],
+        stdoutEncoding: utf8,
+      );
+      if (result.exitCode != 0) return [];
+      final output = (result.stdout as String).trim();
+      if (output.isEmpty) return [];
+
+      final demos = <DemoFile>[];
+      for (final line in output.split('\n')) {
+        final parts = line.split('\t');
+        if (parts.length < 3) continue;
+        demos.add(DemoFile(
+          name: parts[0],
+          sizeBytes: int.tryParse(parts[1]) ?? 0,
+          modified: DateTime.fromMillisecondsSinceEpoch(
+            ((double.tryParse(parts[2]) ?? 0) * 1000).toInt(),
+          ),
+        ));
+      }
+      demos.sort((a, b) => b.modified.compareTo(a.modified));
+      return demos;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<String?> copyDemoToLocal(String demoName) async {
+    final tempDir = p.join(
+      Platform.environment['TEMP'] ??
+          Platform.environment['TMPDIR'] ??
+          Directory.systemTemp.path,
+      'biobase_demos',
+    );
+    final dir = Directory(tempDir);
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+
+    final localPath = p.join(tempDir, demoName);
+    if (File(localPath).existsSync()) return localPath;
+
+    final result = await Process.run(
+      'docker',
+      ['cp', '$_containerName:$_demoContainerDir/$demoName', localPath],
+    );
+    if (result.exitCode != 0) return null;
+    return localPath;
   }
 
   Map<String, String> _parseEnv(String content) {

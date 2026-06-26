@@ -316,9 +316,15 @@ class _ServerScreenState extends State<ServerScreen> {
                 const SizedBox(width: 8),
               ],
               _ActionButton(
-                label: 'Play',
-                icon: Icons.sports_esports,
-                onTap: () => _server.connectToServer(_activeAddress),
+                label: 'Launch CS2',
+                onTap: () {
+                  _server.connectToServer(_activeAddress);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Opening Steam — connecting to $_activeAddress'),
+                    duration: const Duration(seconds: 3),
+                    backgroundColor: BiobaseColors.surface,
+                  ));
+                },
                 primary: true,
               ),
             ],
@@ -1227,10 +1233,9 @@ class _SmallButtonState extends State<_SmallButton> {
 
 class _ActionButton extends StatefulWidget {
   final String label;
-  final IconData? icon;
   final VoidCallback? onTap;
   final bool primary;
-  const _ActionButton({required this.label, this.icon, this.onTap, this.primary = false});
+  const _ActionButton({required this.label, this.onTap, this.primary = false});
 
   @override
   State<_ActionButton> createState() => _ActionButtonState();
@@ -1259,21 +1264,10 @@ class _ActionButtonState extends State<_ActionButton> {
             border: Border.all(
               color: widget.primary ? BiobaseColors.accent : BiobaseColors.border),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.icon != null) ...[
-                Icon(widget.icon, size: 12,
-                  color: disabled ? BiobaseColors.textTertiary
-                      : widget.primary ? BiobaseColors.text : BiobaseColors.textSecondary),
-                const SizedBox(width: 6),
-              ],
-              Text(widget.label, style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w500,
-                color: disabled ? BiobaseColors.textTertiary
-                    : widget.primary ? BiobaseColors.text : BiobaseColors.textSecondary)),
-            ],
-          ),
+          child: Text(widget.label, style: TextStyle(
+            fontSize: 12, fontWeight: FontWeight.w500,
+            color: disabled ? BiobaseColors.textTertiary
+                : widget.primary ? BiobaseColors.text : BiobaseColors.textSecondary)),
         ),
       ),
     );

@@ -12,7 +12,7 @@ provenance:
   inferred: 0.08
   ambiguous: 0.02
 created: 2026-06-21T23:00:00Z
-updated: 2026-06-21T23:00:00Z
+updated: 2026-06-25T07:00:00Z
 ---
 
 # BioBase Product Roadmap
@@ -46,9 +46,9 @@ The player's home base. Every control lives where the user is already looking. C
 
 Design principle: **extreme friction reduction**. Updates are automatic. Companion QR generates instantly (no player name required). Player tracking auto-detects from Steam. Every interaction that can be eliminated, is eliminated.
 
-- Features: 6
+- Features: 7
 - Status: In Progress
-- Current version: 0.1.44
+- Current version: v0.9.0
 
 ### Phone Companion — In Progress
 
@@ -87,34 +87,52 @@ Physiological data synced to the game clock: heart rate, grip pressure, micro-tr
 - Features: 5
 - Status: Planned
 
-## Phase 3: Server Offering (Future)
+## Phase 3: Server Offering (In Progress)
 
-### BioBase CS2 Server — Roadmap
+### BioBase CS2 Server — In Progress
 
-Package the internal server stack for self-hosting by teams and players. Includes CS2 dedicated server with BioBase instrumentation, operator dashboard, data pipeline, and movement/shooting analysis backend.
+Package the internal server stack for self-hosting by teams and players. One-click installer: user downloads a single `.exe` from GitHub Releases, runs it, and gets a fully working BioBase CS2 server with admin dashboard, bot controls, and live movement feed.
+
+Architecture: 4 Docker containers (CS2 server + BiobasePosEmitter, RCON control API, admin dashboard, optional renderer) managed by Docker Compose. The Go-based installer auto-installs Docker Desktop and WSL2 if missing, handles restarts, and resumes automatically.
+
+Separate GitHub repo: [tjw74/biobaseserver_cs2](https://github.com/tjw74/biobaseserver_cs2). Distinct from the client app — most users only need the app, fewer will run their own server.
+
+Future direction: local training harness. BioBase app + local CS2 server as a self-contained training rig with zero-lag, offline simulations, and local data analysis.
 
 - Features: 7
-- Status: Roadmap
+- Status: In Progress
+- Repo: tjw74/biobaseserver_cs2
+- Release: v1.0.0
+
+See [[biobase-cs2-server-installer]].
 
 ## Progress tracking
 
-### Shipped (v0.1.44)
+### Shipped (v0.9.0)
 
-- [x] Electron desktop client with React renderer
-- [x] Cross-compiled Windows NSIS installer from Linux
-- [x] Auto-update pipeline (latest.yml + Caddy + electron-updater)
+- [x] Flutter desktop client (Windows + macOS)
+- [x] Cross-compiled Windows installer from Linux
+- [x] Auto-update pipeline (latest.yml + Caddy + version-click update)
 - [x] Live movement stats (speed, counter-strafe, path efficiency, tick, WASD keys)
 - [x] Server status display (map, player count, click-to-track)
-- [x] Game overlay HUD (transparent always-on-top window)
+- [x] In-game overlay HUD (separate always-on-top compact window, Ctrl+Shift+O toggle)
 - [x] Phone companion via secret QR code (time-limited companion codes)
 - [x] Demo file detection, import, local parsing
-- [x] Playback tab with parsed timeline stats
+- [x] Playback tab with split-screen replay
 - [x] Upload queue with retry for structured summaries
 - [x] Admin dashboard with roadmap, overview, server controls, demo uploads
 - [x] Movement data pipeline (BIOBASE_POS_JSON in Docker logs)
 - [x] Companion-first onboarding (removed player name gate)
 - [x] Compact top-bar UI (server pill, companion popover, overlay toggle)
-- [x] Scrollytelling roadmap page in admin dashboard
+- [x] Full metric dashboard with replay split-screen (v0.8.0)
+- [x] Personalized performance review (v0.7.3)
+- [x] CS2 server one-click installer — Go binary with embedded files (v1.0.0, separate repo)
+- [x] Installer auto-installs Docker Desktop + WSL2, auto-resumes after restart
+
+### In Progress
+
+- [ ] CS2 server installer Windows testing (Docker build + container start)
+- [ ] Local training harness concept (app + local server as self-contained rig)
 
 ### Next up
 
@@ -122,24 +140,35 @@ Package the internal server stack for self-hosting by teams and players. Include
 - [ ] Bio-sensor device driver integration
 - [ ] Pro movement partner integration
 - [ ] Custom dashboard builder
-- [ ] Server offering packaging
+- [ ] Pre-built Docker images on registry (skip local build for faster install)
 
 ## Architecture reference
 
 ```
 User's Windows machine
   ├── Steam / CS2
-  └── BioBase Desktop Client (Electron)
-        ├── Live tab → movement stats, server pill, companion QR, overlay toggle
-        ├── Playback tab → demo files, parsed timeline, stats overlay
-        ├── Game overlay → transparent HUD above CS2
-        └── Auto-updater → YAML manifest from cs2.clarionlab.dev/client/
+  ├── BioBase Desktop Client (Flutter)
+  │     ├── Live tab → movement stats, server pill, companion QR, overlay toggle
+  │     ├── Playback tab → demo files, split-screen replay
+  │     ├── Overlay HUD → compact always-on-top panel (Ctrl+Shift+O)
+  │     └── Auto-updater → YAML manifest from cs2.clarionlab.dev/client/
+  └── [Optional] Local BioBase CS2 Server (Docker)
+        └── Same 4-container stack as production, zero-lag training
 
-BioBase Server (Docker on ClarionCore)
-  ├── bb_cs2_server → CS2 dedicated server + RCON
+BioBase Production Server (Docker on ClarionCore)
+  ├── bb_cs2_server → CS2 dedicated server + BiobasePosEmitter + MatchZy
   ├── bb_cs2_dashboard → FastAPI + React admin at /admin, companion at /companion
-  ├── bb_cs2_control → server control API
+  ├── bb_cs2_control → RCON REST API (bot/map control)
+  ├── bb_cs2_renderer → demo video rendering (optional, --profile render)
   └── cc_monitor_caddy → reverse proxy, static client files, update manifest
+
+BioBase CS2 Server Package (tjw74/biobaseserver_cs2)
+  └── One-click installer (Go binary, GitHub Releases)
+        ├── Embeds all server files (bb_cs2_server + bb_cs2_dashboard)
+        ├── Auto-installs Docker Desktop + WSL2 on Windows
+        ├── Auto-generates .env with secure defaults
+        ├── Runs docker compose up -d --build
+        └── Auto-resumes after restart via RunOnce registry key
 
 Phone
   └── Browser → cs2.clarionlab.dev/companion/c/{code} → live stats mirror
@@ -148,6 +177,7 @@ Phone
 ## Deployment
 
 - Client installer: `cs2.clarionlab.dev/install` (Windows) / `cs2.clarionlab.dev/install-mac` (macOS)
+- Server installer: `github.com/tjw74/biobaseserver_cs2/releases` (Windows + Linux)
 - Admin dashboard: `cs2.clarionlab.dev/admin`
 - Companion: `cs2.clarionlab.dev/companion/c/{companion_code}`
 - Update manifest: `cs2.clarionlab.dev/client/latest.yml`

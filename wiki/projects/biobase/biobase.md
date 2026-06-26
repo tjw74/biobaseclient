@@ -14,14 +14,16 @@ provenance:
   inferred: 0.12
   ambiguous: 0.03
 created: 2026-04-28T00:00:00Z
-updated: 2026-06-24T01:20:47Z
+updated: 2026-06-25T07:00:00Z
 ---
 
 # Biobase
 
 A self-hosted analytics platform for Counter-Strike 2 dedicated servers. It captures telemetry during a **session** into Postgres: **`public`** holds the session row; **`ops`** holds RCON samples, raw Loki lines, and status snapshots; **`game`** holds parsed events, movement, round stats, and the CS2KZ SQLite mirror. Grafana uses separate dashboards for **ops** vs **game** queries.
 
-The user-facing product direction is now **Windows desktop client first**: a local Biobase client runs beside Steam/CS2, detects or saves `.dem` files, parses demo timelines locally, displays movement statistics and an overlay HUD, captures bio/EMG sensor input later, and uploads structured data to the central Biobase server. The existing web/admin surfaces remain operator tools rather than the primary replay/HUD experience. See [[biobase-windows-client-primary-ui]].
+The user-facing product direction is now **Windows desktop client first**: a local Biobase client (Flutter, v0.9.0) runs beside Steam/CS2, detects or saves `.dem` files, parses demo timelines locally, displays movement statistics and an overlay HUD, captures bio/EMG sensor input later, and uploads structured data to the central Biobase server. The existing web/admin surfaces remain operator tools rather than the primary replay/HUD experience. See [[biobase-windows-client-primary-ui]].
+
+A separate **CS2 server package** (v1.0.0) is now offered for self-hosting — one-click installer with auto Docker/WSL2 setup. Distributed via its own repo (tjw74/biobaseserver_cs2). Future direction: local training harness (app + local server as self-contained rig). See [[biobase-cs2-server-installer]].
 
 MATCH / game-plane ingest (outside the Postgres session recorder) MAY emit versioned **`biobase-telemetry-v1`** JSON bundles documented under `docs/cs2/` plus the `tools/biobase_demo_reconcile.py` smoke checks before HTTP drop targets land (see [[biobase-cs2-telemetry-and-reconciliation]]).
 
@@ -66,6 +68,7 @@ bb_cs2_dashboard (bb_cs2_server compose)
 - [[biobase-data-collection-prep]] — CS2 server prep for bot-deathmatch sessions (CS2KZ, logging cvars)
 - [[biobase-cs2-admin-dashboard]] — CS2 **admin** UI (`/admin`), map/bots/status, **clips uploads**, NFS/bind on ClarionCore
 - [[biobase-cs2-telemetry-and-reconciliation]] — Telemetry flush bundle schema v1, ZSTD `{match_id}.jsonl.zst` drop MVP, reconcile stub + parser linkage
+- [[biobase-cs2-server-installer]] — One-click CS2 server installer: Go binary, auto Docker/WSL2, separate repo (tjw74/biobaseserver_cs2)
 
 ## Stacks and Services
 

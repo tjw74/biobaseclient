@@ -137,6 +137,9 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) return;
     if (err != null) {
       setState(() => _updatePhase = _UpdatePhase.idle);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Update failed: $err'), duration: const Duration(seconds: 4)),
+      );
     } else {
       setState(() => _updatePhase = _UpdatePhase.done);
       Future.delayed(const Duration(seconds: 3), () {
@@ -158,6 +161,9 @@ class _AppShellState extends State<AppShell> {
       if (!mounted) return;
       if (err != null) {
         setState(() => _updatePhase = _UpdatePhase.idle);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Update failed: $err'), duration: const Duration(seconds: 4)),
+        );
       } else {
         setState(() => _updatePhase = _UpdatePhase.done);
         Future.delayed(const Duration(seconds: 3), () {

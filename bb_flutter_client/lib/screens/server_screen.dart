@@ -281,21 +281,15 @@ class _ServerScreenState extends State<ServerScreen> {
                         Text(activeName, style: const TextStyle(
                           fontSize: 13, fontWeight: FontWeight.w600, color: BiobaseColors.text)),
                         const SizedBox(width: 8),
-                        if (_isLocalActive && isUp) ...[
+                        Text(_activeAddress, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                        if (_isLocalActive && hasLocal) ...[
+                          const SizedBox(width: 8),
                           Container(width: 6, height: 6,
                             decoration: BoxDecoration(shape: BoxShape.circle,
-                              color: isRunning ? BiobaseColors.live : BiobaseColors.warning)),
-                          const SizedBox(width: 5),
-                          Text(_gameStatus?.map ?? '', style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
-                          if (_gameStatus?.rconOk ?? false) ...[
-                            const SizedBox(width: 6),
-                            Text('${_gameStatus!.humans}h ${_gameStatus!.bots}b',
-                              style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
-                          ],
-                        ] else if (_isLocalActive && hasLocal)
-                          Text('stopped', style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary))
-                        else if (!_isLocalActive)
-                          Text(_activeAddress, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                              color: isUp
+                                  ? (isRunning ? BiobaseColors.live : BiobaseColors.warning)
+                                  : BiobaseColors.textTertiary)),
+                        ],
                         const SizedBox(width: 6),
                         AnimatedRotation(
                           turns: _selectorOpen ? 0.5 : 0,

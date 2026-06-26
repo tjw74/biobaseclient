@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:url_launcher/url_launcher.dart';
+
 
 const _installerRelease =
     'https://github.com/tjw74/biobaseserver_cs2/releases/download/v1.0.0/BioBase_CS2_Server_Setup.exe';
@@ -440,8 +440,14 @@ class ServerService {
   }
 
   Future<void> connectToServer(String address) async {
-    final uri = Uri.parse('steam://connect/$address');
-    await launchUrl(uri);
+    final url = 'steam://connect/$address';
+    if (Platform.isWindows) {
+      await Process.start('cmd', ['/c', 'start', '', url], mode: ProcessStartMode.detached);
+    } else if (Platform.isMacOS) {
+      await Process.start('open', [url], mode: ProcessStartMode.detached);
+    } else {
+      await Process.start('xdg-open', [url], mode: ProcessStartMode.detached);
+    }
   }
 
   Future<List<DemoFile>> listDemos() async {

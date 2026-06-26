@@ -112,7 +112,7 @@ class DemoFile {
 }
 
 const _demoContainerDir =
-    '/home/steam/cs2-dedicated/game/csgo/MatchZy';
+    '/home/steam/cs2-dedicated/game/csgo';
 const _containerName = 'bb_cs2_server';
 
 const _defaultControlPort = 8765;

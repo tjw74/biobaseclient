@@ -30,10 +30,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
   bool _playing = false;
   bool _copying = false;
 
-  // HLTV download state
+  // HLTV state
   bool _hltvExpanded = false;
-  final TextEditingController _hltvController = TextEditingController();
-  HltvDownloadState _hltvState = HltvDownloadState.idle;
+  List<HltvMatch> _hltvMatches = [];
+  bool _hltvLoadingMatches = false;
+  String? _downloadingMatchId;
   String? _hltvMessage;
 
   // Move marking state
@@ -51,7 +52,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
   @override
   void dispose() {
     _renameController.dispose();
-    _hltvController.dispose();
     super.dispose();
   }
 
@@ -62,23 +62,29 @@ class _ReplayScreenState extends State<ReplayScreen> {
     if (mounted) setState(() { _demos = demos; _hltvDemos = hltv; _loading = false; });
   }
 
-  Future<void> _hltvDownload() async {
-    final input = _hltvController.text.trim();
-    if (input.isEmpty) return;
-    final matchId = _hltv.parseMatchId(input);
-    if (matchId == null) {
-      setState(() { _hltvState = HltvDownloadState.error; _hltvMessage = 'Invalid HLTV URL or match ID'; });
-      return;
-    }
+  Future<void> _loadHltvMatches() async {
+    setState(() { _hltvLoadingMatches = true; _hltvMessage = null; });
     try {
-      await _hltv.downloadDemo(matchId, onProgress: (state, msg) {
-        if (mounted) setState(() { _hltvState = state; _hltvMessage = msg; });
-      });
-      _hltvController.clear();
-      _hltvDemos = _hltv.listDownloaded();
-      if (mounted) setState(() { _hltvState = HltvDownloadState.idle; _hltvExpanded = false; });
+      final matches = await _hltv.fetchRecentMatches();
+      if (mounted) setState(() { _hltvMatches = matches; _hltvLoadingMatches = false; });
     } catch (e) {
-      if (mounted) setState(() { _hltvState = HltvDownloadState.error; _hltvMessage = e.toString(); });
+      if (mounted) setState(() {
+        _hltvLoadingMatches = false;
+        _hltvMessage = 'Could not load matches';
+      });
+    }
+  }
+
+  Future<void> _hltvDownloadMatch(HltvMatch match) async {
+    setState(() { _downloadingMatchId = match.matchId; _hltvMessage = null; });
+    try {
+      await _hltv.downloadDemo(match.matchId, onProgress: (state, msg) {
+        if (mounted) setState(() => _hltvMessage = msg);
+      });
+      _hltvDemos = _hltv.listDownloaded();
+      if (mounted) setState(() { _downloadingMatchId = null; _hltvMessage = null; });
+    } catch (e) {
+      if (mounted) setState(() { _downloadingMatchId = null; _hltvMessage = e.toString(); });
     }
   }
 
@@ -211,6 +217,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
       children: [
         _buildDemoList(),
         const SizedBox(height: 8),
+        _buildHltvPanel(),
+        const SizedBox(height: 8),
         _buildPlayback(),
         const SizedBox(height: 8),
         _buildMovesSection(),
@@ -309,101 +317,114 @@ class _ReplayScreenState extends State<ReplayScreen> {
           ],
 
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: _pickLocal,
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.folder_open,
-                          size: 12, color: BiobaseColors.textTertiary),
-                      SizedBox(width: 4),
-                      Text('Open file',
-                          style: TextStyle(
-                              fontSize: 10, color: BiobaseColors.textTertiary)),
-                    ],
-                  ),
-                ),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: _pickLocal,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.folder_open,
+                      size: 12, color: BiobaseColors.textTertiary),
+                  SizedBox(width: 4),
+                  Text('Open file',
+                      style: TextStyle(
+                          fontSize: 10, color: BiobaseColors.textTertiary)),
+                ],
               ),
-              const SizedBox(width: 14),
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: () => setState(() => _hltvExpanded = !_hltvExpanded),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.download,
-                          size: 12, color: BiobaseColors.textTertiary),
-                      SizedBox(width: 4),
-                      Text('HLTV',
-                          style: TextStyle(
-                              fontSize: 10, color: BiobaseColors.textTertiary)),
-                    ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── HLTV match browser ──
+
+  Widget _buildHltvPanel() {
+    return Container(
+      decoration: BoxDecoration(
+        color: BiobaseColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: BiobaseColors.border),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () {
+                final expanding = !_hltvExpanded;
+                setState(() => _hltvExpanded = expanding);
+                if (expanding && _hltvMatches.isEmpty && !_hltvLoadingMatches) {
+                  _loadHltvMatches();
+                }
+              },
+              child: Row(
+                children: [
+                  const Text('HLTV Pro Demos',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: BiobaseColors.text)),
+                  const Spacer(),
+                  Icon(
+                    _hltvExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16,
+                    color: BiobaseColors.textTertiary,
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
           if (_hltvExpanded) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _hltvController,
-                    style: const TextStyle(
-                        fontSize: 11, fontFamily: 'monospace', color: BiobaseColors.text),
-                    decoration: const InputDecoration(
-                      hintText: 'HLTV match URL or ID',
-                      hintStyle: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 4),
-                    ),
-                    onSubmitted: (_) => _hltvDownload(),
-                  ),
-                ),
-                if (_hltvState == HltvDownloadState.idle || _hltvState == HltvDownloadState.error)
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: _hltvDownload,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: BiobaseColors.surfaceRaised,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: BiobaseColors.border),
-                        ),
-                        child: const Text('Download',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500,
-                                color: BiobaseColors.textSecondary)),
-                      ),
-                    ),
-                  )
-                else
-                  const SizedBox(
+            const SizedBox(height: 10),
+            if (_hltvLoadingMatches)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(
+                  child: SizedBox(
                     width: 14, height: 14,
                     child: CircularProgressIndicator(
-                        strokeWidth: 1.5, color: BiobaseColors.accent),
+                        strokeWidth: 1.5, color: BiobaseColors.textTertiary),
                   ),
-              ],
-            ),
+                ),
+              )
+            else if (_hltvMatches.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Center(
+                  child: Text(
+                    _hltvMessage ?? 'No matches found',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _hltvMessage != null
+                          ? BiobaseColors.error
+                          : BiobaseColors.textTertiary,
+                    ),
+                  ),
+                ),
+              )
+            else
+              ...(_hltvMatches.map((m) => _HltvMatchRow(
+                    match: m,
+                    downloading: _downloadingMatchId == m.matchId,
+                    onDownload: _downloadingMatchId == null
+                        ? () => _hltvDownloadMatch(m)
+                        : null,
+                  ))),
             if (_hltvMessage != null)
               Padding(
-                padding: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.only(top: 6),
                 child: Text(
                   _hltvMessage!,
                   style: TextStyle(
                     fontSize: 10,
-                    color: _hltvState == HltvDownloadState.error
-                        ? BiobaseColors.error
-                        : BiobaseColors.textTertiary,
+                    color: _downloadingMatchId != null
+                        ? BiobaseColors.textTertiary
+                        : BiobaseColors.error,
                   ),
                 ),
               ),
@@ -1048,6 +1069,87 @@ class _DemoRowState extends State<_DemoRow> {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
     return '${dt.month}/${dt.day}';
+  }
+}
+
+// ── HLTV Match row ──
+
+class _HltvMatchRow extends StatefulWidget {
+  final HltvMatch match;
+  final bool downloading;
+  final VoidCallback? onDownload;
+
+  const _HltvMatchRow({
+    required this.match,
+    required this.downloading,
+    this.onDownload,
+  });
+
+  @override
+  State<_HltvMatchRow> createState() => _HltvMatchRowState();
+}
+
+class _HltvMatchRowState extends State<_HltvMatchRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.match;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: _hovered ? BiobaseColors.surfaceHover : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${m.team1}  ${m.score}  ${m.team2}',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: BiobaseColors.text),
+                      overflow: TextOverflow.ellipsis),
+                  if (m.event.isNotEmpty) ...[
+                    const SizedBox(height: 1),
+                    Text(m.event,
+                        style: const TextStyle(
+                            fontSize: 9, color: BiobaseColors.textTertiary),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            if (widget.downloading)
+              const SizedBox(
+                width: 14, height: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 1.5, color: BiobaseColors.accent),
+              )
+            else if (_hovered && widget.onDownload != null)
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: widget.onDownload,
+                  child: const Icon(Icons.download,
+                      size: 14, color: BiobaseColors.textSecondary),
+                ),
+              )
+            else
+              const SizedBox(width: 14),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -4,6 +4,24 @@ import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
+class HltvMatch {
+  final String matchId;
+  final String slug;
+  final String team1;
+  final String team2;
+  final String score;
+  final String event;
+
+  const HltvMatch({
+    required this.matchId,
+    required this.slug,
+    required this.team1,
+    required this.team2,
+    required this.score,
+    required this.event,
+  });
+}
+
 class HltvDemo {
   final String name;
   final String path;
@@ -28,6 +46,68 @@ class HltvService {
         Platform.environment['HOME'] ??
         Directory.systemTemp.path;
     return p.join(appData, 'BioBase', 'demos');
+  }
+
+  Future<List<HltvMatch>> fetchRecentMatches() async {
+    final resp = await http.get(
+      Uri.parse('https://www.hltv.org/results'),
+      headers: {
+        'User-Agent': _userAgent,
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    ).timeout(const Duration(seconds: 15));
+    if (resp.statusCode != 200) return [];
+
+    final html = resp.body;
+    final matches = <HltvMatch>[];
+    final blockPattern = RegExp(
+      r'<div class="result-con"[^>]*>\s*<a href="/matches/(\d+)/([^"]+)"',
+    );
+
+    for (final m in blockPattern.allMatches(html)) {
+      final matchId = m.group(1)!;
+      final slug = m.group(2)!;
+      final blockStart = m.start;
+      final blockEnd = html.indexOf('</a>', blockStart);
+      if (blockEnd < 0) continue;
+      final block = html.substring(blockStart, blockEnd);
+
+      final teams = RegExp(r'class="team"[^>]*>\s*([^<]+)<')
+          .allMatches(block)
+          .map((t) => t.group(1)!.trim())
+          .toList();
+      final scores = RegExp(r'class="score[^"]*"[^>]*>\s*(\d+)\s*<')
+          .allMatches(block)
+          .map((s) => s.group(1)!)
+          .toList();
+      final eventMatch = RegExp(r'class="event-name"[^>]*>\s*([^<]+)<')
+          .firstMatch(block);
+
+      String team1, team2, score;
+      if (teams.length >= 2) {
+        team1 = teams[0];
+        team2 = teams[1];
+      } else {
+        final parts = slug.split('-vs-');
+        if (parts.length < 2) continue;
+        team1 = parts[0].replaceAll('-', ' ');
+        team2 = parts[1].split('-').take(2).join(' ');
+      }
+      score = scores.length >= 2 ? '${scores[0]}–${scores[1]}' : '';
+      final event = eventMatch?.group(1)?.trim() ?? '';
+
+      matches.add(HltvMatch(
+        matchId: matchId,
+        slug: slug,
+        team1: team1,
+        team2: team2,
+        score: score,
+        event: event,
+      ));
+      if (matches.length >= 25) break;
+    }
+    return matches;
   }
 
   List<HltvDemo> listDownloaded() {

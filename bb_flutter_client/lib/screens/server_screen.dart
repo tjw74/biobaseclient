@@ -160,17 +160,22 @@ class _ServerScreenState extends State<ServerScreen> {
     }
   }
 
+  bool _selectorOpen = false;
+
   String get _activeAddress => _settings.activeServerAddress;
   List<SavedServer> get _servers => _settingsReady ? _settings.savedServers : [];
+  String get _localAddr => 'localhost:${_info?.gamePort ?? 27015}';
+  bool get _isLocalActive => _activeAddress == _localAddr;
+
   Future<void> _selectServer(String address) async {
     await _settings.setActiveServer(address);
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _selectorOpen = false);
   }
 
   Future<void> _addCustomServer(String name, String host, int port) async {
     await _settings.addServer(SavedServer(name: name, host: host, port: port));
     await _settings.setActiveServer('$host:$port');
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _selectorOpen = false);
   }
 
   Future<void> _removeServer(SavedServer server) async {
@@ -241,64 +246,120 @@ class _ServerScreenState extends State<ServerScreen> {
     );
   }
 
-  // ── Unified server panel ──
+  // ── Server panel ──
 
   Widget _buildServerPanel() {
     final servers = _servers;
-    final localAddr = 'localhost:${_info?.gamePort ?? 27015}';
     final hasLocal = _server.isInstalled;
     final isRunning = _runState == ServerRunState.running;
     final isPartial = _runState == ServerRunState.partial;
     final isUp = isRunning || isPartial;
 
+    // Resolve active server display
+    String activeName;
+    if (_isLocalActive) {
+      activeName = 'Local Server';
+    } else {
+      final match = servers.where((s) => s.address == _activeAddress);
+      activeName = match.isNotEmpty ? match.first.name : _activeAddress;
+    }
+
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Remote servers
-          for (final s in servers)
-            _ServerOption(
-              name: s.name,
-              address: s.address,
-              selected: _activeAddress == s.address,
-              onTap: () => _selectServer(s.address),
-              onRemove: s.address != 'cs2.clarionlab.dev:27015'
-                ? () => _removeServer(s)
-                : null,
-            ),
-
-          // Local server row
-          _LocalServerRow(
-            address: localAddr,
-            selected: _activeAddress == localAddr,
-            installed: hasLocal,
-            isRunning: isRunning,
-            isPartial: isPartial,
-            map: _gameStatus?.map,
-            humans: _gameStatus?.humans ?? 0,
-            bots: _gameStatus?.bots ?? 0,
-            rconOk: _gameStatus?.rconOk ?? false,
-            busy: _actionBusy,
-            onSelect: () => _selectServer(localAddr),
-            onStartStop: hasLocal
-              ? () => _doAction(isUp ? _server.stop : _server.start)
-              : _startInstall,
+          Row(
+            children: [
+              // Server selector — click to expand
+              Expanded(
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectorOpen = !_selectorOpen),
+                    child: Row(
+                      children: [
+                        Text(activeName, style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600, color: BiobaseColors.text)),
+                        const SizedBox(width: 8),
+                        if (_isLocalActive && isUp) ...[
+                          Container(width: 6, height: 6,
+                            decoration: BoxDecoration(shape: BoxShape.circle,
+                              color: isRunning ? BiobaseColors.live : BiobaseColors.warning)),
+                          const SizedBox(width: 5),
+                          Text(_gameStatus?.map ?? '', style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                          if (_gameStatus?.rconOk ?? false) ...[
+                            const SizedBox(width: 6),
+                            Text('${_gameStatus!.humans}h ${_gameStatus!.bots}b',
+                              style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                          ],
+                        ] else if (_isLocalActive && hasLocal)
+                          Text('stopped', style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary))
+                        else if (!_isLocalActive)
+                          Text(_activeAddress, style: const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary)),
+                        const SizedBox(width: 6),
+                        AnimatedRotation(
+                          turns: _selectorOpen ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 150),
+                          child: const Icon(Icons.expand_more, size: 16, color: BiobaseColors.textTertiary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Start/Stop for local server
+              if (_isLocalActive && hasLocal) ...[
+                if (_actionBusy)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: SizedBox(width: 12, height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 1.5, color: BiobaseColors.textTertiary)),
+                  ),
+                _SmallButton(
+                  label: isUp ? 'Stop' : 'Start',
+                  onTap: _actionBusy ? null : () => _doAction(isUp ? _server.stop : _server.start),
+                ),
+                const SizedBox(width: 8),
+              ],
+              _ActionButton(
+                label: 'Play',
+                icon: Icons.sports_esports,
+                onTap: () => _server.connectToServer(_activeAddress),
+                primary: true,
+              ),
+            ],
           ),
 
-          // Add server
-          _AddServerRow(onAdd: _addCustomServer),
-
-          // Play
-          const _Divider(),
-          Align(
-            alignment: Alignment.centerRight,
-            child: _ActionButton(
-              label: 'Play',
-              icon: Icons.sports_esports,
-              onTap: () => _server.connectToServer(_activeAddress),
-              primary: true,
-            ),
-          ),
+          // Expanded server list
+          if (_selectorOpen) ...[
+            const SizedBox(height: 4),
+            const _Divider(),
+            const SizedBox(height: 2),
+            for (final s in servers)
+              if (s.address != _activeAddress)
+                _SelectorOption(
+                  name: s.name,
+                  detail: s.address,
+                  onTap: () => _selectServer(s.address),
+                  onRemove: s.address != 'cs2.clarionlab.dev:27015'
+                    ? () => _removeServer(s) : null,
+                ),
+            if (!_isLocalActive && hasLocal)
+              _SelectorOption(
+                name: 'Local Server',
+                detail: isUp ? 'running' : 'stopped',
+                statusColor: isUp ? BiobaseColors.live : null,
+                onTap: () => _selectServer(_localAddr),
+              ),
+            if (!hasLocal)
+              _SelectorOption(
+                name: 'Local Server',
+                detail: 'not installed',
+                onTap: () {},
+                trailing: _SmallButton(label: 'Install', onTap: _startInstall),
+              ),
+            _AddServerRow(onAdd: _addCustomServer),
+          ],
         ],
       ),
     );
@@ -672,25 +733,27 @@ class _MapSelectorState extends State<_MapSelector> {
 
 // ── Server selector widgets ──
 
-class _ServerOption extends StatefulWidget {
+class _SelectorOption extends StatefulWidget {
   final String name;
-  final String address;
-  final bool selected;
+  final String detail;
+  final Color? statusColor;
   final VoidCallback onTap;
   final VoidCallback? onRemove;
-  const _ServerOption({
+  final Widget? trailing;
+  const _SelectorOption({
     required this.name,
-    required this.address,
-    required this.selected,
+    required this.detail,
+    this.statusColor,
     required this.onTap,
     this.onRemove,
+    this.trailing,
   });
 
   @override
-  State<_ServerOption> createState() => _ServerOptionState();
+  State<_SelectorOption> createState() => _SelectorOptionState();
 }
 
-class _ServerOptionState extends State<_ServerOption> {
+class _SelectorOptionState extends State<_SelectorOption> {
   bool _hovered = false;
 
   @override
@@ -707,25 +770,19 @@ class _ServerOptionState extends State<_ServerOption> {
           color: _hovered ? BiobaseColors.surfaceHover.withValues(alpha: 0.3) : Colors.transparent,
           child: Row(
             children: [
-              Container(
-                width: 14, height: 14,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: widget.selected ? BiobaseColors.accent : BiobaseColors.border,
-                    width: widget.selected ? 4 : 1.5,
-                  ),
-                ),
-              ),
+              Text(widget.name, style: const TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w500, color: BiobaseColors.textSecondary)),
               const SizedBox(width: 8),
-              Text(widget.name, style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w500,
-                color: widget.selected ? BiobaseColors.text : BiobaseColors.textSecondary)),
-              const SizedBox(width: 8),
-              Text(widget.address, style: const TextStyle(
-                fontSize: 10, color: BiobaseColors.textTertiary)),
+              if (widget.statusColor != null) ...[
+                Container(width: 5, height: 5,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: widget.statusColor)),
+                const SizedBox(width: 4),
+              ],
+              Text(widget.detail, style: const TextStyle(fontSize: 10, color: BiobaseColors.textTertiary)),
               const Spacer(),
-              if (widget.onRemove != null)
+              if (widget.trailing != null)
+                widget.trailing!
+              else if (widget.onRemove != null)
                 MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
@@ -733,118 +790,6 @@ class _ServerOptionState extends State<_ServerOption> {
                     child: const Icon(Icons.close, size: 12, color: BiobaseColors.textTertiary),
                   ),
                 ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LocalServerRow extends StatefulWidget {
-  final String address;
-  final bool selected;
-  final bool installed;
-  final bool isRunning;
-  final bool isPartial;
-  final String? map;
-  final int humans;
-  final int bots;
-  final bool rconOk;
-  final bool busy;
-  final VoidCallback onSelect;
-  final VoidCallback onStartStop;
-
-  const _LocalServerRow({
-    required this.address,
-    required this.selected,
-    required this.installed,
-    required this.isRunning,
-    required this.isPartial,
-    this.map,
-    required this.humans,
-    required this.bots,
-    required this.rconOk,
-    required this.busy,
-    required this.onSelect,
-    required this.onStartStop,
-  });
-
-  @override
-  State<_LocalServerRow> createState() => _LocalServerRowState();
-}
-
-class _LocalServerRowState extends State<_LocalServerRow> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isUp = widget.isRunning || widget.isPartial;
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.installed ? widget.onSelect : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-          color: _hovered ? BiobaseColors.surfaceHover.withValues(alpha: 0.3) : Colors.transparent,
-          child: Row(
-            children: [
-              if (widget.installed)
-                Container(
-                  width: 14, height: 14,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: widget.selected ? BiobaseColors.accent : BiobaseColors.border,
-                      width: widget.selected ? 4 : 1.5,
-                    ),
-                  ),
-                )
-              else
-                const SizedBox(width: 14, height: 14),
-              const SizedBox(width: 8),
-              Text('Local Server', style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w500,
-                color: widget.installed
-                    ? (widget.selected ? BiobaseColors.text : BiobaseColors.textSecondary)
-                    : BiobaseColors.textTertiary)),
-              const SizedBox(width: 8),
-              if (widget.installed && isUp) ...[
-                Container(
-                  width: 6, height: 6,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: widget.isRunning ? BiobaseColors.live : BiobaseColors.warning,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                if (widget.map != null)
-                  Text(widget.map!, style: const TextStyle(fontSize: 10, color: BiobaseColors.textTertiary)),
-                if (widget.rconOk) ...[
-                  const SizedBox(width: 6),
-                  Text('${widget.humans}h ${widget.bots}b',
-                    style: const TextStyle(fontSize: 10, color: BiobaseColors.textTertiary)),
-                ],
-              ] else if (widget.installed)
-                Text('stopped', style: const TextStyle(fontSize: 10, color: BiobaseColors.textTertiary))
-              else
-                Text('not installed', style: const TextStyle(fontSize: 10, color: BiobaseColors.textTertiary)),
-              const Spacer(),
-              if (widget.busy)
-                const Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: SizedBox(width: 12, height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 1.5, color: BiobaseColors.textTertiary)),
-                ),
-              _SmallButton(
-                label: !widget.installed ? 'Install'
-                    : isUp ? 'Stop' : 'Start',
-                onTap: widget.busy ? null : widget.onStartStop,
-              ),
             ],
           ),
         ),

@@ -20,7 +20,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
   final HltvService _hltv = HltvService();
 
   List<DemoFile>? _demos;
-  List<HltvDemo> _hltvDemos = [];
   bool _loading = true;
   String? _demoPath;
   String? _demoName;
@@ -30,12 +29,13 @@ class _ReplayScreenState extends State<ReplayScreen> {
   bool _playing = false;
   bool _copying = false;
 
-  // HLTV state
-  bool _hltvExpanded = false;
-  List<HltvMatch> _hltvMatches = [];
-  bool _hltvLoadingMatches = false;
-  String? _downloadingMatchId;
-  String? _hltvMessage;
+  // Pro demos state
+  bool _proExpanded = false;
+  List<HltvDemo> _proDemos = [];
+  bool _proLoading = false;
+  int? _downloadingDemoId;
+  double _downloadProgress = 0;
+  String? _proMessage;
 
   // Move marking state
   double? _moveStart;
@@ -58,45 +58,48 @@ class _ReplayScreenState extends State<ReplayScreen> {
   Future<void> _loadDemos() async {
     setState(() => _loading = true);
     final demos = await _server.listDemos();
-    final hltv = _hltv.listDownloaded();
-    if (mounted) setState(() { _demos = demos; _hltvDemos = hltv; _loading = false; });
+    if (mounted) setState(() { _demos = demos; _loading = false; });
   }
 
-  Future<void> _loadHltvMatches() async {
-    setState(() { _hltvLoadingMatches = true; _hltvMessage = null; });
+  Future<void> _loadProDemos() async {
+    setState(() { _proLoading = true; _proMessage = null; });
     try {
-      final matches = await _hltv.fetchRecentMatches();
-      if (mounted) setState(() { _hltvMatches = matches; _hltvLoadingMatches = false; });
+      final demos = await _hltv.fetchDemos();
+      if (mounted) setState(() { _proDemos = demos; _proLoading = false; });
     } catch (e) {
       if (mounted) setState(() {
-        _hltvLoadingMatches = false;
-        _hltvMessage = 'Could not load matches';
+        _proLoading = false;
+        _proMessage = 'Could not connect to demo server';
       });
     }
   }
 
-  Future<void> _hltvDownloadMatch(HltvMatch match) async {
-    setState(() { _downloadingMatchId = match.matchId; _hltvMessage = null; });
+  Future<void> _downloadProDemo(HltvDemo demo) async {
+    setState(() { _downloadingDemoId = demo.id; _downloadProgress = 0; _proMessage = null; });
     try {
-      await _hltv.downloadDemo(match.matchId, onProgress: (state, msg) {
-        if (mounted) setState(() => _hltvMessage = msg);
+      final path = await _hltv.downloadDemo(demo, onProgress: (progress) {
+        if (mounted) setState(() => _downloadProgress = progress);
       });
-      _hltvDemos = _hltv.listDownloaded();
-      if (mounted) setState(() { _downloadingMatchId = null; _hltvMessage = null; });
+      demo.localPath = path;
+      if (mounted) setState(() { _downloadingDemoId = null; });
     } catch (e) {
-      if (mounted) setState(() { _downloadingMatchId = null; _hltvMessage = e.toString(); });
+      if (mounted) setState(() {
+        _downloadingDemoId = null;
+        _proMessage = e.toString();
+      });
     }
   }
 
-  void _selectHltvDemo(HltvDemo demo) {
+  void _selectProDemo(HltvDemo demo) {
+    if (demo.localPath == null) return;
     setState(() {
-      _demoPath = demo.path;
-      _demoName = demo.name;
+      _demoPath = demo.localPath;
+      _demoName = demo.filename;
       _demoSize = demo.sizeBytes;
       _playbackPosition = 0;
       _playing = false;
       _moveStart = null;
-      _demoMoves = _moves.movesForDemo(demo.name);
+      _demoMoves = _moves.movesForDemo(demo.filename);
     });
   }
 
@@ -299,23 +302,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
                   selected: _demoName == d.name,
                   onTap: _copying ? null : () => _selectDemo(d),
                 ))),
-          // HLTV downloaded demos
-          if (_hltvDemos.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            const Text('HLTV',
-                style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                    color: BiobaseColors.textTertiary)),
-            const SizedBox(height: 4),
-            ...(_hltvDemos.map((d) => _HltvDemoRow(
-                  demo: d,
-                  selected: _demoName == d.name,
-                  onTap: () => _selectHltvDemo(d),
-                ))),
-          ],
-
           const SizedBox(height: 10),
           MouseRegion(
             cursor: SystemMouseCursors.click,
@@ -339,9 +325,14 @@ class _ReplayScreenState extends State<ReplayScreen> {
     );
   }
 
-  // ── HLTV match browser ──
+  // ── Pro demos panel ──
 
   Widget _buildHltvPanel() {
+    final grouped = <String, List<HltvDemo>>{};
+    for (final d in _proDemos) {
+      grouped.putIfAbsent(d.matchId, () => []).add(d);
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: BiobaseColors.surface,
@@ -356,22 +347,29 @@ class _ReplayScreenState extends State<ReplayScreen> {
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: () {
-                final expanding = !_hltvExpanded;
-                setState(() => _hltvExpanded = expanding);
-                if (expanding && _hltvMatches.isEmpty && !_hltvLoadingMatches) {
-                  _loadHltvMatches();
+                final expanding = !_proExpanded;
+                setState(() => _proExpanded = expanding);
+                if (expanding && _proDemos.isEmpty && !_proLoading) {
+                  _loadProDemos();
                 }
               },
               child: Row(
                 children: [
-                  const Text('HLTV Pro Demos',
+                  const Text('Pro Demos',
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: BiobaseColors.text)),
                   const Spacer(),
+                  if (_proDemos.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Text('${_proDemos.length}',
+                          style: const TextStyle(
+                              fontSize: 10, color: BiobaseColors.textTertiary)),
+                    ),
                   Icon(
-                    _hltvExpanded ? Icons.expand_less : Icons.expand_more,
+                    _proExpanded ? Icons.expand_less : Icons.expand_more,
                     size: 16,
                     color: BiobaseColors.textTertiary,
                   ),
@@ -379,9 +377,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
               ),
             ),
           ),
-          if (_hltvExpanded) ...[
+          if (_proExpanded) ...[
             const SizedBox(height: 10),
-            if (_hltvLoadingMatches)
+            if (_proLoading)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Center(
@@ -392,15 +390,15 @@ class _ReplayScreenState extends State<ReplayScreen> {
                   ),
                 ),
               )
-            else if (_hltvMatches.isEmpty)
+            else if (_proDemos.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Center(
                   child: Text(
-                    _hltvMessage ?? 'No matches found',
+                    _proMessage ?? 'No demos available',
                     style: TextStyle(
                       fontSize: 11,
-                      color: _hltvMessage != null
+                      color: _proMessage != null
                           ? BiobaseColors.error
                           : BiobaseColors.textTertiary,
                     ),
@@ -408,25 +406,50 @@ class _ReplayScreenState extends State<ReplayScreen> {
                 ),
               )
             else
-              ...(_hltvMatches.map((m) => _HltvMatchRow(
-                    match: m,
-                    downloading: _downloadingMatchId == m.matchId,
-                    onDownload: _downloadingMatchId == null
-                        ? () => _hltvDownloadMatch(m)
-                        : null,
-                  ))),
-            if (_hltvMessage != null)
+              ...grouped.entries.map((entry) {
+                final demos = entry.value;
+                final first = demos.first;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 2),
+                      child: Text(
+                        '${first.team1} vs ${first.team2}',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: BiobaseColors.textSecondary),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (first.event.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(first.event,
+                            style: const TextStyle(
+                                fontSize: 9, color: BiobaseColors.textTertiary),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ...demos.map((d) => _ProDemoRow(
+                          demo: d,
+                          selected: _demoName == d.filename,
+                          downloading: _downloadingDemoId == d.id,
+                          downloadProgress: _downloadingDemoId == d.id
+                              ? _downloadProgress : 0,
+                          onTap: d.localPath != null
+                              ? () => _selectProDemo(d)
+                              : () => _downloadProDemo(d),
+                        )),
+                  ],
+                );
+              }),
+            if (_proMessage != null && _proDemos.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  _hltvMessage!,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: _downloadingMatchId != null
-                        ? BiobaseColors.textTertiary
-                        : BiobaseColors.error,
-                  ),
-                ),
+                child: Text(_proMessage!,
+                    style: const TextStyle(
+                        fontSize: 10, color: BiobaseColors.error)),
               ),
           ],
         ],
@@ -1072,120 +1095,44 @@ class _DemoRowState extends State<_DemoRow> {
   }
 }
 
-// ── HLTV Match row ──
+// ── Pro Demo row ──
 
-class _HltvMatchRow extends StatefulWidget {
-  final HltvMatch match;
-  final bool downloading;
-  final VoidCallback? onDownload;
-
-  const _HltvMatchRow({
-    required this.match,
-    required this.downloading,
-    this.onDownload,
-  });
-
-  @override
-  State<_HltvMatchRow> createState() => _HltvMatchRowState();
-}
-
-class _HltvMatchRowState extends State<_HltvMatchRow> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final m = widget.match;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
-        margin: const EdgeInsets.only(bottom: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: _hovered ? BiobaseColors.surfaceHover : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('${m.team1}  ${m.score}  ${m.team2}',
-                      style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: BiobaseColors.text),
-                      overflow: TextOverflow.ellipsis),
-                  if (m.event.isNotEmpty) ...[
-                    const SizedBox(height: 1),
-                    Text(m.event,
-                        style: const TextStyle(
-                            fontSize: 9, color: BiobaseColors.textTertiary),
-                        overflow: TextOverflow.ellipsis),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 6),
-            if (widget.downloading)
-              const SizedBox(
-                width: 14, height: 14,
-                child: CircularProgressIndicator(
-                    strokeWidth: 1.5, color: BiobaseColors.accent),
-              )
-            else if (_hovered && widget.onDownload != null)
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: widget.onDownload,
-                  child: const Icon(Icons.download,
-                      size: 14, color: BiobaseColors.textSecondary),
-                ),
-              )
-            else
-              const SizedBox(width: 14),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── HLTV Demo row ──
-
-class _HltvDemoRow extends StatefulWidget {
+class _ProDemoRow extends StatefulWidget {
   final HltvDemo demo;
   final bool selected;
+  final bool downloading;
+  final double downloadProgress;
   final VoidCallback onTap;
 
-  const _HltvDemoRow({
+  const _ProDemoRow({
     required this.demo,
     required this.selected,
+    required this.downloading,
+    required this.downloadProgress,
     required this.onTap,
   });
 
   @override
-  State<_HltvDemoRow> createState() => _HltvDemoRowState();
+  State<_ProDemoRow> createState() => _ProDemoRowState();
 }
 
-class _HltvDemoRowState extends State<_HltvDemoRow> {
+class _ProDemoRowState extends State<_ProDemoRow> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final d = widget.demo;
+    final local = d.localPath != null;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: widget.onTap,
+        onTap: widget.downloading ? null : widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
-          margin: const EdgeInsets.only(bottom: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          margin: const EdgeInsets.only(bottom: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           decoration: BoxDecoration(
             color: widget.selected
                 ? BiobaseColors.accentDim
@@ -1196,19 +1143,23 @@ class _HltvDemoRowState extends State<_HltvDemoRow> {
           ),
           child: Row(
             children: [
-              Icon(Icons.public,
-                  size: 12,
-                  color: widget.selected
-                      ? BiobaseColors.accent
-                      : BiobaseColors.textTertiary),
-              const SizedBox(width: 8),
+              Icon(
+                local ? Icons.play_circle_outline : Icons.download_outlined,
+                size: 12,
+                color: widget.selected
+                    ? BiobaseColors.accent
+                    : local
+                        ? BiobaseColors.textSecondary
+                        : BiobaseColors.textTertiary,
+              ),
+              const SizedBox(width: 6),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(d.name,
+                    Text(d.displayName,
                         style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 10,
                             fontWeight: widget.selected
                                 ? FontWeight.w600
                                 : FontWeight.w400,
@@ -1216,13 +1167,23 @@ class _HltvDemoRowState extends State<_HltvDemoRow> {
                                 ? BiobaseColors.accent
                                 : BiobaseColors.text),
                         overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 1),
                     Text(_formatSize(d.sizeBytes),
                         style: const TextStyle(
                             fontSize: 9, color: BiobaseColors.textTertiary)),
                   ],
                 ),
               ),
+              if (widget.downloading)
+                SizedBox(
+                  width: 24,
+                  child: Text(
+                    '${(widget.downloadProgress * 100).toInt()}%',
+                    style: const TextStyle(
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        color: BiobaseColors.accent),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1232,7 +1193,7 @@ class _HltvDemoRowState extends State<_HltvDemoRow> {
 
   String _formatSize(int bytes) {
     if (bytes >= 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
     }
     if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
     return '$bytes B';

@@ -1,45 +1,68 @@
+import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
-import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 class HltvMatch {
   final String matchId;
-  final String slug;
   final String team1;
   final String team2;
-  final String score;
+  final int? score1;
+  final int? score2;
   final String event;
+  final bool hasDemos;
+  final int? totalSize;
 
   const HltvMatch({
     required this.matchId,
-    required this.slug,
     required this.team1,
     required this.team2,
-    required this.score,
+    this.score1,
+    this.score2,
     required this.event,
+    required this.hasDemos,
+    this.totalSize,
   });
+
+  String get score => '${score1 ?? '–'}–${score2 ?? '–'}';
 }
 
 class HltvDemo {
-  final String name;
-  final String path;
+  final int id;
+  final String matchId;
+  final String filename;
   final int sizeBytes;
-  final DateTime downloaded;
+  final String? mapName;
+  final String team1;
+  final String team2;
+  final String event;
+  String? localPath;
 
-  const HltvDemo({
-    required this.name,
-    required this.path,
+  HltvDemo({
+    required this.id,
+    required this.matchId,
+    required this.filename,
     required this.sizeBytes,
-    required this.downloaded,
+    this.mapName,
+    required this.team1,
+    required this.team2,
+    required this.event,
+    this.localPath,
   });
+
+  String get displayName {
+    final parts = filename.split('_');
+    if (parts.length >= 2) return parts.sublist(1).join('_').replaceAll('.dem', '');
+    return filename.replaceAll('.dem', '');
+  }
 }
 
-enum HltvDownloadState { idle, fetching, downloading, extracting, done, error }
-
 class HltvService {
-  static const _userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+  String _apiBase = 'http://localhost:8790';
+
+  void configure({required String apiBase}) {
+    _apiBase = apiBase.endsWith('/') ? apiBase.substring(0, apiBase.length - 1) : apiBase;
+  }
 
   String get _demosDir {
     final appData = Platform.environment['APPDATA'] ??
@@ -48,221 +71,95 @@ class HltvService {
     return p.join(appData, 'BioBase', 'demos');
   }
 
-  Future<List<HltvMatch>> fetchRecentMatches() async {
+  Future<List<HltvMatch>> fetchMatches({int limit = 50}) async {
     final resp = await http.get(
-      Uri.parse('https://www.hltv.org/results'),
-      headers: {
-        'User-Agent': _userAgent,
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    ).timeout(const Duration(seconds: 15));
+      Uri.parse('$_apiBase/api/matches?limit=$limit'),
+    ).timeout(const Duration(seconds: 10));
     if (resp.statusCode != 200) return [];
 
-    final html = resp.body;
-    final matches = <HltvMatch>[];
-    final blockPattern = RegExp(
-      r'<div class="result-con"[^>]*>\s*<a href="/matches/(\d+)/([^"]+)"',
-    );
-
-    for (final m in blockPattern.allMatches(html)) {
-      final matchId = m.group(1)!;
-      final slug = m.group(2)!;
-      final blockStart = m.start;
-      final blockEnd = html.indexOf('</a>', blockStart);
-      if (blockEnd < 0) continue;
-      final block = html.substring(blockStart, blockEnd);
-
-      final teams = RegExp(r'class="team"[^>]*>\s*([^<]+)<')
-          .allMatches(block)
-          .map((t) => t.group(1)!.trim())
-          .toList();
-      final scores = RegExp(r'class="score[^"]*"[^>]*>\s*(\d+)\s*<')
-          .allMatches(block)
-          .map((s) => s.group(1)!)
-          .toList();
-      final eventMatch = RegExp(r'class="event-name"[^>]*>\s*([^<]+)<')
-          .firstMatch(block);
-
-      String team1, team2, score;
-      if (teams.length >= 2) {
-        team1 = teams[0];
-        team2 = teams[1];
-      } else {
-        final parts = slug.split('-vs-');
-        if (parts.length < 2) continue;
-        team1 = parts[0].replaceAll('-', ' ');
-        team2 = parts[1].split('-').take(2).join(' ');
-      }
-      score = scores.length >= 2 ? '${scores[0]}–${scores[1]}' : '';
-      final event = eventMatch?.group(1)?.trim() ?? '';
-
-      matches.add(HltvMatch(
-        matchId: matchId,
-        slug: slug,
-        team1: team1,
-        team2: team2,
-        score: score,
-        event: event,
-      ));
-      if (matches.length >= 25) break;
-    }
-    return matches;
+    final List<dynamic> data = json.decode(resp.body);
+    return data.map((m) => HltvMatch(
+      matchId: m['match_id'] as String,
+      team1: m['team1'] as String? ?? '',
+      team2: m['team2'] as String? ?? '',
+      score1: m['score1'] as int?,
+      score2: m['score2'] as int?,
+      event: m['event'] as String? ?? '',
+      hasDemos: m['demo_files'] != null,
+      totalSize: m['total_size'] as int?,
+    )).toList();
   }
 
-  List<HltvDemo> listDownloaded() {
+  Future<List<HltvDemo>> fetchDemos({int limit = 200}) async {
+    final resp = await http.get(
+      Uri.parse('$_apiBase/api/demos?limit=$limit'),
+    ).timeout(const Duration(seconds: 10));
+    if (resp.statusCode != 200) return [];
+
+    final List<dynamic> data = json.decode(resp.body);
+    final demos = data.map((d) => HltvDemo(
+      id: d['id'] as int,
+      matchId: d['match_id'] as String,
+      filename: d['filename'] as String,
+      sizeBytes: d['size_bytes'] as int,
+      mapName: d['map_name'] as String?,
+      team1: d['team1'] as String? ?? '',
+      team2: d['team2'] as String? ?? '',
+      event: d['event'] as String? ?? '',
+    )).toList();
+
     final dir = Directory(_demosDir);
-    if (!dir.existsSync()) return [];
-    final demos = <HltvDemo>[];
-    for (final f in dir.listSync().whereType<File>()) {
-      if (!f.path.endsWith('.dem')) continue;
-      final stat = f.statSync();
-      demos.add(HltvDemo(
-        name: p.basename(f.path),
-        path: f.path,
-        sizeBytes: stat.size,
-        downloaded: stat.modified,
-      ));
+    if (dir.existsSync()) {
+      final localFiles = dir.listSync().whereType<File>().map((f) => p.basename(f.path)).toSet();
+      for (final demo in demos) {
+        if (localFiles.contains(demo.filename)) {
+          demo.localPath = p.join(_demosDir, demo.filename);
+        }
+      }
     }
-    demos.sort((a, b) => b.downloaded.compareTo(a.downloaded));
     return demos;
   }
 
-  String? parseMatchId(String input) {
-    input = input.trim();
-    final matchUrl = RegExp(r'hltv\.org/matches/(\d+)');
-    final m = matchUrl.firstMatch(input);
-    if (m != null) return m.group(1);
-    if (RegExp(r'^\d+$').hasMatch(input)) return input;
-    return null;
-  }
-
-  Future<String?> _findDemoId(String matchId) async {
-    final url = 'https://www.hltv.org/matches/$matchId';
-    final resp = await http.get(
-      Uri.parse(url),
-      headers: {'User-Agent': _userAgent},
-    ).timeout(const Duration(seconds: 15));
-    if (resp.statusCode != 200) return null;
-    final pattern = RegExp(r'"/download/demo/(\d+)"');
-    final m = pattern.firstMatch(resp.body);
-    return m?.group(1);
-  }
-
-  Future<HltvDemo> downloadDemo(
-    String matchId, {
-    void Function(HltvDownloadState state, String message)? onProgress,
+  Future<String> downloadDemo(
+    HltvDemo demo, {
+    void Function(double progress)? onProgress,
   }) async {
-    onProgress?.call(HltvDownloadState.fetching, 'Finding demo link...');
-
-    final demoId = await _findDemoId(matchId);
-    if (demoId == null) {
-      throw Exception('No demo found for match $matchId');
-    }
-
-    onProgress?.call(HltvDownloadState.downloading, 'Downloading demo...');
-
-    final downloadUrl = 'https://www.hltv.org/download/demo/$demoId';
-    final request = http.Request('GET', Uri.parse(downloadUrl));
-    request.headers['User-Agent'] = _userAgent;
-    final streamResp = await http.Client().send(request);
-
-    if (streamResp.statusCode != 200 && streamResp.statusCode != 302) {
-      throw Exception('Download failed (${streamResp.statusCode})');
-    }
-
-    final bytes = await streamResp.stream.toBytes();
-
-    onProgress?.call(HltvDownloadState.extracting, 'Extracting demo...');
-
     final dir = Directory(_demosDir);
     if (!dir.existsSync()) dir.createSync(recursive: true);
 
-    final demFiles = <File>[];
+    final outPath = p.join(_demosDir, demo.filename);
+    final outFile = File(outPath);
+    if (outFile.existsSync()) return outPath;
 
-    if (_isZip(bytes)) {
-      final archive = ZipDecoder().decodeBytes(bytes);
-      for (final file in archive) {
-        if (file.isFile && file.name.endsWith('.dem')) {
-          final outPath = p.join(_demosDir, p.basename(file.name));
-          final outFile = File(outPath);
-          await outFile.writeAsBytes(file.content as List<int>);
-          demFiles.add(outFile);
-        }
-      }
-    } else if (_isGzip(bytes)) {
-      final decompressed = GZipDecoder().decodeBytes(bytes);
-      final outPath = p.join(_demosDir, 'hltv_$demoId.dem');
-      final outFile = File(outPath);
-      await outFile.writeAsBytes(decompressed);
-      demFiles.add(outFile);
-    } else {
-      final outPath = p.join(_demosDir, 'hltv_$demoId.dem.rar');
-      final outFile = File(outPath);
-      await outFile.writeAsBytes(bytes);
+    final request = http.Request('GET', Uri.parse('$_apiBase/api/demos/${demo.id}/download'));
+    final streamResp = await http.Client().send(request);
 
-      final extracted = await _extractRar(outFile.path, _demosDir);
-      if (extracted) {
-        await outFile.delete();
-        for (final f in Directory(_demosDir).listSync().whereType<File>()) {
-          if (f.path.endsWith('.dem')) {
-            final stat = f.statSync();
-            if (DateTime.now().difference(stat.modified).inSeconds < 30) {
-              demFiles.add(f);
-            }
-          }
-        }
-      } else {
-        throw Exception('Cannot extract .rar — install 7-Zip or WinRAR');
-      }
+    if (streamResp.statusCode != 200) {
+      throw Exception('Download failed (${streamResp.statusCode})');
     }
 
-    if (demFiles.isEmpty) {
-      throw Exception('No .dem files found in archive');
+    final total = streamResp.contentLength ?? demo.sizeBytes;
+    final sink = outFile.openWrite();
+    int received = 0;
+
+    await for (final chunk in streamResp.stream) {
+      sink.add(chunk);
+      received += chunk.length;
+      if (total > 0) onProgress?.call(received / total);
     }
+    await sink.close();
 
-    final primary = demFiles.first;
-    final stat = primary.statSync();
-
-    onProgress?.call(HltvDownloadState.done, p.basename(primary.path));
-
-    return HltvDemo(
-      name: p.basename(primary.path),
-      path: primary.path,
-      sizeBytes: stat.size,
-      downloaded: DateTime.now(),
-    );
+    demo.localPath = outPath;
+    return outPath;
   }
 
-  bool _isZip(Uint8List bytes) =>
-      bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B;
-
-  bool _isGzip(Uint8List bytes) =>
-      bytes.length > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B;
-
-  Future<bool> _extractRar(String rarPath, String outDir) async {
-    for (final exe in ['7z', '7za', 'unrar']) {
-      try {
-        final result = await Process.run(
-          exe,
-          exe.startsWith('7z')
-              ? ['x', '-o$outDir', '-y', rarPath]
-              : ['x', '-o+', rarPath, outDir],
-        );
-        if (result.exitCode == 0) return true;
-      } catch (_) {}
-    }
-    if (Platform.isWindows) {
-      for (final path in [
-        r'C:\Program Files\7-Zip\7z.exe',
-        r'C:\Program Files (x86)\7-Zip\7z.exe',
-      ]) {
-        if (File(path).existsSync()) {
-          final result = await Process.run(path, ['x', '-o$outDir', '-y', rarPath]);
-          if (result.exitCode == 0) return true;
-        }
-      }
-    }
-    return false;
+  List<String> listLocalDemos() {
+    final dir = Directory(_demosDir);
+    if (!dir.existsSync()) return [];
+    return dir.listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dem'))
+        .map((f) => f.path)
+        .toList();
   }
 }

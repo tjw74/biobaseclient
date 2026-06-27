@@ -39,6 +39,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   // CS2 integration state
   bool _cs2Connected = false;
   bool _cs2Connecting = false;
+  String _connectStatus = 'Waiting for connection';
   GsiState? _gsiState;
   StreamSubscription<GsiState>? _gsiSub;
   StreamSubscription? _netconSub;
@@ -246,24 +247,55 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   Future<void> _launchCS2() async {
+    if (mounted) setState(() {
+      _cs2Connecting = true;
+      _connectStatus = 'Preparing...';
+    });
+
     if (Platform.isWindows) {
-      // Kill existing CS2 if running without netcon (can't add the port post-launch)
+      // Kill CS2 if running
       final taskCheck = await Process.run('tasklist', ['/FI', 'IMAGENAME eq cs2.exe', '/NH']);
       if ((taskCheck.stdout as String).contains('cs2.exe')) {
+        if (mounted) setState(() => _connectStatus = 'Closing CS2...');
         await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
-        await Future.delayed(const Duration(seconds: 3));
+        await Future.delayed(const Duration(seconds: 2));
       }
-    }
-    // Use steam:// URL with launch options — same pattern as _connectToServer
-    final url = 'steam://run/730/-netconport%202121//';
-    if (Platform.isWindows) {
-      await Process.start('cmd', ['/c', 'start', '', url],
-          mode: ProcessStartMode.detached);
+
+      // Ensure netcon launch option is in Steam config.
+      // Steam caches localconfig.vdf in memory, so if it's running
+      // and the option isn't set, we must restart Steam.
+      final hasNetcon = await GsiService.hasNetconLaunchOption();
+      if (!hasNetcon) {
+        if (mounted) setState(() => _connectStatus = 'Configuring Steam...');
+        await Process.run('taskkill', ['/F', '/IM', 'steam.exe']);
+        await Future.delayed(const Duration(seconds: 3));
+
+        await GsiService.ensureNetconLaunchOption();
+
+        if (mounted) setState(() => _connectStatus = 'Restarting Steam...');
+        final steamExe = await _findSteamExe();
+        if (steamExe != null) {
+          await Process.start(steamExe, ['-silent'],
+              mode: ProcessStartMode.detached);
+        }
+        await Future.delayed(const Duration(seconds: 10));
+      }
+
+      if (mounted) setState(() => _connectStatus = 'Launching CS2...');
+      final steamExe = await _findSteamExe();
+      if (steamExe != null) {
+        await Process.start(steamExe, ['-applaunch', '730'],
+            mode: ProcessStartMode.detached);
+      } else {
+        await Process.start('cmd', ['/c', 'start', '', 'steam://rungameid/730'],
+            mode: ProcessStartMode.detached);
+      }
     } else if (Platform.isMacOS) {
-      await Process.start('open', [url],
+      await Process.start('open', ['steam://rungameid/730'],
           mode: ProcessStartMode.detached);
     }
-    if (mounted) setState(() => _cs2Connecting = true);
+
+    if (mounted) setState(() => _connectStatus = 'Waiting for CS2...');
     _netcon.startReconnect();
     _netconSub?.cancel();
     _netconSub = Stream.periodic(const Duration(seconds: 2)).listen((_) {
@@ -272,6 +304,30 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _watchInCS2();
       }
     });
+  }
+
+  Future<String?> _findSteamExe() async {
+    try {
+      final result = await Process.run('reg', [
+        'query', r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
+        '/v', 'InstallPath',
+      ]);
+      if (result.exitCode == 0) {
+        final match =
+            RegExp(r'REG_SZ\s+(.+)').firstMatch(result.stdout as String);
+        if (match != null) {
+          final exe = '${match.group(1)!.trim()}\\steam.exe';
+          if (File(exe).existsSync()) return exe;
+        }
+      }
+    } catch (_) {}
+    for (final path in [
+      r'C:\Program Files (x86)\Steam\steam.exe',
+      r'D:\Steam\steam.exe',
+    ]) {
+      if (File(path).existsSync()) return path;
+    }
+    return null;
   }
 
   void _onMarkTap() {
@@ -350,6 +406,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
             parsingDemo: _parsingDemo,
             cs2Connected: _cs2Connected,
             cs2Connecting: _cs2Connecting,
+            connectStatus: _connectStatus,
             gsiState: _gsiState,
             playing: _playing,
             moves: _demoMoves,
@@ -1362,6 +1419,7 @@ class _RenderArea extends StatelessWidget {
   final bool parsingDemo;
   final bool cs2Connected;
   final bool cs2Connecting;
+  final String connectStatus;
   final GsiState? gsiState;
   final bool playing;
   final List<Move> moves;
@@ -1376,6 +1434,7 @@ class _RenderArea extends StatelessWidget {
     required this.parsingDemo,
     required this.cs2Connected,
     required this.cs2Connecting,
+    required this.connectStatus,
     required this.gsiState,
     required this.playing,
     required this.moves,
@@ -1672,15 +1731,11 @@ class _RenderArea extends StatelessWidget {
               strokeWidth: 2, color: BiobaseColors.accent),
         ),
         const SizedBox(height: 12),
-        const Text('Launching CS2...',
-            style: TextStyle(
+        Text(connectStatus,
+            style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
                 color: BiobaseColors.textSecondary)),
-        const SizedBox(height: 4),
-        const Text('Waiting for connection',
-            style: TextStyle(
-                fontSize: 10, color: BiobaseColors.textTertiary)),
       ],
     );
   }

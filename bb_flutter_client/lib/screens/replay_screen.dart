@@ -247,6 +247,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
   Future<void> _launchCS2() async {
     if (Platform.isWindows) {
+      // Kill existing CS2 if running without netcon (can't add the port post-launch)
+      final taskCheck = await Process.run('tasklist', ['/FI', 'IMAGENAME eq cs2.exe', '/NH']);
+      if ((taskCheck.stdout as String).contains('cs2.exe')) {
+        await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
+        await Future.delayed(const Duration(seconds: 2));
+      }
       final steamPath = await _findSteamExe();
       if (steamPath != null) {
         await Process.start(

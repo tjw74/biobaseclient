@@ -615,6 +615,10 @@ class _ContentHeader extends StatelessWidget {
           _AppMenuButton(api: api, onStatus: onSyncStatusChanged),
           const SizedBox(width: 6),
           _TopStatusIndicator(statusLevel: statusLevel),
+          if (Platform.isWindows) ...[
+            const SizedBox(width: 12),
+            const _WindowControls(),
+          ],
         ],
       ),
     );
@@ -1180,6 +1184,95 @@ class _VersionIndicator extends StatelessWidget {
               ),
             Text(versionText, style: TextStyle(fontSize: 9, color: color)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Window controls (Windows only) ──
+
+class _WindowControls extends StatefulWidget {
+  const _WindowControls();
+
+  @override
+  State<_WindowControls> createState() => _WindowControlsState();
+}
+
+class _WindowControlsState extends State<_WindowControls> {
+  bool _maximized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.isMaximized().then((v) {
+      if (mounted) setState(() => _maximized = v);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _windowBtn(Icons.remove, () => windowManager.minimize()),
+        _windowBtn(
+          _maximized ? Icons.filter_none : Icons.crop_square,
+          () async {
+            if (_maximized) {
+              await windowManager.unmaximize();
+            } else {
+              await windowManager.maximize();
+            }
+            final m = await windowManager.isMaximized();
+            if (mounted) setState(() => _maximized = m);
+          },
+        ),
+        _windowBtn(Icons.close, () => windowManager.close(), hover: BiobaseColors.error),
+      ],
+    );
+  }
+
+  Widget _windowBtn(IconData icon, VoidCallback onTap, {Color? hover}) {
+    return _WindowButton(icon: icon, onTap: onTap, hoverColor: hover);
+  }
+}
+
+class _WindowButton extends StatefulWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color? hoverColor;
+
+  const _WindowButton({required this.icon, required this.onTap, this.hoverColor});
+
+  @override
+  State<_WindowButton> createState() => _WindowButtonState();
+}
+
+class _WindowButtonState extends State<_WindowButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hc = widget.hoverColor ?? BiobaseColors.surfaceHover;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: 30,
+          height: 22,
+          decoration: BoxDecoration(
+            color: _hovered ? hc : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Icon(widget.icon,
+              size: 12,
+              color: _hovered && widget.hoverColor != null
+                  ? Colors.white
+                  : BiobaseColors.textTertiary),
         ),
       ),
     );

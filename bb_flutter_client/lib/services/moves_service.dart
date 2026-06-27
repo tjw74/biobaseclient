@@ -8,6 +8,8 @@ class Move {
   String name;
   final double startPosition;
   final double endPosition;
+  final int? startTick;
+  final int? endTick;
   final DateTime createdAt;
 
   Move({
@@ -16,6 +18,8 @@ class Move {
     required this.name,
     required this.startPosition,
     required this.endPosition,
+    this.startTick,
+    this.endTick,
     required this.createdAt,
   });
 
@@ -25,6 +29,8 @@ class Move {
         'name': name,
         'startPosition': startPosition,
         'endPosition': endPosition,
+        if (startTick != null) 'startTick': startTick,
+        if (endTick != null) 'endTick': endTick,
         'createdAt': createdAt.toIso8601String(),
       };
 
@@ -34,6 +40,8 @@ class Move {
         name: j['name'] as String,
         startPosition: (j['startPosition'] as num).toDouble(),
         endPosition: (j['endPosition'] as num).toDouble(),
+        startTick: j['startTick'] as int?,
+        endTick: j['endTick'] as int?,
         createdAt: DateTime.parse(j['createdAt'] as String),
       );
 }
@@ -76,6 +84,8 @@ class MovesService {
     required String demoName,
     required double startPosition,
     required double endPosition,
+    int? startTick,
+    int? endTick,
   }) {
     final existing = movesForDemo(demoName);
     final move = Move(
@@ -84,6 +94,8 @@ class MovesService {
       name: 'Move ${existing.length + 1}',
       startPosition: startPosition,
       endPosition: endPosition,
+      startTick: startTick,
+      endTick: endTick,
       createdAt: DateTime.now(),
     );
     _load().add(move);

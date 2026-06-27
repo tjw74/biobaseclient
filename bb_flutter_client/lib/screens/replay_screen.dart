@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../services/server_service.dart';
 import '../services/moves_service.dart';
 import '../services/hltv_service.dart';
 import '../services/demo_parser.dart';
+import '../services/netcon_service.dart';
+import '../services/gsi_service.dart';
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -20,6 +21,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
   final ServerService _server = ServerService();
   final MovesService _moves = MovesService();
   final HltvService _hltv = HltvService();
+  final NetconService _netcon = NetconService();
+  final GsiService _gsi = GsiService();
 
   List<DemoFile>? _demos;
   bool _loading = true;
@@ -32,6 +35,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
   bool _copying = false;
   DemoInfo? _demoInfo;
   bool _parsingDemo = false;
+
+  // CS2 integration state
+  bool _cs2Connected = false;
+  bool _cs2Connecting = false;
+  bool _showSetup = false;
+  GsiState? _gsiState;
+  StreamSubscription<GsiState>? _gsiSub;
+  StreamSubscription? _netconSub;
+  int _currentTick = 0;
+  Timer? _tickTimer;
 
   // Pro demos state
   bool _proExpanded = false;
@@ -51,11 +64,19 @@ class _ReplayScreenState extends State<ReplayScreen> {
   void initState() {
     super.initState();
     _loadDemos();
+    _gsiSub = _gsi.stateStream.listen((state) {
+      if (mounted) setState(() => _gsiState = state);
+    });
   }
 
   @override
   void dispose() {
     _renameController.dispose();
+    _gsiSub?.cancel();
+    _netconSub?.cancel();
+    _tickTimer?.cancel();
+    _netcon.dispose();
+    _gsi.dispose();
     super.dispose();
   }
 
@@ -157,9 +178,90 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
   Future<void> _watchInCS2() async {
     if (_demoPath == null) return;
-    final path = _demoPath!.replaceAll('\\', '/');
-    final uri = Uri.parse('steam://rungameid/730//+playdemo "$path"');
-    await launchUrl(uri);
+    setState(() { _cs2Connecting = true; _showSetup = false; });
+
+    await GsiService.installConfig();
+    await _gsi.start();
+
+    final ok = await _netcon.connect();
+    if (!ok) {
+      if (mounted) setState(() { _cs2Connecting = false; _showSetup = true; });
+      return;
+    }
+
+    await _netcon.playDemo(_demoPath!);
+    if (mounted) {
+      setState(() {
+        _cs2Connected = true;
+        _cs2Connecting = false;
+        _playing = true;
+        _playbackSpeed = 1.0;
+        _showSetup = false;
+      });
+    }
+    _startTickTracking();
+  }
+
+  void _startTickTracking() {
+    _tickTimer?.cancel();
+    _tickTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (!_playing || _demoInfo == null) return;
+      final totalTicks = _demoInfo!.playbackTicks ?? 0;
+      if (totalTicks <= 0) return;
+      if (mounted) {
+        setState(() {
+          _currentTick += (64 * 0.2 * _playbackSpeed).round();
+          if (_currentTick > totalTicks) _currentTick = totalTicks;
+          _playbackPosition = _currentTick / totalTicks;
+        });
+      }
+    });
+  }
+
+  Future<void> _togglePlayback() async {
+    if (!_cs2Connected) return;
+    if (_playing) {
+      await _netcon.pauseDemo();
+      _tickTimer?.cancel();
+    } else {
+      await _netcon.resumeDemo();
+      _startTickTracking();
+    }
+    if (mounted) setState(() => _playing = !_playing);
+  }
+
+  Future<void> _setSpeed(double speed) async {
+    if (!_cs2Connected) return;
+    await _netcon.setTimescale(speed);
+    if (mounted) setState(() => _playbackSpeed = speed);
+  }
+
+  Future<void> _seekTo(double position) async {
+    if (!_cs2Connected || _demoInfo == null) return;
+    final totalTicks = _demoInfo!.playbackTicks ?? 0;
+    if (totalTicks <= 0) return;
+    final tick = (position * totalTicks).round();
+    await _netcon.gotoTick(tick);
+    if (mounted) setState(() { _currentTick = tick; _playbackPosition = position; });
+  }
+
+  Future<void> _launchCS2() async {
+    final uri = Uri.parse('steam://rungameid/730');
+    if (Platform.isWindows) {
+      await Process.start('cmd', ['/c', 'start', '', uri.toString()],
+          mode: ProcessStartMode.detached);
+    } else if (Platform.isMacOS) {
+      await Process.start('open', [uri.toString()],
+          mode: ProcessStartMode.detached);
+    }
+    _netcon.startReconnect();
+    _netconSub?.cancel();
+    _netconSub = Stream.periodic(const Duration(seconds: 2)).listen((_) {
+      if (_netcon.connected && _demoPath != null) {
+        _netconSub?.cancel();
+        _watchInCS2();
+      }
+    });
   }
 
   void _onMarkTap() {
@@ -174,7 +276,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
       }
       final s = start < end ? start : end;
       final e = start < end ? end : start;
-      _moves.addMove(demoName: _demoName!, startPosition: s, endPosition: e);
+      final totalTicks = _demoInfo?.playbackTicks;
+      final startTick = totalTicks != null ? (s * totalTicks).round() : null;
+      final endTick = totalTicks != null ? (e * totalTicks).round() : null;
+      _moves.addMove(
+        demoName: _demoName!,
+        startPosition: s,
+        endPosition: e,
+        startTick: startTick,
+        endTick: endTick,
+      );
       setState(() {
         _moveStart = null;
         _demoMoves = _moves.movesForDemo(_demoName!);
@@ -227,10 +338,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
             demoName: _demoName,
             demoInfo: _demoInfo,
             parsingDemo: _parsingDemo,
+            cs2Connected: _cs2Connected,
+            cs2Connecting: _cs2Connecting,
+            showSetup: _showSetup,
+            gsiState: _gsiState,
+            playing: _playing,
             moves: _demoMoves,
             playbackPosition: _playbackPosition,
             moveStart: _moveStart,
             onWatchInCS2: _watchInCS2,
+            onLaunchCS2: _launchCS2,
           ),
         ),
       ],
@@ -508,7 +625,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
                     fontFamily: 'monospace',
                     color: BiobaseColors.textTertiary)),
             const Spacer(),
-            Text(_formatTime(1.0),
+            Text(_demoInfo?.durationDisplay ?? _formatTime(1.0),
                 style: const TextStyle(
                     fontSize: 10,
                     fontFamily: 'monospace',
@@ -517,20 +634,20 @@ class _ReplayScreenState extends State<ReplayScreen> {
           const SizedBox(height: 10),
           Row(children: [
             _controlBtn(Icons.skip_previous,
-                () => setState(() => _playbackPosition = 0)),
+                () => _seekTo(0)),
             const SizedBox(width: 4),
             _controlBtn(
                 _playing ? Icons.pause : Icons.play_arrow,
-                () => setState(() => _playing = !_playing),
+                _togglePlayback,
                 primary: true),
             const SizedBox(width: 4),
             _controlBtn(Icons.skip_next,
-                () => setState(() => _playbackPosition = 1)),
+                () => _seekTo(1)),
             const Spacer(),
             ...([0.25, 0.5, 1.0, 2.0].map((s) => Padding(
                   padding: const EdgeInsets.only(left: 2),
                   child: _speedBtn(s, _playbackSpeed == s,
-                      () => setState(() => _playbackSpeed = s)),
+                      () => _setSpeed(s)),
                 ))),
           ]),
         ],
@@ -553,9 +670,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
             ),
             child: Slider(
-              value: _playbackPosition,
+              value: _playbackPosition.clamp(0.0, 1.0),
               onChanged: _demoPath != null
-                  ? (v) => setState(() => _playbackPosition = v)
+                  ? (v) {
+                      setState(() => _playbackPosition = v);
+                      if (_cs2Connected) _seekTo(v);
+                    }
                   : null,
             ),
           ),
@@ -816,8 +936,10 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   String _formatTime(double t) {
-    final mins = (t * 45).toInt();
-    final secs = ((t * 45 * 60) % 60).toInt();
+    final totalSecs = _demoInfo?.playbackTime ?? 45 * 60;
+    final elapsed = (t * totalSecs).toInt();
+    final mins = elapsed ~/ 60;
+    final secs = elapsed % 60;
     return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 }
@@ -1230,19 +1352,31 @@ class _RenderArea extends StatelessWidget {
   final String? demoName;
   final DemoInfo? demoInfo;
   final bool parsingDemo;
+  final bool cs2Connected;
+  final bool cs2Connecting;
+  final bool showSetup;
+  final GsiState? gsiState;
+  final bool playing;
   final List<Move> moves;
   final double playbackPosition;
   final double? moveStart;
   final VoidCallback onWatchInCS2;
+  final VoidCallback onLaunchCS2;
 
   const _RenderArea({
     required this.demoPath,
     required this.demoName,
     required this.demoInfo,
     required this.parsingDemo,
+    required this.cs2Connected,
+    required this.cs2Connecting,
+    required this.showSetup,
+    required this.gsiState,
+    required this.playing,
     required this.moves,
     required this.playbackPosition,
     required this.onWatchInCS2,
+    required this.onLaunchCS2,
     this.moveStart,
   });
 
@@ -1310,6 +1444,33 @@ class _RenderArea extends StatelessWidget {
                     )
                   : _demoInfoDisplay(info),
         ),
+        // Connection status badge
+        if (demoInfo != null)
+          Positioned(
+            top: 12,
+            right: 12,
+            child: _connectionBadge(),
+          ),
+        // GSI round info
+        if (cs2Connected && gsiState != null && gsiState!.round > 0)
+          Positioned(
+            top: 12,
+            left: 12,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: BiobaseColors.bg.withAlpha(200),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'Round ${gsiState!.round}',
+                style: const TextStyle(
+                    fontSize: 10, color: BiobaseColors.textSecondary),
+              ),
+            ),
+          ),
+        // Move marking indicator
         if (moveStart != null)
           Positioned(
             bottom: 12,
@@ -1344,6 +1505,61 @@ class _RenderArea extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  Widget _connectionBadge() {
+    if (cs2Connected) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: BiobaseColors.liveDim,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: BiobaseColors.live,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              playing ? 'Playing in CS2' : 'Paused',
+              style: const TextStyle(
+                  fontSize: 10, color: BiobaseColors.live),
+            ),
+          ],
+        ),
+      );
+    }
+    if (cs2Connecting) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: BiobaseColors.accentDim,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(
+                  strokeWidth: 1.5, color: BiobaseColors.accent),
+            ),
+            SizedBox(width: 6),
+            Text('Connecting...',
+                style: TextStyle(fontSize: 10, color: BiobaseColors.accent)),
+          ],
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _demoInfoDisplay(DemoInfo info) {
@@ -1393,7 +1609,12 @@ class _RenderArea extends StatelessWidget {
                   color: BiobaseColors.textTertiary),
             ),
           const SizedBox(height: 24),
-          _WatchButton(onTap: onWatchInCS2),
+          if (showSetup)
+            _setupInstructions()
+          else if (!cs2Connected)
+            _WatchButton(onTap: onWatchInCS2)
+          else
+            _connectedInfo(),
           const SizedBox(height: 10),
           Text(
             demoName ?? '',
@@ -1435,11 +1656,101 @@ class _RenderArea extends StatelessWidget {
       color: BiobaseColors.border,
     );
   }
+
+  Widget _setupInstructions() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(maxWidth: 360),
+      decoration: BoxDecoration(
+        color: BiobaseColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: BiobaseColors.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('CS2 Setup Required',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: BiobaseColors.text)),
+          const SizedBox(height: 12),
+          const Text(
+            'Add this to your CS2 launch options in Steam:',
+            style: TextStyle(fontSize: 11, color: BiobaseColors.textSecondary),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: BiobaseColors.bg,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const SelectableText(
+              '-netconport 2121',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w600,
+                  color: BiobaseColors.accent),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Steam → CS2 → Properties → Launch Options',
+            style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
+          ),
+          const SizedBox(height: 16),
+          _WatchButton(onTap: onLaunchCS2, label: 'Launch CS2 & Connect'),
+        ],
+      ),
+    );
+  }
+
+  Widget _connectedInfo() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: playing ? BiobaseColors.live : BiobaseColors.textTertiary,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              playing ? 'Playing in CS2' : 'Paused',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: playing ? BiobaseColors.live : BiobaseColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        if (gsiState != null && gsiState!.mapPhase.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            gsiState!.mapPhase,
+            style: const TextStyle(
+                fontSize: 10, color: BiobaseColors.textTertiary),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _WatchButton extends StatefulWidget {
   final VoidCallback onTap;
-  const _WatchButton({required this.onTap});
+  final String label;
+  const _WatchButton({required this.onTap, this.label = 'Watch in CS2'});
 
   @override
   State<_WatchButton> createState() => _WatchButtonState();
@@ -1476,7 +1787,7 @@ class _WatchButtonState extends State<_WatchButton> {
                   color: _hovered ? Colors.white : BiobaseColors.accent),
               const SizedBox(width: 8),
               Text(
-                'Watch in CS2',
+                widget.label,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,

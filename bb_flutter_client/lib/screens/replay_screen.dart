@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../services/server_service.dart';
 import '../services/moves_service.dart';
 import '../services/hltv_service.dart';
+import '../services/demo_parser.dart';
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -28,6 +30,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
   double _playbackSpeed = 1.0;
   bool _playing = false;
   bool _copying = false;
+  DemoInfo? _demoInfo;
+  bool _parsingDemo = false;
 
   // Pro demos state
   bool _proExpanded = false;
@@ -101,6 +105,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _moveStart = null;
       _demoMoves = _moves.movesForDemo(demo.filename);
     });
+    _parseDemo(demo.localPath!);
   }
 
   Future<void> _selectDemo(DemoFile demo) async {
@@ -119,6 +124,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
           _demoMoves = _moves.movesForDemo(demo.name);
         }
       });
+      if (path != null) _parseDemo(path);
     }
   }
 
@@ -139,7 +145,21 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _moveStart = null;
         _demoMoves = _moves.movesForDemo(result.files.single.name);
       });
+      _parseDemo(file.path);
     }
+  }
+
+  Future<void> _parseDemo(String path) async {
+    setState(() { _parsingDemo = true; _demoInfo = null; });
+    final info = await DemoParser.parse(path);
+    if (mounted) setState(() { _demoInfo = info; _parsingDemo = false; });
+  }
+
+  Future<void> _watchInCS2() async {
+    if (_demoPath == null) return;
+    final path = _demoPath!.replaceAll('\\', '/');
+    final uri = Uri.parse('steam://rungameid/730//+playdemo "$path"');
+    await launchUrl(uri);
   }
 
   void _onMarkTap() {
@@ -205,9 +225,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
           child: _RenderArea(
             demoPath: _demoPath,
             demoName: _demoName,
+            demoInfo: _demoInfo,
+            parsingDemo: _parsingDemo,
             moves: _demoMoves,
             playbackPosition: _playbackPosition,
             moveStart: _moveStart,
+            onWatchInCS2: _watchInCS2,
           ),
         ),
       ],
@@ -1205,15 +1228,21 @@ class _ProDemoRowState extends State<_ProDemoRow> {
 class _RenderArea extends StatelessWidget {
   final String? demoPath;
   final String? demoName;
+  final DemoInfo? demoInfo;
+  final bool parsingDemo;
   final List<Move> moves;
   final double playbackPosition;
   final double? moveStart;
+  final VoidCallback onWatchInCS2;
 
   const _RenderArea({
     required this.demoPath,
     required this.demoName,
+    required this.demoInfo,
+    required this.parsingDemo,
     required this.moves,
     required this.playbackPosition,
+    required this.onWatchInCS2,
     this.moveStart,
   });
 
@@ -1252,75 +1281,54 @@ class _RenderArea extends StatelessWidget {
   }
 
   Widget _loadedState() {
+    final info = demoInfo;
+
     return Stack(
       children: [
         Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.videocam_outlined,
-                  size: 48, color: BiobaseColors.textTertiary.withAlpha(60)),
-              const SizedBox(height: 12),
-              Text(demoName ?? '',
-                  style: const TextStyle(
-                      fontSize: 12, color: BiobaseColors.textSecondary)),
-              const SizedBox(height: 4),
-              const Text('Demo replay not yet available',
-                  style: TextStyle(
-                      fontSize: 11, color: BiobaseColors.textTertiary)),
-            ],
-          ),
+          child: parsingDemo
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: BiobaseColors.textTertiary),
+                )
+              : info == null
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.videocam_outlined,
+                            size: 48,
+                            color:
+                                BiobaseColors.textTertiary.withAlpha(60)),
+                        const SizedBox(height: 12),
+                        Text(demoName ?? '',
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: BiobaseColors.textSecondary)),
+                      ],
+                    )
+                  : _demoInfoDisplay(info),
         ),
-        // Minimap placeholder
-        Positioned(
-          top: 12,
-          right: 12,
-          child: Container(
-            width: 120, height: 120,
-            decoration: BoxDecoration(
-              color: BiobaseColors.bg.withAlpha(180),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: BiobaseColors.border),
-            ),
-            child: const Center(
-              child: Text('Minimap',
-                  style: TextStyle(
-                      fontSize: 9, color: BiobaseColors.textTertiary)),
-            ),
-          ),
-        ),
-        // Round indicator
-        Positioned(
-          top: 12,
-          left: 12,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: BiobaseColors.bg.withAlpha(180),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: const Text('Round 1 / —',
-                style: TextStyle(
-                    fontSize: 10, color: BiobaseColors.textTertiary)),
-          ),
-        ),
-        // Move marking indicator
         if (moveStart != null)
           Positioned(
             bottom: 12,
             left: 12,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: BiobaseColors.warning.withAlpha(30),
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: BiobaseColors.warning.withAlpha(60)),
+                border:
+                    Border.all(color: BiobaseColors.warning.withAlpha(60)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 6, height: 6,
+                    width: 6,
+                    height: 6,
                     decoration: const BoxDecoration(
                       color: BiobaseColors.warning,
                       shape: BoxShape.circle,
@@ -1335,6 +1343,150 @@ class _RenderArea extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _demoInfoDisplay(DemoInfo info) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            info.mapDisplay.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2,
+              color: BiobaseColors.text,
+            ),
+          ),
+          if (info.serverName != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              info.serverName!,
+              style: const TextStyle(
+                  fontSize: 12, color: BiobaseColors.textSecondary),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ],
+          const SizedBox(height: 20),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _statBlock(info.durationDisplay, 'Duration'),
+              _divider(),
+              _statBlock(info.sizeDisplay, 'Size'),
+              _divider(),
+              _statBlock(info.tickrateDisplay, 'Tickrate'),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (info.mapName != null)
+            Text(
+              info.mapName!,
+              style: const TextStyle(
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: BiobaseColors.textTertiary),
+            ),
+          const SizedBox(height: 24),
+          _WatchButton(onTap: onWatchInCS2),
+          const SizedBox(height: 10),
+          Text(
+            demoName ?? '',
+            style: const TextStyle(
+                fontSize: 9,
+                fontFamily: 'monospace',
+                color: BiobaseColors.textTertiary),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statBlock(String value, String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          Text(value,
+              style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'monospace',
+                  color: BiobaseColors.text)),
+          const SizedBox(height: 2),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 9, color: BiobaseColors.textTertiary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() {
+    return Container(
+      width: 1,
+      height: 28,
+      color: BiobaseColors.border,
+    );
+  }
+}
+
+class _WatchButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _WatchButton({required this.onTap});
+
+  @override
+  State<_WatchButton> createState() => _WatchButtonState();
+}
+
+class _WatchButtonState extends State<_WatchButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          decoration: BoxDecoration(
+            color: _hovered ? BiobaseColors.accent : BiobaseColors.accentDim,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: _hovered
+                  ? BiobaseColors.accent
+                  : BiobaseColors.accent.withAlpha(60),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.play_arrow_rounded,
+                  size: 18,
+                  color: _hovered ? Colors.white : BiobaseColors.accent),
+              const SizedBox(width: 8),
+              Text(
+                'Watch in CS2',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _hovered ? Colors.white : BiobaseColors.accent,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1258,14 +1258,14 @@ class _RenderArea extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.play_circle_outline,
-                  size: 64, color: BiobaseColors.accent.withAlpha(60)),
+              Icon(Icons.videocam_outlined,
+                  size: 48, color: BiobaseColors.textTertiary.withAlpha(60)),
               const SizedBox(height: 12),
               Text(demoName ?? '',
                   style: const TextStyle(
                       fontSize: 12, color: BiobaseColors.textSecondary)),
               const SizedBox(height: 4),
-              const Text('Demo render engine loading',
+              const Text('Demo replay not yet available',
                   style: TextStyle(
                       fontSize: 11, color: BiobaseColors.textTertiary)),
             ],

@@ -19,4 +19,5 @@ title: Wiki Log
 - [2026-06-22T22:15:47Z] WIKI_UPDATE agent=GPT-5.5 project=biobase pages_updated=14 pages_created=6 source_cwd=/home/clearmined/code/prod/biobase note="canonical performance dataset categories + Performance Review UI doctrine mirrored to repo docs, Obsidian, LLM wiki, ClarionKnowledge"
 
 - [2026-06-24T01:20:47Z] WIKI_UPDATE agent=Codex project=biobase pages_updated=5 pages_created=1 source_cwd=/home/clearmined/code/prod/biobase note="biobase-performance-v1, Flutter evidence-aware Performance Review, startup fix, durable authenticated client session history"
+- [2026-06-27T12:30:00Z] WIKI_UPDATE agent=Claude project=biobase pages_updated=3 pages_created=0 source_cwd=/home/clearmined/code/prod/biobase note="documented Replay netcon integration challenges (v0.11.15–v0.11.21); six failed Steam arg-passing approaches; current direct-launch approach; updated replay-demo-playback, hot, log"
 - [2026-06-24T06:01:10Z] WIKI_UPDATE agent=Codex project=biobase pages_updated=4 pages_created=0 source_cwd=/home/clearmined/code/prod/biobase note="reorderable persistent Performance Review accordion; full 121-metric evidence inventory"

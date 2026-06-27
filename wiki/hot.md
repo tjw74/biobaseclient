@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-24T06:01:10Z
+updated: 2026-06-27T12:30:00Z
 ---
 
 # Hot Cache
@@ -9,7 +9,9 @@ updated: 2026-06-24T06:01:10Z
 
 ## Recent Activity
 
-- [2026-06-27T01:30:00Z] WIKI_UPDATE agent=Claude project=biobase — **Replay Demo Playback Architecture** — CS2 is the render engine, BioBase is the companion controller. Pro demo pipeline (biobasedata scraper → ClarionCore → REST API → Flutter client) fully operational with 98 demos. Client parses PBDEMS2 headers (map, event, duration, tickrate) and displays info in Replay panel. Next: Netcon TCP integration for demo_pause/seek/speed, GSI sync for tick-accurate move marking. Created [[biobase-replay-demo-playback]].
+- [2026-06-27T12:30:00Z] WIKI_UPDATE agent=Claude project=biobase — **Replay Netcon Integration Challenges** — Documented six iterations (v0.11.15–v0.11.21) of failed attempts to pass `-netconport 2121` to CS2 through Steam. Steam silently drops extra arguments from `-applaunch`, `steam://run/` URLs, and VDF launch options (caching, whitespace parsing bugs, stale-file false positives). Current approach (v0.11.21): bypass Steam entirely, launch cs2.exe directly as a subprocess with the netcon argument. Awaiting verification. Updated [[biobase-replay-demo-playback]].
+
+- [2026-06-27T01:30:00Z] WIKI_UPDATE agent=Claude project=biobase — **Replay Demo Playback Architecture** — CS2 is the render engine, BioBase is the companion controller. Pro demo pipeline (biobasedata scraper → ClarionCore → REST API → Flutter client) fully operational with 98 demos. Client parses PBDEMS2 headers (map, event, duration, tickrate) and displays info in Replay panel. Created [[biobase-replay-demo-playback]].
 
 - [2026-06-24T06:01:10Z] WIKI_UPDATE agent=Codex project=biobase — **Personalized Performance Review** — Flutter now presents all 12 categories as reorderable, persistent accordion rows; multiple dashboards can remain open; all 121 canonical metrics appear with explicit evidence state.
 
@@ -32,7 +34,7 @@ updated: 2026-06-24T06:01:10Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.13). Current focus: Replay demo playback integration — CS2 renders demos, BioBase controls playback via Netcon and reads game state via GSI for tick-synced move marking. Pro demo pipeline operational (98 HLTV demos served from ClarionCore).
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.21). Current focus: getting Replay demo render playback working — the core blocker is passing `-netconport 2121` to CS2 so BioBase can send console commands. Six Steam integration approaches failed (v0.11.15–v0.11.20); v0.11.21 bypasses Steam and launches cs2.exe directly. Awaiting verification on Windows.
 
 ## Key Takeaways
 

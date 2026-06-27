@@ -8,7 +8,7 @@ summary: >-
   controller using Netcon (TCP console) for commands and GSI for game
   state. No custom render engine needed or planned.
 created: 2026-06-27T01:30:00Z
-updated: 2026-06-27T01:30:00Z
+updated: 2026-06-27T12:30:00Z
 ---
 
 # Biobase Replay Demo Playback Architecture
@@ -70,6 +70,77 @@ This parsing uses raw protobuf field decoding — no `.proto` compilation requir
 ## Pro Demo Pipeline
 
 HLTV pro demos are scraped server-side by `biobasedata` (Python + Playwright), stored on ClarionCore, and served via REST API. The BioBase client downloads individual map demos (~300-900 MB each) to `%APPDATA%/BioBase/demos/`. See the biobasedata service at `cs2.clarionlab.dev/biobasedata`.
+
+## Netcon Launch Option: Implementation Challenges
+
+The `-netconport 2121` launch option must be passed to CS2 at startup. This proved to be the primary integration blocker across v0.11.15–v0.11.21 (six iterations). Every approach to pass the argument through Steam's launch system failed silently — Steam accepts the commands without error but does not forward the extra arguments to CS2.
+
+### Approaches Attempted (all failed to open port 2121)
+
+| Version | Approach | Why It Failed |
+|---------|----------|---------------|
+| v0.11.15 | Write `-netconport 2121` to `localconfig.vdf` while Steam is running | Steam caches VDF in memory; overwrites file on exit, discarding the write |
+| v0.11.16 | `steam.exe -applaunch 730 -netconport 2121` | Steam does not forward extra args after the app ID to the game process |
+| v0.11.17 | Same as above + kill CS2 first to ensure clean launch | Same result — Steam strips the extra arguments |
+| v0.11.18 | `steam://run/730/-netconport%202121//` URL protocol | Steam URL handler does not pass arguments to the game |
+| v0.11.19 | Kill Steam → write VDF → restart Steam → launch CS2 | `hasNetconLaunchOption()` found stale VDF entry from v0.11.15 write, skipped the Steam restart |
+| v0.11.20 | Same as v0.11.19 but always restart Steam (removed stale-file check); fixed VDF parser whitespace bug | VDF `_injectNetconOption()` had hardcoded `\t\t` in `replaceFirst` — silently failed when actual file used different whitespace. Fixed with position-based replacement, but Steam still did not reliably pass launch options to CS2 |
+
+### Key Technical Discoveries
+
+**Steam caches `localconfig.vdf` in memory.** Writing to the file while Steam is running is useless — Steam overwrites it with its in-memory version on exit. You must kill Steam first, write the file, then restart Steam.
+
+**Steam's `-applaunch` does not forward extra arguments.** When you run `steam.exe -applaunch 730 -netconport 2121`, Steam interprets `-applaunch 730` but silently drops `-netconport 2121`. This is true whether Steam is already running (IPC to existing instance) or launched fresh.
+
+**Steam's `steam://run/` URL protocol also drops arguments.** The format `steam://run/730/-netconport%202121//` is documented to support arguments, but in practice the game receives none.
+
+**VDF parsing is fragile.** Steam's Valve Data Format uses inconsistent whitespace (tabs vs spaces, varying depth). Hardcoded whitespace patterns in string replacement silently produce unchanged output. Position-based replacement (using regex match offsets) is required.
+
+**The file-check false positive.** `hasNetconLaunchOption()` searches the VDF for the string `-netconport`. If a previous failed write put this string in the file (but Steam never loaded it), the check returns true and the critical Steam restart is skipped. The setting exists in the file but not in Steam's running config.
+
+### Current Approach (v0.11.21): Direct Process Launch
+
+Bypass Steam's argument handling entirely. Find `cs2.exe` on disk and launch it as a direct subprocess with `-netconport 2121`:
+
+```text
+Path: <SteamDir>/steamapps/common/Counter-Strike Global Offensive/game/bin/win64/cs2.exe
+Args: -netconport 2121
+Requires: Steam running in background (for Steam API auth)
+```
+
+This approach:
+- Finds CS2 exe from the known cfg path (registry lookup → `game/csgo/cfg` → up to `game` → `bin/win64/cs2.exe`)
+- Ensures Steam is running (starts it with `-silent` if needed)
+- Launches cs2.exe directly with the netcon argument as a process argument
+- Falls back to `steam.exe -applaunch 730` if cs2.exe cannot be found
+
+**Status: Deployed in v0.11.21, awaiting verification.** The direct launch approach has not yet been confirmed working on Windows. If CS2 refuses to start without Steam's app-launch mechanism, an alternative approach will be needed.
+
+### GSI Config Auto-Install
+
+The GSI config file (`gamestate_integration_biobase.cfg`) is written automatically to CS2's cfg directory. This uses Valve KeyValues format (not JSON) and is picked up by CS2 on next launch:
+
+```
+"BioBase"
+{
+    "uri"          "http://127.0.0.1:29741"
+    "timeout"      "5.0"
+    "buffer"       "0.1"
+    "throttle"     "0.5"
+    "heartbeat"    "10.0"
+    "data"
+    {
+        "provider"              "1"
+        "map"                   "1"
+        "round"                 "1"
+        "player_id"             "1"
+        "player_state"          "1"
+        "allplayers_id"         "1"
+        "allplayers_state"      "1"
+        "allplayers_position"   "1"
+    }
+}
+```
 
 ## User Flow
 

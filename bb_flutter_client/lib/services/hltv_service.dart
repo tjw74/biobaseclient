@@ -58,7 +58,7 @@ class HltvDemo {
 }
 
 class HltvService {
-  String _apiBase = 'http://localhost:8790';
+  String _apiBase = 'https://cs2.clarionlab.dev/biobasedata';
 
   void configure({required String apiBase}) {
     _apiBase = apiBase.endsWith('/') ? apiBase.substring(0, apiBase.length - 1) : apiBase;

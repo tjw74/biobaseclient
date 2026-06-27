@@ -176,4 +176,120 @@ class GsiService {
     return File(p.join(cfgPath, 'gamestate_integration_biobase.cfg'))
         .existsSync();
   }
+
+  static Future<String?> _findSteamPath() async {
+    if (Platform.isWindows) {
+      try {
+        final result = await Process.run('reg', [
+          'query',
+          r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
+          '/v',
+          'InstallPath',
+        ]);
+        if (result.exitCode == 0) {
+          final match =
+              RegExp(r'REG_SZ\s+(.+)').firstMatch(result.stdout as String);
+          if (match != null) return match.group(1)!.trim();
+        }
+      } catch (_) {}
+      for (final path in [
+        r'C:\Program Files (x86)\Steam',
+        r'D:\Steam',
+        r'E:\Steam',
+      ]) {
+        if (Directory(path).existsSync()) return path;
+      }
+    } else if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'] ?? '';
+      final path = p.join(home, 'Library', 'Application Support', 'Steam');
+      if (Directory(path).existsSync()) return path;
+    }
+    return null;
+  }
+
+  static Future<bool> ensureNetconLaunchOption() async {
+    final steamPath = await _findSteamPath();
+    if (steamPath == null) return false;
+
+    final userdata = Directory(p.join(steamPath, 'userdata'));
+    if (!userdata.existsSync()) return false;
+
+    var found = false;
+    for (final dir in userdata.listSync().whereType<Directory>()) {
+      final vdf = File(p.join(dir.path, 'config', 'localconfig.vdf'));
+      if (!vdf.existsSync()) continue;
+
+      var content = vdf.readAsStringSync();
+      if (content.contains('-netconport')) {
+        found = true;
+        continue;
+      }
+
+      // Find CS2 (app 730) launch options in the VDF
+      final patched = _injectNetconOption(content);
+      if (patched != null) {
+        vdf.writeAsStringSync(patched);
+        found = true;
+      }
+    }
+    return found;
+  }
+
+  static String? _injectNetconOption(String content) {
+    // VDF is a nested key-value format. We need to find the "730" app block
+    // under Software/Valve/Steam/apps and add/modify LaunchOptions.
+    // Strategy: find "730" block, look for "LaunchOptions", append or insert.
+
+    // Match "730" followed by its block opening brace
+    final app730 = RegExp(r'"730"\s*\{');
+    final match = app730.firstMatch(content);
+    if (match == null) return null;
+
+    final blockStart = match.end;
+
+    // Find the matching closing brace for app 730's block
+    var depth = 1;
+    var blockEnd = blockStart;
+    for (var i = blockStart; i < content.length && depth > 0; i++) {
+      if (content[i] == '{') depth++;
+      if (content[i] == '}') depth--;
+      if (depth == 0) blockEnd = i;
+    }
+
+    final block = content.substring(blockStart, blockEnd);
+
+    // Check if LaunchOptions already exists in this block
+    final launchMatch =
+        RegExp(r'"LaunchOptions"\s+"([^"]*)"').firstMatch(block);
+
+    if (launchMatch != null) {
+      final existing = launchMatch.group(1)!;
+      if (existing.contains('-netconport')) return null;
+      final updated = '$existing -netconport 2121';
+      return content.replaceFirst(
+        '"LaunchOptions"\t\t"$existing"',
+        '"LaunchOptions"\t\t"$updated"',
+      );
+    }
+
+    // No LaunchOptions key — insert one right after the opening brace
+    final insertion = '\n\t\t\t\t\t"LaunchOptions"\t\t"-netconport 2121"';
+    return content.substring(0, blockStart) +
+        insertion +
+        content.substring(blockStart);
+  }
+
+  static Future<bool> hasNetconLaunchOption() async {
+    final steamPath = await _findSteamPath();
+    if (steamPath == null) return false;
+    final userdata = Directory(p.join(steamPath, 'userdata'));
+    if (!userdata.existsSync()) return false;
+
+    for (final dir in userdata.listSync().whereType<Directory>()) {
+      final vdf = File(p.join(dir.path, 'config', 'localconfig.vdf'));
+      if (!vdf.existsSync()) continue;
+      if (vdf.readAsStringSync().contains('-netconport')) return true;
+    }
+    return false;
+  }
 }

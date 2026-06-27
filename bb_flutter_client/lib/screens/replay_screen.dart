@@ -39,7 +39,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
   // CS2 integration state
   bool _cs2Connected = false;
   bool _cs2Connecting = false;
-  bool _showSetup = false;
   GsiState? _gsiState;
   StreamSubscription<GsiState>? _gsiSub;
   StreamSubscription? _netconSub;
@@ -178,14 +177,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
   Future<void> _watchInCS2() async {
     if (_demoPath == null) return;
-    setState(() { _cs2Connecting = true; _showSetup = false; });
+    setState(() => _cs2Connecting = true);
 
     await GsiService.installConfig();
+    await GsiService.ensureNetconLaunchOption();
     await _gsi.start();
 
     final ok = await _netcon.connect();
     if (!ok) {
-      if (mounted) setState(() { _cs2Connecting = false; _showSetup = true; });
+      // CS2 not running — launch it and wait for connection
+      _launchCS2();
       return;
     }
 
@@ -196,7 +197,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _cs2Connecting = false;
         _playing = true;
         _playbackSpeed = 1.0;
-        _showSetup = false;
       });
     }
     _startTickTracking();
@@ -340,14 +340,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
             parsingDemo: _parsingDemo,
             cs2Connected: _cs2Connected,
             cs2Connecting: _cs2Connecting,
-            showSetup: _showSetup,
             gsiState: _gsiState,
             playing: _playing,
             moves: _demoMoves,
             playbackPosition: _playbackPosition,
             moveStart: _moveStart,
             onWatchInCS2: _watchInCS2,
-            onLaunchCS2: _launchCS2,
           ),
         ),
       ],
@@ -1354,14 +1352,12 @@ class _RenderArea extends StatelessWidget {
   final bool parsingDemo;
   final bool cs2Connected;
   final bool cs2Connecting;
-  final bool showSetup;
   final GsiState? gsiState;
   final bool playing;
   final List<Move> moves;
   final double playbackPosition;
   final double? moveStart;
   final VoidCallback onWatchInCS2;
-  final VoidCallback onLaunchCS2;
 
   const _RenderArea({
     required this.demoPath,
@@ -1370,13 +1366,11 @@ class _RenderArea extends StatelessWidget {
     required this.parsingDemo,
     required this.cs2Connected,
     required this.cs2Connecting,
-    required this.showSetup,
     required this.gsiState,
     required this.playing,
     required this.moves,
     required this.playbackPosition,
     required this.onWatchInCS2,
-    required this.onLaunchCS2,
     this.moveStart,
   });
 
@@ -1609,8 +1603,8 @@ class _RenderArea extends StatelessWidget {
                   color: BiobaseColors.textTertiary),
             ),
           const SizedBox(height: 24),
-          if (showSetup)
-            _setupInstructions()
+          if (cs2Connecting)
+            _launchingInfo()
           else if (!cs2Connected)
             _WatchButton(onTap: onWatchInCS2)
           else
@@ -1657,54 +1651,27 @@ class _RenderArea extends StatelessWidget {
     );
   }
 
-  Widget _setupInstructions() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      constraints: const BoxConstraints(maxWidth: 360),
-      decoration: BoxDecoration(
-        color: BiobaseColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: BiobaseColors.border),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('CS2 Setup Required',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.text)),
-          const SizedBox(height: 12),
-          const Text(
-            'Add this to your CS2 launch options in Steam:',
-            style: TextStyle(fontSize: 11, color: BiobaseColors.textSecondary),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: BiobaseColors.bg,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: const SelectableText(
-              '-netconport 2121',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.accent),
-            ),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Steam → CS2 → Properties → Launch Options',
-            style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
-          ),
-          const SizedBox(height: 16),
-          _WatchButton(onTap: onLaunchCS2, label: 'Launch CS2 & Connect'),
-        ],
-      ),
+  Widget _launchingInfo() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: BiobaseColors.accent),
+        ),
+        const SizedBox(height: 12),
+        const Text('Launching CS2...',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: BiobaseColors.textSecondary)),
+        const SizedBox(height: 4),
+        const Text('Waiting for connection',
+            style: TextStyle(
+                fontSize: 10, color: BiobaseColors.textTertiary)),
+      ],
     );
   }
 

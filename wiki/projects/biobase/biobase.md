@@ -21,7 +21,9 @@ updated: 2026-06-25T07:00:00Z
 
 A self-hosted analytics platform for Counter-Strike 2 dedicated servers. It captures telemetry during a **session** into Postgres: **`public`** holds the session row; **`ops`** holds RCON samples, raw Loki lines, and status snapshots; **`game`** holds parsed events, movement, round stats, and the CS2KZ SQLite mirror. Grafana uses separate dashboards for **ops** vs **game** queries.
 
-The user-facing product direction is now **Windows desktop client first**: a local Biobase client (Flutter, v0.9.0) runs beside Steam/CS2, detects or saves `.dem` files, parses demo timelines locally, displays movement statistics and an overlay HUD, captures bio/EMG sensor input later, and uploads structured data to the central Biobase server. The existing web/admin surfaces remain operator tools rather than the primary replay/HUD experience. See [[biobase-windows-client-primary-ui]].
+The user-facing product direction is now **Windows desktop client first**: a local Biobase client (Flutter, v0.11.13) runs beside Steam/CS2, detects or saves `.dem` files, parses demo headers locally, displays movement statistics and an overlay HUD, captures bio/EMG sensor input later, and uploads structured data to the central Biobase server. The existing web/admin surfaces remain operator tools rather than the primary replay/HUD experience. See [[biobase-windows-client-primary-ui]].
+
+**Demo Replay** uses CS2 as the render engine — BioBase is the companion controller. Netcon (TCP console) sends playback commands (pause, seek, speed); GSI streams game state back for tick-synced move marking. Pro demos are served from ClarionCore via the biobasedata REST API (98 HLTV demos). See [[biobase-replay-demo-playback]].
 
 A separate **CS2 server package** (v1.0.0) is now offered for self-hosting — one-click installer with auto Docker/WSL2 setup. Distributed via its own repo (tjw74/biobaseserver_cs2). Future direction: local training harness (app + local server as self-contained rig). See [[biobase-cs2-server-installer]].
 
@@ -60,6 +62,7 @@ bb_cs2_dashboard (bb_cs2_server compose)
 - [[biobase-performance-review-ui-doctrine]] — One-page Performance Review UI doctrine with sticky category rail and expandable sections
 - [[biobase-product-roadmap]] — Phased delivery plan, progress tracking, current state (v0.1.44)
 - [[biobase-windows-client-primary-ui]] — Desktop client architecture, three UI surfaces, design decisions
+- [[biobase-replay-demo-playback]] — CS2 as render engine, BioBase as companion controller via Netcon + GSI
 - [[llm-wiki-pattern]] — Karpathy **LLM Wiki** for this monorepo (`wiki/` vault; skills in `obsidian-wiki/`; raw gist copy under `docs/llm-wiki-raw/`)
 - [[biobase-session-ingest]] — session lifecycle, RCON polling, Loki query
 - [[biobase-telemetry-schema]] — `public` / `ops` / `game` schemas, tables, Grafana split

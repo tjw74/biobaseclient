@@ -9,6 +9,8 @@ updated: 2026-06-24T06:01:10Z
 
 ## Recent Activity
 
+- [2026-06-27T01:30:00Z] WIKI_UPDATE agent=Claude project=biobase — **Replay Demo Playback Architecture** — CS2 is the render engine, BioBase is the companion controller. Pro demo pipeline (biobasedata scraper → ClarionCore → REST API → Flutter client) fully operational with 98 demos. Client parses PBDEMS2 headers (map, event, duration, tickrate) and displays info in Replay panel. Next: Netcon TCP integration for demo_pause/seek/speed, GSI sync for tick-accurate move marking. Created [[biobase-replay-demo-playback]].
+
 - [2026-06-24T06:01:10Z] WIKI_UPDATE agent=Codex project=biobase — **Personalized Performance Review** — Flutter now presents all 12 categories as reorderable, persistent accordion rows; multiple dashboards can remain open; all 121 canonical metrics appear with explicit evidence state.
 
 - [2026-06-24T01:20:47Z] WIKI_UPDATE agent=Codex project=biobase — **Release performance contract** — Flutter Performance Review now distinguishes observed, estimated, and not-measured categories with confidence-weighted scoring; fixed settings startup race; added authenticated SQLite client-session history; canonical contract is `biobase-performance-v1`.
@@ -30,7 +32,7 @@ updated: 2026-06-24T06:01:10Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI. Current focus is the personalized Performance Review: persistent row order, multi-open comparison, full metric visibility, trustworthy evidence state, and durable paired-device session history.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.13). Current focus: Replay demo playback integration — CS2 renders demos, BioBase controls playback via Netcon and reads game state via GSI for tick-synced move marking. Pro demo pipeline operational (98 HLTV demos served from ClarionCore).
 
 ## Key Takeaways
 

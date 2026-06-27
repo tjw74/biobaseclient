@@ -236,18 +236,12 @@ class GsiService {
   }
 
   static String? _injectNetconOption(String content) {
-    // VDF is a nested key-value format. We need to find the "730" app block
-    // under Software/Valve/Steam/apps and add/modify LaunchOptions.
-    // Strategy: find "730" block, look for "LaunchOptions", append or insert.
-
-    // Match "730" followed by its block opening brace
     final app730 = RegExp(r'"730"\s*\{');
     final match = app730.firstMatch(content);
     if (match == null) return null;
 
     final blockStart = match.end;
 
-    // Find the matching closing brace for app 730's block
     var depth = 1;
     var blockEnd = blockStart;
     for (var i = blockStart; i < content.length && depth > 0; i++) {
@@ -258,7 +252,6 @@ class GsiService {
 
     final block = content.substring(blockStart, blockEnd);
 
-    // Check if LaunchOptions already exists in this block
     final launchMatch =
         RegExp(r'"LaunchOptions"\s+"([^"]*)"').firstMatch(block);
 
@@ -266,13 +259,13 @@ class GsiService {
       final existing = launchMatch.group(1)!;
       if (existing.contains('-netconport')) return null;
       final updated = '$existing -netconport 2121';
-      return content.replaceFirst(
-        '"LaunchOptions"\t\t"$existing"',
-        '"LaunchOptions"\t\t"$updated"',
-      );
+      final absStart = blockStart + launchMatch.start;
+      final absEnd = blockStart + launchMatch.end;
+      final original = content.substring(absStart, absEnd);
+      final replaced = original.replaceFirst('"$existing"', '"$updated"');
+      return content.substring(0, absStart) + replaced + content.substring(absEnd);
     }
 
-    // No LaunchOptions key — insert one right after the opening brace
     final insertion = '\n\t\t\t\t\t"LaunchOptions"\t\t"-netconport 2121"';
     return content.substring(0, blockStart) +
         insertion +

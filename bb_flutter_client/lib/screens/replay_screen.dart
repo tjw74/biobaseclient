@@ -39,6 +39,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   // CS2 integration state
   bool _cs2Connected = false;
   bool _cs2Connecting = false;
+  bool _steamRestarted = false;
   String _connectStatus = 'Waiting for connection';
   GsiState? _gsiState;
   StreamSubscription<GsiState>? _gsiSub;
@@ -261,16 +262,13 @@ class _ReplayScreenState extends State<ReplayScreen> {
         await Future.delayed(const Duration(seconds: 2));
       }
 
-      // Ensure netcon launch option is in Steam config.
-      // Steam caches localconfig.vdf in memory, so if it's running
-      // and the option isn't set, we must restart Steam.
-      final hasNetcon = await GsiService.hasNetconLaunchOption();
-      if (!hasNetcon) {
+      if (!_steamRestarted) {
         if (mounted) setState(() => _connectStatus = 'Configuring Steam...');
         await Process.run('taskkill', ['/F', '/IM', 'steam.exe']);
         await Future.delayed(const Duration(seconds: 3));
 
         await GsiService.ensureNetconLaunchOption();
+        _steamRestarted = true;
 
         if (mounted) setState(() => _connectStatus = 'Restarting Steam...');
         final steamExe = await _findSteamExe();

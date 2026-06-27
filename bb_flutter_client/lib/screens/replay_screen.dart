@@ -246,14 +246,24 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   Future<void> _launchCS2() async {
-    final uri = Uri.parse('steam://rungameid/730');
     if (Platform.isWindows) {
-      await Process.start('cmd', ['/c', 'start', '', uri.toString()],
-          mode: ProcessStartMode.detached);
+      final steamPath = await _findSteamExe();
+      if (steamPath != null) {
+        await Process.start(
+          steamPath, ['-applaunch', '730', '-netconport', '2121'],
+          mode: ProcessStartMode.detached,
+        );
+      } else {
+        await Process.start(
+          'cmd', ['/c', 'start', '', 'steam://rungameid/730'],
+          mode: ProcessStartMode.detached,
+        );
+      }
     } else if (Platform.isMacOS) {
-      await Process.start('open', [uri.toString()],
+      await Process.start('open', ['steam://rungameid/730'],
           mode: ProcessStartMode.detached);
     }
+    if (mounted) setState(() => _cs2Connecting = true);
     _netcon.startReconnect();
     _netconSub?.cancel();
     _netconSub = Stream.periodic(const Duration(seconds: 2)).listen((_) {
@@ -262,6 +272,30 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _watchInCS2();
       }
     });
+  }
+
+  Future<String?> _findSteamExe() async {
+    try {
+      final result = await Process.run('reg', [
+        'query', r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
+        '/v', 'InstallPath',
+      ]);
+      if (result.exitCode == 0) {
+        final match =
+            RegExp(r'REG_SZ\s+(.+)').firstMatch(result.stdout as String);
+        if (match != null) {
+          final exe = '${match.group(1)!.trim()}\\steam.exe';
+          if (File(exe).existsSync()) return exe;
+        }
+      }
+    } catch (_) {}
+    for (final path in [
+      r'C:\Program Files (x86)\Steam\steam.exe',
+      r'D:\Steam\steam.exe',
+    ]) {
+      if (File(path).existsSync()) return path;
+    }
+    return null;
   }
 
   void _onMarkTap() {

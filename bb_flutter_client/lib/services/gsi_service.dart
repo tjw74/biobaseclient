@@ -170,6 +170,16 @@ class GsiService {
     return true;
   }
 
+  static Future<String?> findCs2Exe() async {
+    final cfgPath = await findCs2CfgPath();
+    if (cfgPath == null) return null;
+    // cfg = .../game/csgo/cfg → up to game → bin/win64/cs2.exe
+    final gameDir = Directory(cfgPath).parent.parent.path;
+    final exePath = p.join(gameDir, 'bin', 'win64', 'cs2.exe');
+    if (File(exePath).existsSync()) return exePath;
+    return null;
+  }
+
   static Future<bool> isConfigInstalled() async {
     final cfgPath = await findCs2CfgPath();
     if (cfgPath == null) return false;

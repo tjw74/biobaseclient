@@ -39,7 +39,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
   // CS2 integration state
   bool _cs2Connected = false;
   bool _cs2Connecting = false;
-  bool _steamRestarted = false;
   String _connectStatus = 'Waiting for connection';
   GsiState? _gsiState;
   StreamSubscription<GsiState>? _gsiSub;
@@ -254,39 +253,40 @@ class _ReplayScreenState extends State<ReplayScreen> {
     });
 
     if (Platform.isWindows) {
-      // Kill CS2 if running
       final taskCheck = await Process.run('tasklist', ['/FI', 'IMAGENAME eq cs2.exe', '/NH']);
       if ((taskCheck.stdout as String).contains('cs2.exe')) {
         if (mounted) setState(() => _connectStatus = 'Closing CS2...');
         await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
-        await Future.delayed(const Duration(seconds: 2));
+        await Future.delayed(const Duration(seconds: 3));
       }
 
-      if (!_steamRestarted) {
-        if (mounted) setState(() => _connectStatus = 'Configuring Steam...');
-        await Process.run('taskkill', ['/F', '/IM', 'steam.exe']);
-        await Future.delayed(const Duration(seconds: 3));
-
-        await GsiService.ensureNetconLaunchOption();
-        _steamRestarted = true;
-
-        if (mounted) setState(() => _connectStatus = 'Restarting Steam...');
+      // Ensure Steam is running (needed for CS2 auth)
+      final steamCheck = await Process.run('tasklist', ['/FI', 'IMAGENAME eq steam.exe', '/NH']);
+      if (!(steamCheck.stdout as String).contains('steam.exe')) {
+        if (mounted) setState(() => _connectStatus = 'Starting Steam...');
         final steamExe = await _findSteamExe();
         if (steamExe != null) {
           await Process.start(steamExe, ['-silent'],
               mode: ProcessStartMode.detached);
+          await Future.delayed(const Duration(seconds: 8));
         }
-        await Future.delayed(const Duration(seconds: 10));
       }
 
       if (mounted) setState(() => _connectStatus = 'Launching CS2...');
-      final steamExe = await _findSteamExe();
-      if (steamExe != null) {
-        await Process.start(steamExe, ['-applaunch', '730'],
-            mode: ProcessStartMode.detached);
+
+      // Launch cs2.exe directly with netcon argument — bypasses Steam's
+      // argument handling which silently drops extra args.
+      final cs2Exe = await GsiService.findCs2Exe();
+      if (cs2Exe != null) {
+        await Process.start(cs2Exe, ['-netconport', '2121'],
+            mode: ProcessStartMode.detached,
+            workingDirectory: File(cs2Exe).parent.path);
       } else {
-        await Process.start('cmd', ['/c', 'start', '', 'steam://rungameid/730'],
-            mode: ProcessStartMode.detached);
+        final steamExe = await _findSteamExe();
+        if (steamExe != null) {
+          await Process.start(steamExe, ['-applaunch', '730'],
+              mode: ProcessStartMode.detached);
+        }
       }
     } else if (Platform.isMacOS) {
       await Process.start('open', ['steam://rungameid/730'],

@@ -251,22 +251,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
       final taskCheck = await Process.run('tasklist', ['/FI', 'IMAGENAME eq cs2.exe', '/NH']);
       if ((taskCheck.stdout as String).contains('cs2.exe')) {
         await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
-        await Future.delayed(const Duration(seconds: 2));
+        await Future.delayed(const Duration(seconds: 3));
       }
-      final steamPath = await _findSteamExe();
-      if (steamPath != null) {
-        await Process.start(
-          steamPath, ['-applaunch', '730', '-netconport', '2121'],
-          mode: ProcessStartMode.detached,
-        );
-      } else {
-        await Process.start(
-          'cmd', ['/c', 'start', '', 'steam://rungameid/730'],
-          mode: ProcessStartMode.detached,
-        );
-      }
+    }
+    // Use steam:// URL with launch options — same pattern as _connectToServer
+    final url = 'steam://run/730/-netconport%202121//';
+    if (Platform.isWindows) {
+      await Process.start('cmd', ['/c', 'start', '', url],
+          mode: ProcessStartMode.detached);
     } else if (Platform.isMacOS) {
-      await Process.start('open', ['steam://rungameid/730'],
+      await Process.start('open', [url],
           mode: ProcessStartMode.detached);
     }
     if (mounted) setState(() => _cs2Connecting = true);
@@ -278,30 +272,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _watchInCS2();
       }
     });
-  }
-
-  Future<String?> _findSteamExe() async {
-    try {
-      final result = await Process.run('reg', [
-        'query', r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
-        '/v', 'InstallPath',
-      ]);
-      if (result.exitCode == 0) {
-        final match =
-            RegExp(r'REG_SZ\s+(.+)').firstMatch(result.stdout as String);
-        if (match != null) {
-          final exe = '${match.group(1)!.trim()}\\steam.exe';
-          if (File(exe).existsSync()) return exe;
-        }
-      }
-    } catch (_) {}
-    for (final path in [
-      r'C:\Program Files (x86)\Steam\steam.exe',
-      r'D:\Steam\steam.exe',
-    ]) {
-      if (File(path).existsSync()) return path;
-    }
-    return null;
   }
 
   void _onMarkTap() {

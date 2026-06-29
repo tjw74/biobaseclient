@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-29T01:13:16Z
+updated: 2026-06-29T08:05:31Z
 ---
 
 # Hot Cache
@@ -8,6 +8,8 @@ updated: 2026-06-29T01:13:16Z
 *A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
+
+- [2026-06-29T08:05:31Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.24 console injection hardening** — v0.11.23 opened CS2 and displayed the console but did not land the `playdemo` input. v0.11.24 shortens the pre-fallback Netcon wait to 8s and injects `exec biobase_replay` plus `playdemo <staged-demo>` through Ctrl+V, Shift+Insert, and direct SendKeys typing. Updated [[biobase-replay-demo-playback]].
 
 - [2026-06-29T01:13:16Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.23 cfg + console fallback** — Windows QA showed v0.11.22 could open CS2 but stay in the menu. Updated Replay to write `biobase_replay.cfg`, launch with `-steam -console -condebug -netconport 2121 +exec biobase_replay.cfg +playdemo`, and, after Netcon timeout, focus CS2 and paste `playdemo` through the console fallback. Updated [[biobase-replay-demo-playback]].
 
@@ -38,7 +40,7 @@ updated: 2026-06-29T01:13:16Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.23). Current focus: verifying Replay demo render playback on Windows. The new Replay flow stages demos into CS2's own `game/csgo/biobase_replays` directory, writes `biobase_replay.cfg`, launches CS2 with `+exec`/`+playdemo` and `-netconport 2121`, then uses Netcon or the Windows console fallback to start playback with explicit diagnostics if any stage fails.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.24). Current focus: verifying Replay demo render playback on Windows. The Replay flow stages demos into CS2's own `game/csgo/biobase_replays` directory, writes `biobase_replay.cfg`, launches CS2 with `+exec`/`+playdemo` and `-netconport 2121`, then quickly injects `exec biobase_replay` + `playdemo <staged-demo>` into the visible CS2 console if Netcon does not appear.
 
 ## Key Takeaways
 

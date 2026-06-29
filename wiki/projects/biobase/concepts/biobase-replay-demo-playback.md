@@ -8,7 +8,7 @@ summary: >-
   CS2 game tree, writes a replay cfg, launches CS2 with +exec/+playdemo,
   then uses Netcon or a Windows console fallback for playback control.
 created: 2026-06-27T01:30:00Z
-updated: 2026-06-29T01:13:16Z
+updated: 2026-06-29T08:05:31Z
 ---
 
 # Biobase Replay Demo Playback Architecture
@@ -98,20 +98,20 @@ The `-netconport 2121` launch option must be passed to CS2 at startup. This prov
 
 **The file-check false positive.** `hasNetconLaunchOption()` searches the VDF for the string `-netconport`. If a previous failed write put this string in the file (but Steam never loaded it), the check returns true and the critical Steam restart is skipped. The setting exists in the file but not in Steam's running config.
 
-### Current Approach (v0.11.23): Stage Demo + Replay CFG + Console Fallback
+### Current Approach (v0.11.24): Stage Demo + Replay CFG + Multi-Path Console Injection
 
-Windows QA of v0.11.22 showed CS2 could be opened from BioBase but still land in the normal main menu: direct `+playdemo` was not a reliable enough startup contract, and Netcon still did not open on the target machine. v0.11.23 keeps the staged-demo approach but adds two more playback bootstrap layers.
+Windows QA of v0.11.22 showed CS2 could be opened from BioBase but still land in the normal main menu: direct `+playdemo` was not a reliable enough startup contract, and Netcon still did not open on the target machine. v0.11.24 keeps the staged-demo/replay-cfg approach and hardens the console fallback that v0.11.23 exposed as the remaining failure point.
 
 ```text
 1. Copy selected demo → <CS2>/game/csgo/biobase_replays/<safe-name>.dem
 2. Write <CS2>/game/csgo/cfg/biobase_replay.cfg containing:
    con_enable "1"
-   playdemo "biobase_replays/<safe-name>.dem"
+   playdemo biobase_replays/<safe-name>.dem
    demo_resume
 3. Launch cs2.exe directly with:
    -steam -novid -console -condebug -windowed -noborder -netconport 2121 +exec biobase_replay.cfg +playdemo biobase_replays/<safe-name>.dem
 4. Wait for Netcon on 127.0.0.1:2121; if connected, resend playdemo and attach pause/seek/speed controls
-5. If Netcon does not open, focus the CS2 window with PowerShell/Win32, open the console key, paste `playdemo "<staged-demo>"`, press Enter, and keep retrying Netcon
+5. If Netcon does not open after 8 seconds, focus the CS2 window with PowerShell/Win32 and inject `exec biobase_replay` plus `playdemo <staged-demo>` by clipboard paste, Shift+Insert, and direct typing; keep retrying Netcon
 6. Surface explicit diagnostics for cfg install, GSI install/start, launch method, Netcon timeout, and console-fallback success/failure
 ```
 
@@ -120,11 +120,11 @@ This is intentionally layered rather than elegant because Replay is a release-cr
 - **Demo file staging:** CS2 receives a relative path under its own `game/csgo` tree, matching the already-used render-worker pattern of copying demos into the game directory before `playdemo`.
 - **Replay cfg bootstrap:** `biobase_replay.cfg` lets CS2 execute `playdemo` after the client config system exists, which is more reliable than only passing a one-shot launch command.
 - **Launch-time redundancy:** BioBase passes both `+exec biobase_replay.cfg` and `+playdemo <staged-demo>` so either command path can start rendering.
-- **Windows console fallback:** if CS2 opens but ignores startup commands, BioBase focuses the CS2 window and pastes the exact `playdemo` command into the developer console. This is the targeted fix for the observed v0.11.22 failure screenshot.
+- **Windows console fallback:** if CS2 opens but ignores startup commands, BioBase focuses the CS2 window and injects `exec biobase_replay` plus `playdemo <staged-demo>` using Ctrl+V, Shift+Insert, and direct SendKeys typing. This targets the v0.11.23 screenshot where the CS2 console was visible but no command appeared in the input line.
 - **Control attach:** Netcon remains the preferred control channel for pause/resume/timescale/seek; the app retries in the background if the socket opens late.
 - **Diagnostics:** Replay surfaces the exact failure stage instead of spinning: staging, replay cfg, GSI config, CS2 launch, Netcon timeout, console fallback, or command send.
 
-**Status: implemented in v0.11.23 and pushed for Windows QA.** After clicking **Watch in CS2**, expected behavior is that CS2 enters the selected demo. If Netcon remains unavailable, rendering may still work through the cfg/console path while BioBase reports controls unavailable until Netcon appears.
+**Status: implemented in v0.11.24 and pushed for Windows QA.** v0.11.23 proved CS2 could be foregrounded with the console open, but the single clipboard paste did not land in the console input. v0.11.24 reduces the pre-fallback Netcon wait to 8 seconds, then injects both `exec biobase_replay` and `playdemo <staged-demo>` via Ctrl+V, Shift+Insert, and direct SendKeys typing. Expected behavior after clicking **Watch in CS2** is that CS2 enters the selected demo quickly even if Netcon never opens.
 
 ### GSI Config Auto-Install
 

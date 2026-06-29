@@ -319,7 +319,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       return;
     }
 
-    final connected = await _waitForNetcon();
+    final connected = await _waitForNetcon(timeout: const Duration(seconds: 8));
     if (!mounted) return;
     if (connected) {
       diagnostics.add('Netcon connected after launch.');
@@ -340,8 +340,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
     if (!mounted) return;
     diagnostics.add(
       fallbackSent
-          ? 'Console fallback pasted playdemo into CS2.'
-          : 'Console fallback could not focus/paste into CS2.',
+          ? 'Console fallback typed exec/playdemo into CS2.'
+          : 'Console fallback could not focus/type into CS2.',
     );
     setState(() {
       _connectStatus = fallbackSent
@@ -370,7 +370,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _connectStatus = fallbackSent ? 'Replay command sent' : 'CS2 launch sent';
       _replayDiagnostics = List.of(diagnostics);
       _replayIssue = fallbackSent
-          ? 'BioBase launched CS2 and pasted playdemo into the CS2 console, but the Netcon control socket still did not open. If the demo is playing in CS2 now, replay rendering is working and controls will attach if Netcon appears.'
+          ? 'BioBase launched CS2 and typed exec/playdemo into the CS2 console, but the Netcon control socket still did not open. If the demo is playing in CS2 now, replay rendering is working and controls will attach if Netcon appears.'
           : 'CS2 was launched with the replay cfg and +playdemo, but BioBase could not open Netcon or paste the console fallback. CS2 may be ignoring startup replay commands on this machine.';
     });
     _startBackgroundNetconReconnect(target);

@@ -52,19 +52,32 @@ void main() {
     );
 
     expect(cfg, contains('con_enable "1"'));
-    expect(cfg, contains('playdemo "biobase_replays/test.dem"'));
+    expect(cfg, contains('playdemo biobase_replays/test.dem'));
     expect(cfg, contains('demo_resume'));
   });
 
-  test('Windows console fallback focuses CS2 and pastes playdemo command', () {
-    final script = ReplayLaunchService.buildWindowsConsolePasteScript(
-      ReplayLaunchService.buildPlaydemoCommand('biobase_replays/test.dem'),
-    );
+  test(
+    'console fallback executes cfg and playdemo through multiple input paths',
+    () {
+      final commands = ReplayLaunchService.buildConsoleFallbackCommands(
+        'biobase_replays/test.dem',
+      );
+      final script = ReplayLaunchService.buildWindowsConsolePasteScript(
+        commands,
+      );
 
-    expect(script, contains('Get-Process cs2'));
-    expect(script, contains('SetForegroundWindow'));
-    expect(script, contains('Set-Clipboard -Value'));
-    expect(script, contains('playdemo "biobase_replays/test.dem"'));
-    expect(script, contains('SendKeys'));
-  });
+      expect(commands, [
+        'exec biobase_replay',
+        'playdemo biobase_replays/test.dem',
+      ]);
+      expect(script, contains('Get-Process cs2'));
+      expect(script, contains('SetForegroundWindow'));
+      expect(script, contains('Set-Clipboard -Value'));
+      expect(script, contains('playdemo biobase_replays/test.dem'));
+      expect(script, contains('^v'));
+      expect(script, contains('+{INSERT}'));
+      expect(script, contains('foreach'));
+      expect(script, contains('SendKeys'));
+    },
+  );
 }

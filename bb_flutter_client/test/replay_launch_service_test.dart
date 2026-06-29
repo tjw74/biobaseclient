@@ -25,6 +25,7 @@ void main() {
       );
 
       expect(args, contains('-steam'));
+      expect(args, contains('-dev'));
       expect(args, containsAll(['-netconport', '$replayNetconPort']));
       expect(args, containsAll(['+exec', replayExecConfigName]));
       expect(args, containsAll(['+playdemo', 'biobase_replays/test.dem']));
@@ -40,6 +41,7 @@ void main() {
       );
 
       expect(args.take(2), ['-applaunch', '730']);
+      expect(args, contains('-dev'));
       expect(args, containsAll(['-netconport', '$replayNetconPort']));
       expect(args, containsAll(['+exec', replayExecConfigName]));
       expect(args, containsAll(['+playdemo', 'biobase_replays/test.dem']));
@@ -52,6 +54,8 @@ void main() {
     );
 
     expect(cfg, contains('con_enable "1"'));
+    expect(cfg, contains('bind "`" "toggleconsole"'));
+    expect(cfg, contains('bind "F8" "toggleconsole"'));
     expect(cfg, contains('playdemo biobase_replays/test.dem'));
     expect(cfg, contains('demo_resume'));
   });
@@ -72,11 +76,17 @@ void main() {
       ]);
       expect(script, contains('Get-Process cs2'));
       expect(script, contains('SetForegroundWindow'));
+      expect(script, contains('BringWindowToTop'));
+      expect(script, contains('ForceForeground'));
       expect(script, contains('Set-Clipboard -Value'));
       expect(script, contains('playdemo biobase_replays/test.dem'));
       expect(script, contains('SendInput'));
       expect(script, contains('KEYEVENTF_UNICODE'));
       expect(script, contains('CtrlV'));
+      expect(script, contains('CtrlA'));
+      expect(script, contains('VK_BACK'));
+      expect(script, contains('VK_OEM_3'));
+      expect(script, contains('Send-BioBaseReplayCommands'));
       expect(script, contains('foreach'));
       expect(script, contains('BioBaseInput'));
     },

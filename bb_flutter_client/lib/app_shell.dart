@@ -138,7 +138,10 @@ class _AppShellState extends State<AppShell> {
     if (err != null) {
       setState(() => _updatePhase = _UpdatePhase.idle);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update failed: $err'), duration: const Duration(seconds: 4)),
+        SnackBar(
+          content: Text('Update failed: $err'),
+          duration: const Duration(seconds: 4),
+        ),
       );
     } else {
       setState(() => _updatePhase = _UpdatePhase.done);
@@ -162,7 +165,10 @@ class _AppShellState extends State<AppShell> {
       if (err != null) {
         setState(() => _updatePhase = _UpdatePhase.idle);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Update failed: $err'), duration: const Duration(seconds: 4)),
+          SnackBar(
+            content: Text('Update failed: $err'),
+            duration: const Duration(seconds: 4),
+          ),
         );
       } else {
         setState(() => _updatePhase = _UpdatePhase.done);
@@ -209,8 +215,11 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyO,
-            control: true, shift: true): _toggleOverlay,
+        const SingleActivator(
+          LogicalKeyboardKey.keyO,
+          control: true,
+          shift: true,
+        ): _toggleOverlay,
         if (_overlayMode)
           const SingleActivator(LogicalKeyboardKey.escape): _exitOverlay,
       },
@@ -360,26 +369,32 @@ class _Sidebar extends StatelessWidget {
           // Brand
           Padding(
             padding: EdgeInsets.symmetric(horizontal: collapsed ? 8 : 16),
-            child: Row(
-              mainAxisAlignment: collapsed
-                  ? MainAxisAlignment.center
-                  : MainAxisAlignment.start,
-              children: [
-                Text(
-                  collapsed ? 'B' : 'BioBase',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: collapsed ? FontWeight.w700 : FontWeight.w600,
-                    color: BiobaseColors.text,
-                  ),
+            child: Align(
+              alignment: collapsed ? Alignment.center : Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      collapsed ? 'B' : 'BioBase',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: collapsed
+                            ? FontWeight.w700
+                            : FontWeight.w600,
+                        color: BiobaseColors.text,
+                      ),
+                    ),
+                    SizedBox(width: collapsed ? 4 : 6),
+                    _VersionIndicator(
+                      phase: updatePhase,
+                      updateVersion: updateVersion,
+                      onTap: onCheckUpdate,
+                    ),
+                  ],
                 ),
-                SizedBox(width: collapsed ? 4 : 6),
-                _VersionIndicator(
-                  phase: updatePhase,
-                  updateVersion: updateVersion,
-                  onTap: onCheckUpdate,
-                ),
-              ],
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -1228,7 +1243,11 @@ class _WindowControlsState extends State<_WindowControls> {
             if (mounted) setState(() => _maximized = m);
           },
         ),
-        _windowBtn(Icons.close, () => windowManager.close(), hover: BiobaseColors.error),
+        _windowBtn(
+          Icons.close,
+          () => windowManager.close(),
+          hover: BiobaseColors.error,
+        ),
       ],
     );
   }
@@ -1243,7 +1262,11 @@ class _WindowButton extends StatefulWidget {
   final VoidCallback onTap;
   final Color? hoverColor;
 
-  const _WindowButton({required this.icon, required this.onTap, this.hoverColor});
+  const _WindowButton({
+    required this.icon,
+    required this.onTap,
+    this.hoverColor,
+  });
 
   @override
   State<_WindowButton> createState() => _WindowButtonState();
@@ -1268,11 +1291,13 @@ class _WindowButtonState extends State<_WindowButton> {
             color: _hovered ? hc : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
-          child: Icon(widget.icon,
-              size: 12,
-              color: _hovered && widget.hoverColor != null
-                  ? Colors.white
-                  : BiobaseColors.textTertiary),
+          child: Icon(
+            widget.icon,
+            size: 12,
+            color: _hovered && widget.hoverColor != null
+                ? Colors.white
+                : BiobaseColors.textTertiary,
+          ),
         ),
       ),
     );

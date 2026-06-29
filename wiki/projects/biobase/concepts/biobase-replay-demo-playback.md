@@ -4,11 +4,11 @@ category: concepts
 tags: [biobase, cs2, demo-playback, gsi, netcon, replay]
 sources: [projects/biobase]
 summary: >-
-  CS2 is the render engine for demo playback; BioBase is the companion
-  controller using Netcon (TCP console) for commands and GSI for game
-  state. No custom render engine needed or planned.
+  CS2 is the render engine for demo playback; BioBase stages demos inside the
+  CS2 game tree, launches CS2 with +playdemo, then attaches Netcon and GSI for
+  controls, status, and move marking.
 created: 2026-06-27T01:30:00Z
-updated: 2026-06-27T12:30:00Z
+updated: 2026-06-29T00:31:04Z
 ---
 
 # Biobase Replay Demo Playback Architecture
@@ -98,23 +98,28 @@ The `-netconport 2121` launch option must be passed to CS2 at startup. This prov
 
 **The file-check false positive.** `hasNetconLaunchOption()` searches the VDF for the string `-netconport`. If a previous failed write put this string in the file (but Steam never loaded it), the check returns true and the critical Steam restart is skipped. The setting exists in the file but not in Steam's running config.
 
-### Current Approach (v0.11.21): Direct Process Launch
+### Current Approach (v0.11.22): Stage Demo + Launch-Time Playback + Netcon Attach
 
-Bypass Steam's argument handling entirely. Find `cs2.exe` on disk and launch it as a direct subprocess with `-netconport 2121`:
+The v0.11.21 direct-launch attempt opened CS2 but still left demo render playback unreliable because BioBase depended on a later Netcon `playdemo` command and tried to play files from arbitrary user/download paths. v0.11.22 makes demo playback the launch contract itself:
 
 ```text
-Path: <SteamDir>/steamapps/common/Counter-Strike Global Offensive/game/bin/win64/cs2.exe
-Args: -netconport 2121
-Requires: Steam running in background (for Steam API auth)
+1. Copy selected demo → <CS2>/game/csgo/biobase_replays/<safe-name>.dem
+2. Launch cs2.exe directly with:
+   -novid -console -windowed -noborder -netconport 2121 +playdemo biobase_replays/<safe-name>.dem
+3. Wait up to 75 seconds for Netcon on 127.0.0.1:2121
+4. Once Netcon connects, resend playdemo with the staged relative path and attach pause/seek/speed controls
+5. If Netcon never opens, leave CS2 launched with +playdemo and show in-app diagnostics instead of spinning forever
 ```
 
-This approach:
-- Finds CS2 exe from the known cfg path (registry lookup → `game/csgo/cfg` → up to `game` → `bin/win64/cs2.exe`)
-- Ensures Steam is running (starts it with `-silent` if needed)
-- Launches cs2.exe directly with the netcon argument as a process argument
-- Falls back to `steam.exe -applaunch 730` if cs2.exe cannot be found
+This is intentionally more deterministic than the older approach:
 
-**Status: Deployed in v0.11.21, awaiting verification.** The direct launch approach has not yet been confirmed working on Windows. If CS2 refuses to start without Steam's app-launch mechanism, an alternative approach will be needed.
+- **Demo file staging:** CS2 receives a relative path under its own `game/csgo` tree, matching the already-used render-worker pattern of copying demos into the game directory before `+playdemo`.
+- **Launch-time playback:** `+playdemo` is included in the process arguments, so rendering can begin even before Netcon is available.
+- **Control attach:** Netcon remains the control channel for `playdemo`, pause/resume, timescale, and seek; the app retries in the background if the socket opens late.
+- **Diagnostics:** Replay now surfaces the exact failure stage: staging, GSI config, CS2 launch, Netcon timeout, or command-send failure.
+- **Fallback:** If direct `cs2.exe` launch cannot be resolved, BioBase falls back to `steam.exe -applaunch 730 -console +playdemo <staged-demo>` without claiming Netcon control.
+
+**Status: implemented in v0.11.22 and ready for Windows QA.** The remaining truth test is on the target Windows machine: after clicking **Watch in CS2**, CS2 should open directly into demo playback; BioBase controls should attach once Netcon opens, and the Replay panel should show diagnostics if they do not.
 
 ### GSI Config Auto-Install
 
@@ -146,8 +151,8 @@ The GSI config file (`gamestate_integration_biobase.cfg`) is written automatical
 
 1. User opens Replay, selects a demo (local, server, or pro)
 2. BioBase parses the PBDEMS2 header → shows map, event, duration, tickrate
-3. User clicks "Watch in CS2" → BioBase launches CS2 with netcon enabled and sends `playdemo`
-4. CS2 renders the demo; GSI streams game state back to BioBase
+3. User clicks "Watch in CS2" → BioBase stages the file under `game/csgo/biobase_replays`, launches CS2 with `+playdemo`, and waits for Netcon
+4. CS2 renders the demo; BioBase attaches controls through Netcon and GSI streams game state back
 5. BioBase timeline syncs to CS2 tick position
 6. User marks move start/end in BioBase UI, synced to CS2's game clock
 7. Marked moves are saved with tick positions for use in other features (Shadow, analysis)

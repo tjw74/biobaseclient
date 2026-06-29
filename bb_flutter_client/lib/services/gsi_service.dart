@@ -23,7 +23,8 @@ class GsiState {
 
 const _gsiPort = 29741;
 
-const _gsiConfig = '''
+const _gsiConfig =
+    '''
 "BioBase"
 {
     "uri"          "http://127.0.0.1:$_gsiPort"
@@ -119,18 +120,21 @@ class GsiService {
           'InstallPath',
         ]);
         if (result.exitCode == 0) {
-          final match =
-              RegExp(r'REG_SZ\s+(.+)').firstMatch(result.stdout as String);
+          final match = RegExp(
+            r'REG_SZ\s+(.+)',
+          ).firstMatch(result.stdout as String);
           if (match != null) {
-            candidates.add(p.join(
-              match.group(1)!.trim(),
-              'steamapps',
-              'common',
-              'Counter-Strike Global Offensive',
-              'game',
-              'csgo',
-              'cfg',
-            ));
+            candidates.add(
+              p.join(
+                match.group(1)!.trim(),
+                'steamapps',
+                'common',
+                'Counter-Strike Global Offensive',
+                'game',
+                'csgo',
+                'cfg',
+              ),
+            );
           }
         }
       } catch (_) {}
@@ -141,18 +145,20 @@ class GsiService {
       ]);
     } else if (Platform.isMacOS) {
       final home = Platform.environment['HOME'] ?? '';
-      candidates.add(p.join(
-        home,
-        'Library',
-        'Application Support',
-        'Steam',
-        'steamapps',
-        'common',
-        'Counter-Strike Global Offensive',
-        'game',
-        'csgo',
-        'cfg',
-      ));
+      candidates.add(
+        p.join(
+          home,
+          'Library',
+          'Application Support',
+          'Steam',
+          'steamapps',
+          'common',
+          'Counter-Strike Global Offensive',
+          'game',
+          'csgo',
+          'cfg',
+        ),
+      );
     }
 
     for (final c in candidates) {
@@ -164,8 +170,7 @@ class GsiService {
   static Future<bool> installConfig() async {
     final cfgPath = await findCs2CfgPath();
     if (cfgPath == null) return false;
-    final file =
-        File(p.join(cfgPath, 'gamestate_integration_biobase.cfg'));
+    final file = File(p.join(cfgPath, 'gamestate_integration_biobase.cfg'));
     await file.writeAsString(_gsiConfig);
     return true;
   }
@@ -180,11 +185,20 @@ class GsiService {
     return null;
   }
 
+  static Future<String?> findCs2GameCsgoPath() async {
+    final cfgPath = await findCs2CfgPath();
+    if (cfgPath == null) return null;
+    final csgoDir = Directory(cfgPath).parent.path;
+    if (Directory(csgoDir).existsSync()) return csgoDir;
+    return null;
+  }
+
   static Future<bool> isConfigInstalled() async {
     final cfgPath = await findCs2CfgPath();
     if (cfgPath == null) return false;
-    return File(p.join(cfgPath, 'gamestate_integration_biobase.cfg'))
-        .existsSync();
+    return File(
+      p.join(cfgPath, 'gamestate_integration_biobase.cfg'),
+    ).existsSync();
   }
 
   static Future<String?> _findSteamPath() async {
@@ -197,8 +211,9 @@ class GsiService {
           'InstallPath',
         ]);
         if (result.exitCode == 0) {
-          final match =
-              RegExp(r'REG_SZ\s+(.+)').firstMatch(result.stdout as String);
+          final match = RegExp(
+            r'REG_SZ\s+(.+)',
+          ).firstMatch(result.stdout as String);
           if (match != null) return match.group(1)!.trim();
         }
       } catch (_) {}
@@ -262,8 +277,9 @@ class GsiService {
 
     final block = content.substring(blockStart, blockEnd);
 
-    final launchMatch =
-        RegExp(r'"LaunchOptions"\s+"([^"]*)"').firstMatch(block);
+    final launchMatch = RegExp(
+      r'"LaunchOptions"\s+"([^"]*)"',
+    ).firstMatch(block);
 
     if (launchMatch != null) {
       final existing = launchMatch.group(1)!;
@@ -273,7 +289,9 @@ class GsiService {
       final absEnd = blockStart + launchMatch.end;
       final original = content.substring(absStart, absEnd);
       final replaced = original.replaceFirst('"$existing"', '"$updated"');
-      return content.substring(0, absStart) + replaced + content.substring(absEnd);
+      return content.substring(0, absStart) +
+          replaced +
+          content.substring(absEnd);
     }
 
     final insertion = '\n\t\t\t\t\t"LaunchOptions"\t\t"-netconport 2121"';

@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-27T12:30:00Z
+updated: 2026-06-29T00:31:04Z
 ---
 
 # Hot Cache
@@ -8,6 +8,8 @@ updated: 2026-06-27T12:30:00Z
 *A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
+
+- [2026-06-29T00:31:04Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.22 launch architecture** — Implemented deterministic Replay startup: stage demos under CS2 `game/csgo/biobase_replays`, launch CS2 with `-netconport 2121 +playdemo`, attach Netcon controls after launch, keep GSI receiver active, and surface in-app diagnostics for staging/launch/socket/command failures. Updated [[biobase-replay-demo-playback]].
 
 - [2026-06-27T12:30:00Z] WIKI_UPDATE agent=Claude project=biobase — **Replay Netcon Integration Challenges** — Documented six iterations (v0.11.15–v0.11.21) of failed attempts to pass `-netconport 2121` to CS2 through Steam. Steam silently drops extra arguments from `-applaunch`, `steam://run/` URLs, and VDF launch options (caching, whitespace parsing bugs, stale-file false positives). Current approach (v0.11.21): bypass Steam entirely, launch cs2.exe directly as a subprocess with the netcon argument. Awaiting verification. Updated [[biobase-replay-demo-playback]].
 
@@ -34,7 +36,7 @@ updated: 2026-06-27T12:30:00Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.21). Current focus: getting Replay demo render playback working — the core blocker is passing `-netconport 2121` to CS2 so BioBase can send console commands. Six Steam integration approaches failed (v0.11.15–v0.11.20); v0.11.21 bypasses Steam and launches cs2.exe directly. Awaiting verification on Windows.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.22). Current focus: verifying Replay demo render playback on Windows. The new Replay flow stages demos into CS2's own `game/csgo/biobase_replays` directory, launches CS2 with `+playdemo` and `-netconport 2121`, then attaches Netcon controls/GSI state with explicit diagnostics if any stage fails.
 
 ## Key Takeaways
 

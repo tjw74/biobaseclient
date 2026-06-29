@@ -53,21 +53,33 @@ class NetconService {
     _reconnect = null;
   }
 
-  Future<void> send(String command) async {
-    if (_socket == null || !_connected) return;
-    _socket!.write('$command\n');
-    await _socket!.flush();
+  Future<bool> send(String command) async {
+    if (_socket == null || !_connected) return false;
+    try {
+      _socket!.write('$command\n');
+      await _socket!.flush();
+      return true;
+    } catch (_) {
+      _onDisconnect();
+      return false;
+    }
   }
 
-  Future<void> playDemo(String path) async {
-    await send('playdemo "${path.replaceAll('\\', '/')}"');
+  Future<bool> playDemo(String path) async {
+    return send('playdemo "${path.replaceAll('\\', '/')}"');
   }
 
-  Future<void> pauseDemo() => send('demo_pause');
-  Future<void> resumeDemo() => send('demo_resume');
-  Future<void> gotoTick(int tick) => send('demo_gototick $tick');
-  Future<void> setTimescale(double speed) => send('demo_timescale $speed');
-  Future<void> stopDemo() => send('stopdemo');
+  Future<bool> pauseDemo() => send('demo_pause');
+  Future<bool> resumeDemo() => send('demo_resume');
+
+  Future<bool> gotoTick(int tick) async {
+    final modern = await send('demo_goto $tick');
+    final legacy = await send('demo_gototick $tick');
+    return modern || legacy;
+  }
+
+  Future<bool> setTimescale(double speed) => send('demo_timescale $speed');
+  Future<bool> stopDemo() => send('stopdemo');
 
   void disconnect() {
     stopReconnect();

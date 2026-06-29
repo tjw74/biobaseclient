@@ -9,6 +9,7 @@ import '../services/hltv_service.dart';
 import '../services/demo_parser.dart';
 import '../services/netcon_service.dart';
 import '../services/gsi_service.dart';
+import '../services/replay_launch_service.dart';
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -23,12 +24,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
   final HltvService _hltv = HltvService();
   final NetconService _netcon = NetconService();
   final GsiService _gsi = GsiService();
+  final ReplayLaunchService _replayLauncher = ReplayLaunchService();
 
   List<DemoFile>? _demos;
   bool _loading = true;
   String? _demoPath;
   String? _demoName;
-  int? _demoSize;
   double _playbackPosition = 0;
   double _playbackSpeed = 1.0;
   bool _playing = false;
@@ -45,6 +46,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
   StreamSubscription? _netconSub;
   int _currentTick = 0;
   Timer? _tickTimer;
+  String? _replayIssue;
+  List<String> _replayDiagnostics = const [];
 
   // Pro demos state
   bool _proExpanded = false;
@@ -80,38 +83,78 @@ class _ReplayScreenState extends State<ReplayScreen> {
     super.dispose();
   }
 
+  void _resetReplayState() {
+    _tickTimer?.cancel();
+    _tickTimer = null;
+    _netconSub?.cancel();
+    _netconSub = null;
+    _netcon.disconnect();
+    _playbackPosition = 0;
+    _playbackSpeed = 1.0;
+    _playing = false;
+    _cs2Connected = false;
+    _cs2Connecting = false;
+    _currentTick = 0;
+    _connectStatus = 'Waiting for connection';
+    _replayIssue = null;
+    _replayDiagnostics = const [];
+  }
+
   Future<void> _loadDemos() async {
     setState(() => _loading = true);
     final demos = await _server.listDemos();
-    if (mounted) setState(() { _demos = demos; _loading = false; });
+    if (mounted)
+      setState(() {
+        _demos = demos;
+        _loading = false;
+      });
   }
 
   Future<void> _loadProDemos() async {
-    setState(() { _proLoading = true; _proMessage = null; });
+    setState(() {
+      _proLoading = true;
+      _proMessage = null;
+    });
     try {
       final demos = await _hltv.fetchDemos();
-      if (mounted) setState(() { _proDemos = demos; _proLoading = false; });
+      if (mounted)
+        setState(() {
+          _proDemos = demos;
+          _proLoading = false;
+        });
     } catch (e) {
-      if (mounted) setState(() {
-        _proLoading = false;
-        _proMessage = 'Could not connect to demo server';
-      });
+      if (mounted)
+        setState(() {
+          _proLoading = false;
+          _proMessage = 'Could not connect to demo server';
+        });
     }
   }
 
   Future<void> _downloadProDemo(HltvDemo demo) async {
-    setState(() { _downloadingDemoId = demo.id; _downloadProgress = 0; _proMessage = null; });
+    setState(() {
+      _downloadingDemoId = demo.id;
+      _downloadProgress = 0;
+      _proMessage = null;
+    });
     try {
-      final path = await _hltv.downloadDemo(demo, onProgress: (progress) {
-        if (mounted) setState(() => _downloadProgress = progress);
-      });
+      final path = await _hltv.downloadDemo(
+        demo,
+        onProgress: (progress) {
+          if (mounted) setState(() => _downloadProgress = progress);
+        },
+      );
       demo.localPath = path;
-      if (mounted) setState(() { _downloadingDemoId = null; });
+      if (mounted)
+        setState(() {
+          _downloadingDemoId = null;
+        });
     } catch (e) {
-      if (mounted) setState(() {
-        _downloadingDemoId = null;
-        _proMessage = e.toString();
-      });
+      if (mounted)
+        setState(() {
+          _downloadingDemoId = null;
+          _proMessage = e.toString();
+        });
     }
   }
 
@@ -120,9 +163,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     setState(() {
       _demoPath = demo.localPath;
       _demoName = demo.filename;
-      _demoSize = demo.sizeBytes;
-      _playbackPosition = 0;
-      _playing = false;
+      _resetReplayState();
       _moveStart = null;
       _demoMoves = _moves.movesForDemo(demo.filename);
     });
@@ -138,9 +179,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
         if (path != null) {
           _demoPath = path;
           _demoName = demo.name;
-          _demoSize = demo.sizeBytes;
-          _playbackPosition = 0;
-          _playing = false;
+          _resetReplayState();
           _moveStart = null;
           _demoMoves = _moves.movesForDemo(demo.name);
         }
@@ -160,9 +199,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       setState(() {
         _demoPath = file.path;
         _demoName = result.files.single.name;
-        _demoSize = result.files.single.size;
-        _playbackPosition = 0;
-        _playing = false;
+        _resetReplayState();
         _moveStart = null;
         _demoMoves = _moves.movesForDemo(result.files.single.name);
       });
@@ -171,36 +208,196 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   Future<void> _parseDemo(String path) async {
-    setState(() { _parsingDemo = true; _demoInfo = null; });
+    setState(() {
+      _parsingDemo = true;
+      _demoInfo = null;
+    });
     final info = await DemoParser.parse(path);
-    if (mounted) setState(() { _demoInfo = info; _parsingDemo = false; });
+    if (mounted)
+      setState(() {
+        _demoInfo = info;
+        _parsingDemo = false;
+      });
   }
 
   Future<void> _watchInCS2() async {
-    if (_demoPath == null) return;
-    setState(() => _cs2Connecting = true);
+    final sourcePath = _demoPath;
+    if (sourcePath == null) return;
 
-    await GsiService.installConfig();
-    await GsiService.ensureNetconLaunchOption();
-    await _gsi.start();
+    _tickTimer?.cancel();
+    _netconSub?.cancel();
+    _netconSub = null;
+    _netcon.stopReconnect();
 
-    final ok = await _netcon.connect();
-    if (!ok) {
-      // CS2 not running — launch it and wait for connection
-      _launchCS2();
+    if (mounted) {
+      setState(() {
+        _cs2Connecting = true;
+        _cs2Connected = false;
+        _playing = false;
+        _currentTick = 0;
+        _playbackPosition = 0;
+        _connectStatus = 'Preparing demo...';
+        _replayIssue = null;
+        _replayDiagnostics = const [];
+      });
+    }
+
+    ReplayDemoTarget target;
+    try {
+      target = await _replayLauncher.prepareDemo(sourcePath);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cs2Connecting = false;
+        _replayIssue = 'Could not prepare demo for CS2: $e';
+      });
       return;
     }
 
-    await _netcon.playDemo(_demoPath!);
+    final diagnostics = <String>[
+      target.staged
+          ? 'Demo staged at ${target.stagedPath}'
+          : 'Using absolute demo path ${target.consolePath}',
+    ];
+
     if (mounted) {
       setState(() {
-        _cs2Connected = true;
-        _cs2Connecting = false;
-        _playing = true;
-        _playbackSpeed = 1.0;
+        _connectStatus = 'Installing GSI config...';
+        _replayDiagnostics = diagnostics;
       });
     }
+
+    final gsiInstalled = await GsiService.installConfig();
+    final gsiStarted = await _gsi.start();
+    diagnostics.add(
+      gsiInstalled ? 'GSI config installed.' : 'GSI config path was not found.',
+    );
+    diagnostics.add(
+      gsiStarted ? 'GSI receiver listening.' : 'GSI receiver could not start.',
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _connectStatus = 'Checking CS2 control socket...';
+      _replayDiagnostics = List.of(diagnostics);
+    });
+
+    if (await _netcon.connect()) {
+      diagnostics.add('Netcon was already available.');
+      if (mounted) setState(() => _replayDiagnostics = List.of(diagnostics));
+      await _startDemoOverNetcon(target);
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _connectStatus = 'Launching CS2 replay...';
+        _replayDiagnostics = List.of(diagnostics);
+      });
+    }
+
+    final launch = await _replayLauncher.launchForReplay(target);
+    diagnostics.addAll(launch.diagnostics);
+    if (!mounted) return;
+    setState(() {
+      _replayDiagnostics = List.of(diagnostics);
+      _connectStatus = launch.started
+          ? 'Waiting for CS2 control socket...'
+          : 'Could not launch CS2';
+    });
+
+    if (!launch.started) {
+      setState(() {
+        _cs2Connecting = false;
+        _replayIssue = diagnostics.isEmpty
+            ? 'CS2 could not be launched.'
+            : diagnostics.last;
+      });
+      return;
+    }
+
+    final connected = await _waitForNetcon();
+    if (!mounted) return;
+    if (connected) {
+      diagnostics.add('Netcon connected after launch.');
+      setState(() => _replayDiagnostics = List.of(diagnostics));
+      await _startDemoOverNetcon(target);
+      return;
+    }
+
+    diagnostics.add('Netcon did not open before timeout.');
+    setState(() {
+      _cs2Connecting = false;
+      _cs2Connected = false;
+      _connectStatus = 'CS2 launch sent';
+      _replayDiagnostics = List.of(diagnostics);
+      _replayIssue =
+          'CS2 was launched with +playdemo, but BioBase could not open the Netcon control socket. If the demo is visible in CS2, rendering is working and controls will attach when Netcon appears.';
+    });
+    _startBackgroundNetconReconnect(target);
+  }
+
+  Future<void> _startDemoOverNetcon(ReplayDemoTarget target) async {
+    if (!mounted) return;
+    setState(() {
+      _cs2Connecting = true;
+      _connectStatus = 'Starting demo in CS2...';
+      _replayIssue = null;
+    });
+
+    final sent = await _netcon.playDemo(target.consolePath);
+    if (!sent) {
+      if (!mounted) return;
+      setState(() {
+        _cs2Connecting = false;
+        _cs2Connected = false;
+        _replayIssue =
+            'Connected to CS2, but the playdemo command could not be sent.';
+      });
+      _startBackgroundNetconReconnect(target);
+      return;
+    }
+
+    await Future.delayed(const Duration(milliseconds: 350));
+    await _netcon.resumeDemo();
+    await _netcon.setTimescale(_playbackSpeed);
+
+    if (!mounted) return;
+    setState(() {
+      _cs2Connected = true;
+      _cs2Connecting = false;
+      _playing = true;
+      _connectStatus = 'Playing demo in CS2';
+    });
     _startTickTracking();
+  }
+
+  Future<bool> _waitForNetcon({
+    Duration timeout = const Duration(seconds: 75),
+  }) async {
+    final started = DateTime.now();
+    var attempt = 0;
+    while (DateTime.now().difference(started) < timeout) {
+      attempt += 1;
+      if (await _netcon.connect()) return true;
+      if (!mounted) return false;
+      final elapsed = DateTime.now().difference(started).inSeconds;
+      setState(() {
+        _connectStatus = 'Waiting for CS2 control socket... ${elapsed}s';
+      });
+      await Future.delayed(Duration(seconds: attempt < 5 ? 2 : 3));
+    }
+    return false;
+  }
+
+  void _startBackgroundNetconReconnect(ReplayDemoTarget target) {
+    _netconSub?.cancel();
+    _netconSub = Stream.periodic(const Duration(seconds: 3)).listen((_) async {
+      final connected = _netcon.connected || await _netcon.connect();
+      if (!connected || !mounted) return;
+      _netconSub?.cancel();
+      await _startDemoOverNetcon(target);
+    });
   }
 
   void _startTickTracking() {
@@ -243,89 +440,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
     if (totalTicks <= 0) return;
     final tick = (position * totalTicks).round();
     await _netcon.gotoTick(tick);
-    if (mounted) setState(() { _currentTick = tick; _playbackPosition = position; });
-  }
-
-  Future<void> _launchCS2() async {
-    if (mounted) setState(() {
-      _cs2Connecting = true;
-      _connectStatus = 'Preparing...';
-    });
-
-    if (Platform.isWindows) {
-      final taskCheck = await Process.run('tasklist', ['/FI', 'IMAGENAME eq cs2.exe', '/NH']);
-      if ((taskCheck.stdout as String).contains('cs2.exe')) {
-        if (mounted) setState(() => _connectStatus = 'Closing CS2...');
-        await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
-        await Future.delayed(const Duration(seconds: 3));
-      }
-
-      // Ensure Steam is running (needed for CS2 auth)
-      final steamCheck = await Process.run('tasklist', ['/FI', 'IMAGENAME eq steam.exe', '/NH']);
-      if (!(steamCheck.stdout as String).contains('steam.exe')) {
-        if (mounted) setState(() => _connectStatus = 'Starting Steam...');
-        final steamExe = await _findSteamExe();
-        if (steamExe != null) {
-          await Process.start(steamExe, ['-silent'],
-              mode: ProcessStartMode.detached);
-          await Future.delayed(const Duration(seconds: 8));
-        }
-      }
-
-      if (mounted) setState(() => _connectStatus = 'Launching CS2...');
-
-      // Launch cs2.exe directly with netcon argument — bypasses Steam's
-      // argument handling which silently drops extra args.
-      final cs2Exe = await GsiService.findCs2Exe();
-      if (cs2Exe != null) {
-        await Process.start(cs2Exe, ['-netconport', '2121'],
-            mode: ProcessStartMode.detached,
-            workingDirectory: File(cs2Exe).parent.path);
-      } else {
-        final steamExe = await _findSteamExe();
-        if (steamExe != null) {
-          await Process.start(steamExe, ['-applaunch', '730'],
-              mode: ProcessStartMode.detached);
-        }
-      }
-    } else if (Platform.isMacOS) {
-      await Process.start('open', ['steam://rungameid/730'],
-          mode: ProcessStartMode.detached);
-    }
-
-    if (mounted) setState(() => _connectStatus = 'Waiting for CS2...');
-    _netcon.startReconnect();
-    _netconSub?.cancel();
-    _netconSub = Stream.periodic(const Duration(seconds: 2)).listen((_) {
-      if (_netcon.connected && _demoPath != null) {
-        _netconSub?.cancel();
-        _watchInCS2();
-      }
-    });
-  }
-
-  Future<String?> _findSteamExe() async {
-    try {
-      final result = await Process.run('reg', [
-        'query', r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
-        '/v', 'InstallPath',
-      ]);
-      if (result.exitCode == 0) {
-        final match =
-            RegExp(r'REG_SZ\s+(.+)').firstMatch(result.stdout as String);
-        if (match != null) {
-          final exe = '${match.group(1)!.trim()}\\steam.exe';
-          if (File(exe).existsSync()) return exe;
-        }
-      }
-    } catch (_) {}
-    for (final path in [
-      r'C:\Program Files (x86)\Steam\steam.exe',
-      r'D:\Steam\steam.exe',
-    ]) {
-      if (File(path).existsSync()) return path;
-    }
-    return null;
+    if (mounted)
+      setState(() {
+        _currentTick = tick;
+        _playbackPosition = position;
+      });
   }
 
   void _onMarkTap() {
@@ -383,7 +502,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   void _jumpToMove(Move move) {
-    setState(() => _playbackPosition = move.startPosition);
+    if (_cs2Connected) {
+      _seekTo(move.startPosition);
+    } else {
+      setState(() => _playbackPosition = move.startPosition);
+    }
   }
 
   @override
@@ -391,10 +514,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 320,
-          child: _buildLeft(),
-        ),
+        SizedBox(width: 320, child: _buildLeft()),
         const SizedBox(width: 12),
         Expanded(
           child: _RenderArea(
@@ -405,6 +525,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
             cs2Connected: _cs2Connected,
             cs2Connecting: _cs2Connecting,
             connectStatus: _connectStatus,
+            replayIssue: _replayIssue,
+            replayDiagnostics: _replayDiagnostics,
             gsiState: _gsiState,
             playing: _playing,
             moves: _demoMoves,
@@ -451,25 +573,34 @@ class _ReplayScreenState extends State<ReplayScreen> {
         children: [
           Row(
             children: [
-              const Text('Demos',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: BiobaseColors.text)),
+              const Text(
+                'Demos',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: BiobaseColors.text,
+                ),
+              ),
               const Spacer(),
               if (_loading)
                 const SizedBox(
-                  width: 12, height: 12,
+                  width: 12,
+                  height: 12,
                   child: CircularProgressIndicator(
-                      strokeWidth: 1.5, color: BiobaseColors.textTertiary),
+                    strokeWidth: 1.5,
+                    color: BiobaseColors.textTertiary,
+                  ),
                 )
               else
                 MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                     onTap: _loadDemos,
-                    child: const Icon(Icons.refresh,
-                        size: 14, color: BiobaseColors.textTertiary),
+                    child: const Icon(
+                      Icons.refresh,
+                      size: 14,
+                      color: BiobaseColors.textTertiary,
+                    ),
                   ),
                 ),
             ],
@@ -479,32 +610,48 @@ class _ReplayScreenState extends State<ReplayScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Center(
-                child: Text('Loading demos...',
-                    style: TextStyle(
-                        fontSize: 11, color: BiobaseColors.textTertiary)),
+                child: Text(
+                  'Loading demos...',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: BiobaseColors.textTertiary,
+                  ),
+                ),
               ),
             )
           else if (_demos == null || _demos!.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Center(
-                child: Column(children: [
-                  Text('No demos recorded yet',
+                child: Column(
+                  children: [
+                    Text(
+                      'No demos recorded yet',
                       style: TextStyle(
-                          fontSize: 11, color: BiobaseColors.textTertiary)),
-                  SizedBox(height: 4),
-                  Text('Play a match to generate a demo',
+                        fontSize: 11,
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Play a match to generate a demo',
                       style: TextStyle(
-                          fontSize: 10, color: BiobaseColors.textTertiary)),
-                ]),
+                        fontSize: 10,
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             )
           else
-            ...(_demos!.map((d) => _DemoRow(
-                  demo: d,
-                  selected: _demoName == d.name,
-                  onTap: _copying ? null : () => _selectDemo(d),
-                ))),
+            ...(_demos!.map(
+              (d) => _DemoRow(
+                demo: d,
+                selected: _demoName == d.name,
+                onTap: _copying ? null : () => _selectDemo(d),
+              ),
+            )),
           const SizedBox(height: 10),
           MouseRegion(
             cursor: SystemMouseCursors.click,
@@ -513,12 +660,19 @@ class _ReplayScreenState extends State<ReplayScreen> {
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.folder_open,
-                      size: 12, color: BiobaseColors.textTertiary),
+                  Icon(
+                    Icons.folder_open,
+                    size: 12,
+                    color: BiobaseColors.textTertiary,
+                  ),
                   SizedBox(width: 4),
-                  Text('Open file',
-                      style: TextStyle(
-                          fontSize: 10, color: BiobaseColors.textTertiary)),
+                  Text(
+                    'Open file',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: BiobaseColors.textTertiary,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -558,18 +712,25 @@ class _ReplayScreenState extends State<ReplayScreen> {
               },
               child: Row(
                 children: [
-                  const Text('Pro Demos',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: BiobaseColors.text)),
+                  const Text(
+                    'Pro Demos',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: BiobaseColors.text,
+                    ),
+                  ),
                   const Spacer(),
                   if (_proDemos.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
-                      child: Text('${_proDemos.length}',
-                          style: const TextStyle(
-                              fontSize: 10, color: BiobaseColors.textTertiary)),
+                      child: Text(
+                        '${_proDemos.length}',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: BiobaseColors.textTertiary,
+                        ),
+                      ),
                     ),
                   Icon(
                     _proExpanded ? Icons.expand_less : Icons.expand_more,
@@ -587,9 +748,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Center(
                   child: SizedBox(
-                    width: 14, height: 14,
+                    width: 14,
+                    height: 14,
                     child: CircularProgressIndicator(
-                        strokeWidth: 1.5, color: BiobaseColors.textTertiary),
+                      strokeWidth: 1.5,
+                      color: BiobaseColors.textTertiary,
+                    ),
                   ),
                 ),
               )
@@ -620,39 +784,51 @@ class _ReplayScreenState extends State<ReplayScreen> {
                       child: Text(
                         '${first.team1} vs ${first.team2}',
                         style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: BiobaseColors.textSecondary),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: BiobaseColors.textSecondary,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (first.event.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 2),
-                        child: Text(first.event,
-                            style: const TextStyle(
-                                fontSize: 9, color: BiobaseColors.textTertiary),
-                            overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          first.event,
+                          style: const TextStyle(
+                            fontSize: 9,
+                            color: BiobaseColors.textTertiary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ...demos.map((d) => _ProDemoRow(
-                          demo: d,
-                          selected: _demoName == d.filename,
-                          downloading: _downloadingDemoId == d.id,
-                          downloadProgress: _downloadingDemoId == d.id
-                              ? _downloadProgress : 0,
-                          onTap: d.localPath != null
-                              ? () => _selectProDemo(d)
-                              : () => _downloadProDemo(d),
-                        )),
+                    ...demos.map(
+                      (d) => _ProDemoRow(
+                        demo: d,
+                        selected: _demoName == d.filename,
+                        downloading: _downloadingDemoId == d.id,
+                        downloadProgress: _downloadingDemoId == d.id
+                            ? _downloadProgress
+                            : 0,
+                        onTap: d.localPath != null
+                            ? () => _selectProDemo(d)
+                            : () => _downloadProDemo(d),
+                      ),
+                    ),
                   ],
                 );
               }),
             if (_proMessage != null && _proDemos.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: Text(_proMessage!,
-                    style: const TextStyle(
-                        fontSize: 10, color: BiobaseColors.error)),
+                child: Text(
+                  _proMessage!,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: BiobaseColors.error,
+                  ),
+                ),
               ),
           ],
         ],
@@ -673,104 +849,120 @@ class _ReplayScreenState extends State<ReplayScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Playback',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.text)),
+          const Text(
+            'Playback',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: BiobaseColors.text,
+            ),
+          ),
           const SizedBox(height: 10),
           _buildTimeline(),
           const SizedBox(height: 4),
-          Row(children: [
-            Text(_formatTime(_playbackPosition),
+          Row(
+            children: [
+              Text(
+                _formatTime(_playbackPosition),
                 style: const TextStyle(
-                    fontSize: 10,
-                    fontFamily: 'monospace',
-                    color: BiobaseColors.textTertiary)),
-            const Spacer(),
-            Text(_demoInfo?.durationDisplay ?? _formatTime(1.0),
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: BiobaseColors.textTertiary,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _demoInfo?.durationDisplay ?? _formatTime(1.0),
                 style: const TextStyle(
-                    fontSize: 10,
-                    fontFamily: 'monospace',
-                    color: BiobaseColors.textTertiary)),
-          ]),
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: BiobaseColors.textTertiary,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          Row(children: [
-            _controlBtn(Icons.skip_previous,
-                () => _seekTo(0)),
-            const SizedBox(width: 4),
-            _controlBtn(
+          Row(
+            children: [
+              _controlBtn(Icons.skip_previous, () => _seekTo(0)),
+              const SizedBox(width: 4),
+              _controlBtn(
                 _playing ? Icons.pause : Icons.play_arrow,
                 _togglePlayback,
-                primary: true),
-            const SizedBox(width: 4),
-            _controlBtn(Icons.skip_next,
-                () => _seekTo(1)),
-            const Spacer(),
-            ...([0.25, 0.5, 1.0, 2.0].map((s) => Padding(
+                primary: true,
+              ),
+              const SizedBox(width: 4),
+              _controlBtn(Icons.skip_next, () => _seekTo(1)),
+              const Spacer(),
+              ...([0.25, 0.5, 1.0, 2.0].map(
+                (s) => Padding(
                   padding: const EdgeInsets.only(left: 2),
-                  child: _speedBtn(s, _playbackSpeed == s,
-                      () => _setSpeed(s)),
-                ))),
-          ]),
+                  child: _speedBtn(s, _playbackSpeed == s, () => _setSpeed(s)),
+                ),
+              )),
+            ],
+          ),
         ],
       ),
     );
   }
 
   Widget _buildTimeline() {
-    return LayoutBuilder(builder: (context, constraints) {
-      return Stack(
-        clipBehavior: Clip.none,
-        children: [
-          SliderTheme(
-            data: SliderThemeData(
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-              activeTrackColor: BiobaseColors.accent,
-              inactiveTrackColor: BiobaseColors.surfaceRaised,
-              thumbColor: BiobaseColors.accent,
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                activeTrackColor: BiobaseColors.accent,
+                inactiveTrackColor: BiobaseColors.surfaceRaised,
+                thumbColor: BiobaseColors.accent,
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+              ),
+              child: Slider(
+                value: _playbackPosition.clamp(0.0, 1.0),
+                onChanged: _demoPath != null
+                    ? (v) {
+                        setState(() => _playbackPosition = v);
+                        if (_cs2Connected) _seekTo(v);
+                      }
+                    : null,
+              ),
             ),
-            child: Slider(
-              value: _playbackPosition.clamp(0.0, 1.0),
-              onChanged: _demoPath != null
-                  ? (v) {
-                      setState(() => _playbackPosition = v);
-                      if (_cs2Connected) _seekTo(v);
-                    }
-                  : null,
-            ),
-          ),
-          // Move range markers on the track
-          for (final move in _demoMoves)
-            Positioned(
-              left: 12 + move.startPosition * (constraints.maxWidth - 24),
-              top: 6,
-              child: Container(
-                width: (move.endPosition - move.startPosition) *
-                    (constraints.maxWidth - 24),
-                height: 3,
-                decoration: BoxDecoration(
-                  color: BiobaseColors.live.withAlpha(140),
-                  borderRadius: BorderRadius.circular(1),
+            // Move range markers on the track
+            for (final move in _demoMoves)
+              Positioned(
+                left: 12 + move.startPosition * (constraints.maxWidth - 24),
+                top: 6,
+                child: Container(
+                  width:
+                      (move.endPosition - move.startPosition) *
+                      (constraints.maxWidth - 24),
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: BiobaseColors.live.withAlpha(140),
+                    borderRadius: BorderRadius.circular(1),
+                  ),
                 ),
               ),
-            ),
-          // Active mark-start indicator
-          if (_moveStart != null)
-            Positioned(
-              left: 12 + _moveStart! * (constraints.maxWidth - 24) - 1,
-              top: 2,
-              child: Container(
-                width: 2,
-                height: 11,
-                color: BiobaseColors.warning,
+            // Active mark-start indicator
+            if (_moveStart != null)
+              Positioned(
+                left: 12 + _moveStart! * (constraints.maxWidth - 24) - 1,
+                top: 2,
+                child: Container(
+                  width: 2,
+                  height: 11,
+                  color: BiobaseColors.warning,
+                ),
               ),
-            ),
-        ],
-      );
-    });
+          ],
+        );
+      },
+    );
   }
 
   // ── Moves ──
@@ -784,83 +976,105 @@ class _ReplayScreenState extends State<ReplayScreen> {
         color: BiobaseColors.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: marking ? BiobaseColors.warning.withAlpha(60) : BiobaseColors.border,
+          color: marking
+              ? BiobaseColors.warning.withAlpha(60)
+              : BiobaseColors.border,
         ),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Text('Moves',
+          Row(
+            children: [
+              const Text(
+                'Moves',
                 style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: BiobaseColors.text)),
-            const Spacer(),
-            if (_demoMoves.isNotEmpty)
-              Text('${_demoMoves.length}',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: BiobaseColors.text,
+                ),
+              ),
+              const Spacer(),
+              if (_demoMoves.isNotEmpty)
+                Text(
+                  '${_demoMoves.length}',
                   style: const TextStyle(
-                      fontSize: 10, color: BiobaseColors.textTertiary)),
-          ]),
+                    fontSize: 10,
+                    color: BiobaseColors.textTertiary,
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 10),
 
           // Mark button
           if (hasDemo) ...[
-            Row(children: [
-              Expanded(
-                child: _MarkButton(
-                  marking: marking,
-                  onTap: _onMarkTap,
-                  startTime: marking ? _formatTime(_moveStart!) : null,
-                ),
-              ),
-              if (marking) ...[
-                const SizedBox(width: 6),
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: _cancelMark,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: BiobaseColors.surfaceRaised,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: BiobaseColors.border),
-                      ),
-                      child: const Text('Cancel',
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: BiobaseColors.textTertiary)),
-                    ),
+            Row(
+              children: [
+                Expanded(
+                  child: _MarkButton(
+                    marking: marking,
+                    onTap: _onMarkTap,
+                    startTime: marking ? _formatTime(_moveStart!) : null,
                   ),
                 ),
+                if (marking) ...[
+                  const SizedBox(width: 6),
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: _cancelMark,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: BiobaseColors.surfaceRaised,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: BiobaseColors.border),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: BiobaseColors.textTertiary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
-            ]),
+            ),
             const SizedBox(height: 10),
           ],
 
           // Moves list
           if (!hasDemo)
-            const Text('Load a demo to mark moves',
-                style: TextStyle(
-                    fontSize: 11, color: BiobaseColors.textTertiary))
+            const Text(
+              'Load a demo to mark moves',
+              style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+            )
           else if (_demoMoves.isEmpty && !marking)
-            const Text('No moves marked yet',
-                style: TextStyle(
-                    fontSize: 11, color: BiobaseColors.textTertiary))
+            const Text(
+              'No moves marked yet',
+              style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+            )
           else
-            ...(_demoMoves.map((m) => _MoveRow(
-                  move: m,
-                  editing: _editingMoveId == m.id,
-                  renameController: _renameController,
-                  formatTime: _formatTime,
-                  onTap: () => _jumpToMove(m),
-                  onRename: () => _startRename(m),
-                  onCommitRename: () => _commitRename(m.id),
-                  onDelete: () => _deleteMove(m.id),
-                ))),
+            ...(_demoMoves.map(
+              (m) => _MoveRow(
+                move: m,
+                editing: _editingMoveId == m.id,
+                renameController: _renameController,
+                formatTime: _formatTime,
+                onTap: () => _jumpToMove(m),
+                onRename: () => _startRename(m),
+                onCommitRename: () => _commitRename(m.id),
+                onDelete: () => _deleteMove(m.id),
+              ),
+            )),
         ],
       ),
     );
@@ -879,11 +1093,14 @@ class _ReplayScreenState extends State<ReplayScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Round Stats',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.text)),
+          const Text(
+            'Round Stats',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: BiobaseColors.text,
+            ),
+          ),
           const SizedBox(height: 10),
           _statRow('Kills', '—'),
           _statRow('Deaths', '—'),
@@ -911,20 +1128,25 @@ class _ReplayScreenState extends State<ReplayScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Events',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.text)),
+          const Text(
+            'Events',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: BiobaseColors.text,
+            ),
+          ),
           const SizedBox(height: 10),
           if (_demoPath == null)
-            const Text('Select a demo to see events',
-                style: TextStyle(
-                    fontSize: 11, color: BiobaseColors.textTertiary))
+            const Text(
+              'Select a demo to see events',
+              style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+            )
           else
-            const Text('Demo parsing in progress',
-                style: TextStyle(
-                    fontSize: 11, color: BiobaseColors.textTertiary)),
+            const Text(
+              'Demo parsing in progress',
+              style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+            ),
         ],
       ),
     );
@@ -932,8 +1154,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
   // ── Shared helpers ──
 
-  Widget _controlBtn(IconData icon, VoidCallback onTap,
-      {bool primary = false}) {
+  Widget _controlBtn(
+    IconData icon,
+    VoidCallback onTap, {
+    bool primary = false,
+  }) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -941,15 +1166,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
         child: Container(
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color:
-                primary ? BiobaseColors.accent : BiobaseColors.surfaceRaised,
+            color: primary ? BiobaseColors.accent : BiobaseColors.surfaceRaised,
             borderRadius: BorderRadius.circular(6),
           ),
-          child: Icon(icon,
-              size: 16,
-              color: _demoPath != null
-                  ? Colors.white
-                  : BiobaseColors.textTertiary),
+          child: Icon(
+            icon,
+            size: 16,
+            color: _demoPath != null
+                ? Colors.white
+                : BiobaseColors.textTertiary,
+          ),
         ),
       ),
     );
@@ -966,13 +1192,14 @@ class _ReplayScreenState extends State<ReplayScreen> {
             color: active ? BiobaseColors.accentDim : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
-          child: Text('${s}x',
-              style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: active
-                      ? BiobaseColors.accent
-                      : BiobaseColors.textTertiary)),
+          child: Text(
+            '${s}x',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: active ? BiobaseColors.accent : BiobaseColors.textTertiary,
+            ),
+          ),
         ),
       ),
     );
@@ -984,15 +1211,22 @@ class _ReplayScreenState extends State<ReplayScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 11, color: BiobaseColors.textTertiary)),
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.text,
-                  fontFamily: 'monospace')),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: BiobaseColors.textTertiary,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: BiobaseColors.text,
+              fontFamily: 'monospace',
+            ),
+          ),
         ],
       ),
     );
@@ -1041,8 +1275,12 @@ class _MarkButtonState extends State<_MarkButton> {
           padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
             color: marking
-                ? (_hovered ? BiobaseColors.warning : BiobaseColors.warning.withAlpha(200))
-                : (_hovered ? BiobaseColors.accentDim : BiobaseColors.surfaceRaised),
+                ? (_hovered
+                      ? BiobaseColors.warning
+                      : BiobaseColors.warning.withAlpha(200))
+                : (_hovered
+                      ? BiobaseColors.accentDim
+                      : BiobaseColors.surfaceRaised),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
               color: marking ? BiobaseColors.warning : BiobaseColors.border,
@@ -1062,7 +1300,9 @@ class _MarkButtonState extends State<_MarkButton> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
-                  color: marking ? BiobaseColors.bg : BiobaseColors.textSecondary,
+                  color: marking
+                      ? BiobaseColors.bg
+                      : BiobaseColors.textSecondary,
                 ),
               ),
               if (marking && widget.startTime != null) ...[
@@ -1155,7 +1395,9 @@ class _MoveRowState extends State<_MoveRow> {
                           controller: widget.renameController,
                           autofocus: true,
                           style: const TextStyle(
-                              fontSize: 11, color: BiobaseColors.text),
+                            fontSize: 11,
+                            color: BiobaseColors.text,
+                          ),
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.zero,
@@ -1165,17 +1407,23 @@ class _MoveRowState extends State<_MoveRow> {
                         ),
                       )
                     else
-                      Text(m.name,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: BiobaseColors.text)),
-                    const SizedBox(height: 1),
-                    Text(timeRange,
+                      Text(
+                        m.name,
                         style: const TextStyle(
-                            fontSize: 9,
-                            fontFamily: 'monospace',
-                            color: BiobaseColors.textTertiary)),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: BiobaseColors.text,
+                        ),
+                      ),
+                    const SizedBox(height: 1),
+                    Text(
+                      timeRange,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1184,8 +1432,11 @@ class _MoveRowState extends State<_MoveRow> {
                   onTap: widget.onRename,
                   child: const Padding(
                     padding: EdgeInsets.all(2),
-                    child: Icon(Icons.edit_outlined,
-                        size: 11, color: BiobaseColors.textTertiary),
+                    child: Icon(
+                      Icons.edit_outlined,
+                      size: 11,
+                      color: BiobaseColors.textTertiary,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -1193,8 +1444,11 @@ class _MoveRowState extends State<_MoveRow> {
                   onTap: widget.onDelete,
                   child: const Padding(
                     padding: EdgeInsets.all(2),
-                    child: Icon(Icons.close,
-                        size: 11, color: BiobaseColors.textTertiary),
+                    child: Icon(
+                      Icons.close,
+                      size: 11,
+                      color: BiobaseColors.textTertiary,
+                    ),
                   ),
                 ),
               ],
@@ -1213,11 +1467,7 @@ class _DemoRow extends StatefulWidget {
   final bool selected;
   final VoidCallback? onTap;
 
-  const _DemoRow({
-    required this.demo,
-    required this.selected,
-    this.onTap,
-  });
+  const _DemoRow({required this.demo, required this.selected, this.onTap});
 
   @override
   State<_DemoRow> createState() => _DemoRowState();
@@ -1243,37 +1493,45 @@ class _DemoRowState extends State<_DemoRow> {
             color: widget.selected
                 ? BiobaseColors.accentDim
                 : _hovered
-                    ? BiobaseColors.surfaceHover
-                    : Colors.transparent,
+                ? BiobaseColors.surfaceHover
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Row(
             children: [
-              Icon(Icons.videocam_outlined,
-                  size: 12,
-                  color: widget.selected
-                      ? BiobaseColors.accent
-                      : BiobaseColors.textTertiary),
+              Icon(
+                Icons.videocam_outlined,
+                size: 12,
+                color: widget.selected
+                    ? BiobaseColors.accent
+                    : BiobaseColors.textTertiary,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(d.name,
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: widget.selected
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            color: widget.selected
-                                ? BiobaseColors.accent
-                                : BiobaseColors.text),
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      d.name,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: widget.selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: widget.selected
+                            ? BiobaseColors.accent
+                            : BiobaseColors.text,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     const SizedBox(height: 1),
                     Text(
-                        '${_formatSize(d.sizeBytes)}  ·  ${_formatDate(d.modified)}',
-                        style: const TextStyle(
-                            fontSize: 9, color: BiobaseColors.textTertiary)),
+                      '${_formatSize(d.sizeBytes)}  ·  ${_formatDate(d.modified)}',
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1345,8 +1603,8 @@ class _ProDemoRowState extends State<_ProDemoRow> {
             color: widget.selected
                 ? BiobaseColors.accentDim
                 : _hovered
-                    ? BiobaseColors.surfaceHover
-                    : Colors.transparent,
+                ? BiobaseColors.surfaceHover
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Row(
@@ -1357,27 +1615,34 @@ class _ProDemoRowState extends State<_ProDemoRow> {
                 color: widget.selected
                     ? BiobaseColors.accent
                     : local
-                        ? BiobaseColors.textSecondary
-                        : BiobaseColors.textTertiary,
+                    ? BiobaseColors.textSecondary
+                    : BiobaseColors.textTertiary,
               ),
               const SizedBox(width: 6),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(d.displayName,
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: widget.selected
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            color: widget.selected
-                                ? BiobaseColors.accent
-                                : BiobaseColors.text),
-                        overflow: TextOverflow.ellipsis),
-                    Text(_formatSize(d.sizeBytes),
-                        style: const TextStyle(
-                            fontSize: 9, color: BiobaseColors.textTertiary)),
+                    Text(
+                      d.displayName,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: widget.selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: widget.selected
+                            ? BiobaseColors.accent
+                            : BiobaseColors.text,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      _formatSize(d.sizeBytes),
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1387,9 +1652,10 @@ class _ProDemoRowState extends State<_ProDemoRow> {
                   child: Text(
                     '${(widget.downloadProgress * 100).toInt()}%',
                     style: const TextStyle(
-                        fontSize: 9,
-                        fontFamily: 'monospace',
-                        color: BiobaseColors.accent),
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      color: BiobaseColors.accent,
+                    ),
                   ),
                 ),
             ],
@@ -1418,6 +1684,8 @@ class _RenderArea extends StatelessWidget {
   final bool cs2Connected;
   final bool cs2Connecting;
   final String connectStatus;
+  final String? replayIssue;
+  final List<String> replayDiagnostics;
   final GsiState? gsiState;
   final bool playing;
   final List<Move> moves;
@@ -1433,6 +1701,8 @@ class _RenderArea extends StatelessWidget {
     required this.cs2Connected,
     required this.cs2Connecting,
     required this.connectStatus,
+    required this.replayIssue,
+    required this.replayDiagnostics,
     required this.gsiState,
     required this.playing,
     required this.moves,
@@ -1458,18 +1728,25 @@ class _RenderArea extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.videocam_outlined,
-              size: 48, color: BiobaseColors.textTertiary.withAlpha(80)),
+          Icon(
+            Icons.videocam_outlined,
+            size: 48,
+            color: BiobaseColors.textTertiary.withAlpha(80),
+          ),
           const SizedBox(height: 12),
-          const Text('No demo selected',
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: BiobaseColors.textTertiary)),
+          const Text(
+            'No demo selected',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: BiobaseColors.textTertiary,
+            ),
+          ),
           const SizedBox(height: 4),
-          const Text('Select a demo from the list to start replay',
-              style: TextStyle(
-                  fontSize: 11, color: BiobaseColors.textTertiary)),
+          const Text(
+            'Select a demo from the list to start replay',
+            style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+          ),
         ],
       ),
     );
@@ -1486,40 +1763,41 @@ class _RenderArea extends StatelessWidget {
                   width: 20,
                   height: 20,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: BiobaseColors.textTertiary),
+                    strokeWidth: 2,
+                    color: BiobaseColors.textTertiary,
+                  ),
                 )
               : info == null
-                  ? Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.videocam_outlined,
-                            size: 48,
-                            color:
-                                BiobaseColors.textTertiary.withAlpha(60)),
-                        const SizedBox(height: 12),
-                        Text(demoName ?? '',
-                            style: const TextStyle(
-                                fontSize: 12,
-                                color: BiobaseColors.textSecondary)),
-                      ],
-                    )
-                  : _demoInfoDisplay(info),
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.videocam_outlined,
+                      size: 48,
+                      color: BiobaseColors.textTertiary.withAlpha(60),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      demoName ?? '',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: BiobaseColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                )
+              : _demoInfoDisplay(info),
         ),
         // Connection status badge
         if (demoInfo != null)
-          Positioned(
-            top: 12,
-            right: 12,
-            child: _connectionBadge(),
-          ),
+          Positioned(top: 12, right: 12, child: _connectionBadge()),
         // GSI round info
         if (cs2Connected && gsiState != null && gsiState!.round > 0)
           Positioned(
             top: 12,
             left: 12,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: BiobaseColors.bg.withAlpha(200),
                 borderRadius: BorderRadius.circular(4),
@@ -1527,7 +1805,9 @@ class _RenderArea extends StatelessWidget {
               child: Text(
                 'Round ${gsiState!.round}',
                 style: const TextStyle(
-                    fontSize: 10, color: BiobaseColors.textSecondary),
+                  fontSize: 10,
+                  color: BiobaseColors.textSecondary,
+                ),
               ),
             ),
           ),
@@ -1537,13 +1817,11 @@ class _RenderArea extends StatelessWidget {
             bottom: 12,
             left: 12,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: BiobaseColors.warning.withAlpha(30),
                 borderRadius: BorderRadius.circular(4),
-                border:
-                    Border.all(color: BiobaseColors.warning.withAlpha(60)),
+                border: Border.all(color: BiobaseColors.warning.withAlpha(60)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1557,9 +1835,13 @@ class _RenderArea extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  const Text('Marking move...',
-                      style: TextStyle(
-                          fontSize: 10, color: BiobaseColors.warning)),
+                  const Text(
+                    'Marking move...',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: BiobaseColors.warning,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1590,8 +1872,7 @@ class _RenderArea extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
               playing ? 'Playing in CS2' : 'Paused',
-              style: const TextStyle(
-                  fontSize: 10, color: BiobaseColors.live),
+              style: const TextStyle(fontSize: 10, color: BiobaseColors.live),
             ),
           ],
         ),
@@ -1611,11 +1892,15 @@ class _RenderArea extends StatelessWidget {
               width: 10,
               height: 10,
               child: CircularProgressIndicator(
-                  strokeWidth: 1.5, color: BiobaseColors.accent),
+                strokeWidth: 1.5,
+                color: BiobaseColors.accent,
+              ),
             ),
             SizedBox(width: 6),
-            Text('Connecting...',
-                style: TextStyle(fontSize: 10, color: BiobaseColors.accent)),
+            Text(
+              'Connecting...',
+              style: TextStyle(fontSize: 10, color: BiobaseColors.accent),
+            ),
           ],
         ),
       );
@@ -1643,7 +1928,9 @@ class _RenderArea extends StatelessWidget {
             Text(
               info.serverName!,
               style: const TextStyle(
-                  fontSize: 12, color: BiobaseColors.textSecondary),
+                fontSize: 12,
+                color: BiobaseColors.textSecondary,
+              ),
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
               maxLines: 2,
@@ -1665,9 +1952,10 @@ class _RenderArea extends StatelessWidget {
             Text(
               info.mapName!,
               style: const TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  color: BiobaseColors.textTertiary),
+                fontSize: 10,
+                fontFamily: 'monospace',
+                color: BiobaseColors.textTertiary,
+              ),
             ),
           const SizedBox(height: 24),
           if (cs2Connecting)
@@ -1676,13 +1964,22 @@ class _RenderArea extends StatelessWidget {
             _WatchButton(onTap: onWatchInCS2)
           else
             _connectedInfo(),
+          if (replayIssue != null) ...[
+            const SizedBox(height: 12),
+            _issueBox(replayIssue!),
+          ],
+          if (replayDiagnostics.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _diagnosticsBox(),
+          ],
           const SizedBox(height: 10),
           Text(
             demoName ?? '',
             style: const TextStyle(
-                fontSize: 9,
-                fontFamily: 'monospace',
-                color: BiobaseColors.textTertiary),
+              fontSize: 9,
+              fontFamily: 'monospace',
+              color: BiobaseColors.textTertiary,
+            ),
             overflow: TextOverflow.ellipsis,
           ),
         ],
@@ -1695,27 +1992,30 @@ class _RenderArea extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'monospace',
-                  color: BiobaseColors.text)),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'monospace',
+              color: BiobaseColors.text,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 9, color: BiobaseColors.textTertiary)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 9,
+              color: BiobaseColors.textTertiary,
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _divider() {
-    return Container(
-      width: 1,
-      height: 28,
-      color: BiobaseColors.border,
-    );
+    return Container(width: 1, height: 28, color: BiobaseColors.border);
   }
 
   Widget _launchingInfo() {
@@ -1726,14 +2026,19 @@ class _RenderArea extends StatelessWidget {
           width: 20,
           height: 20,
           child: CircularProgressIndicator(
-              strokeWidth: 2, color: BiobaseColors.accent),
+            strokeWidth: 2,
+            color: BiobaseColors.accent,
+          ),
         ),
         const SizedBox(height: 12),
-        Text(connectStatus,
-            style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: BiobaseColors.textSecondary)),
+        Text(
+          connectStatus,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: BiobaseColors.textSecondary,
+          ),
+        ),
       ],
     );
   }
@@ -1749,7 +2054,9 @@ class _RenderArea extends StatelessWidget {
               width: 8,
               height: 8,
               decoration: BoxDecoration(
-                color: playing ? BiobaseColors.live : BiobaseColors.textTertiary,
+                color: playing
+                    ? BiobaseColors.live
+                    : BiobaseColors.textTertiary,
                 shape: BoxShape.circle,
               ),
             ),
@@ -1759,7 +2066,9 @@ class _RenderArea extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
-                color: playing ? BiobaseColors.live : BiobaseColors.textSecondary,
+                color: playing
+                    ? BiobaseColors.live
+                    : BiobaseColors.textSecondary,
               ),
             ),
           ],
@@ -1769,18 +2078,93 @@ class _RenderArea extends StatelessWidget {
           Text(
             gsiState!.mapPhase,
             style: const TextStyle(
-                fontSize: 10, color: BiobaseColors.textTertiary),
+              fontSize: 10,
+              color: BiobaseColors.textTertiary,
+            ),
           ),
         ],
       ],
+    );
+  }
+
+  Widget _issueBox(String issue) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 520),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: BiobaseColors.warning.withAlpha(18),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: BiobaseColors.warning.withAlpha(70)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 14,
+            color: BiobaseColors.warning,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              issue,
+              style: const TextStyle(
+                fontSize: 10,
+                height: 1.35,
+                color: BiobaseColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diagnosticsBox() {
+    final lines = replayDiagnostics.length <= 5
+        ? replayDiagnostics
+        : replayDiagnostics.sublist(replayDiagnostics.length - 5);
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 520),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: BiobaseColors.bg.withAlpha(130),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: BiobaseColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Replay diagnostics',
+            style: TextStyle(
+              fontSize: 9,
+              letterSpacing: 0.8,
+              color: BiobaseColors.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final line in lines)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Text(
+                '• $line',
+                style: const TextStyle(
+                  fontSize: 9,
+                  height: 1.25,
+                  color: BiobaseColors.textTertiary,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
 
 class _WatchButton extends StatefulWidget {
   final VoidCallback onTap;
-  final String label;
-  const _WatchButton({required this.onTap, this.label = 'Watch in CS2'});
+  const _WatchButton({required this.onTap});
 
   @override
   State<_WatchButton> createState() => _WatchButtonState();
@@ -1812,12 +2196,14 @@ class _WatchButtonState extends State<_WatchButton> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.play_arrow_rounded,
-                  size: 18,
-                  color: _hovered ? Colors.white : BiobaseColors.accent),
+              Icon(
+                Icons.play_arrow_rounded,
+                size: 18,
+                color: _hovered ? Colors.white : BiobaseColors.accent,
+              ),
               const SizedBox(width: 8),
               Text(
-                widget.label,
+                'Watch in CS2',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,

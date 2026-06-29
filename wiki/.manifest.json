@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-06-24T06:01:10Z",
+  "last_updated": "2026-06-29T00:31:04Z",
   "sources": {
     "/home/clearmined/code/prod/biobase/docs/llm-wiki-raw/karpathy-llm-wiki-gist.md": {
       "ingested_at": "2026-05-11T12:00:00Z",
@@ -21,14 +21,18 @@
       "modified_at": "2026-05-08T04:34:49Z",
       "source_type": "document",
       "project": "biobase",
-      "pages_created": ["references/repo-info-md.md"],
-      "pages_updated": ["projects/biobase/biobase.md"]
+      "pages_created": [
+        "references/repo-info-md.md"
+      ],
+      "pages_updated": [
+        "projects/biobase/biobase.md"
+      ]
     }
   },
   "projects": {
     "biobase": {
       "source_cwd": "/home/clearmined/code/prod/biobase",
-      "last_synced": "2026-06-24T06:01:10Z",
+      "last_synced": "2026-06-29T00:31:04Z",
       "last_commit_synced": "894ce7c0fff25838f61ba92d486e76267e01ea5f",
       "pages_in_vault": [
         "projects/biobase/biobase.md",
@@ -43,7 +47,11 @@
         "concepts/llm-wiki-pattern.md",
         "entities/andrej-karpathy.md",
         "references/karpathy-llm-wiki-gist.md",
-        "references/repo-info-md.md"
+        "references/repo-info-md.md",
+        "projects/biobase/concepts/biobase-replay-demo-playback.md",
+        "projects/biobase/concepts/biobase-product-roadmap.md",
+        "projects/biobase/concepts/biobase-windows-client-primary-ui.md",
+        "projects/biobase/concepts/biobase-cs2-server-installer.md"
       ]
     }
   }

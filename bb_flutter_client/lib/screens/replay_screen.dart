@@ -258,6 +258,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
       target.staged
           ? 'Demo staged at ${target.stagedPath}'
           : 'Using absolute demo path ${target.consolePath}',
+      target.execConfigInstalled
+          ? 'Replay cfg installed at ${target.execConfigPath}'
+          : 'Replay cfg was not installed; using launch commands only.',
     ];
 
     if (mounted) {
@@ -327,12 +330,48 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
     diagnostics.add('Netcon did not open before timeout.');
     setState(() {
+      _connectStatus = 'Trying CS2 console fallback...';
+      _replayDiagnostics = List.of(diagnostics);
+    });
+
+    final fallbackSent = await _replayLauncher.sendPlaydemoConsoleFallback(
+      target,
+    );
+    if (!mounted) return;
+    diagnostics.add(
+      fallbackSent
+          ? 'Console fallback pasted playdemo into CS2.'
+          : 'Console fallback could not focus/paste into CS2.',
+    );
+    setState(() {
+      _connectStatus = fallbackSent
+          ? 'Replay command sent to CS2 console'
+          : 'CS2 launch sent';
+      _replayDiagnostics = List.of(diagnostics);
+    });
+
+    if (fallbackSent) {
+      final reconnected = await _waitForNetcon(
+        timeout: const Duration(seconds: 30),
+      );
+      if (!mounted) return;
+      if (reconnected) {
+        diagnostics.add('Netcon connected after console fallback.');
+        setState(() => _replayDiagnostics = List.of(diagnostics));
+        await _startDemoOverNetcon(target);
+        return;
+      }
+      diagnostics.add('Netcon still unavailable after console fallback.');
+    }
+
+    setState(() {
       _cs2Connecting = false;
       _cs2Connected = false;
-      _connectStatus = 'CS2 launch sent';
+      _connectStatus = fallbackSent ? 'Replay command sent' : 'CS2 launch sent';
       _replayDiagnostics = List.of(diagnostics);
-      _replayIssue =
-          'CS2 was launched with +playdemo, but BioBase could not open the Netcon control socket. If the demo is visible in CS2, rendering is working and controls will attach when Netcon appears.';
+      _replayIssue = fallbackSent
+          ? 'BioBase launched CS2 and pasted playdemo into the CS2 console, but the Netcon control socket still did not open. If the demo is playing in CS2 now, replay rendering is working and controls will attach if Netcon appears.'
+          : 'CS2 was launched with the replay cfg and +playdemo, but BioBase could not open Netcon or paste the console fallback. CS2 may be ignoring startup replay commands on this machine.';
     });
     _startBackgroundNetconReconnect(target);
   }

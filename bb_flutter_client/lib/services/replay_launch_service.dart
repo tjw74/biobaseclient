@@ -6,18 +6,23 @@ import 'package:path/path.dart' as p;
 import 'gsi_service.dart';
 
 const int replayNetconPort = 2121;
+const String replayExecConfigName = 'biobase_replay.cfg';
 
 class ReplayDemoTarget {
   final String sourcePath;
   final String consolePath;
   final String? stagedPath;
+  final String? execConfigPath;
   final bool staged;
+  final bool execConfigInstalled;
 
   const ReplayDemoTarget({
     required this.sourcePath,
     required this.consolePath,
     required this.stagedPath,
+    required this.execConfigPath,
     required this.staged,
+    required this.execConfigInstalled,
   });
 }
 
@@ -38,6 +43,7 @@ class ReplayLaunchService {
     final source = File(sourcePath);
     final absoluteSource = source.absolute.path;
     final csgoDir = await GsiService.findCs2GameCsgoPath();
+    final cfgPath = await GsiService.findCs2CfgPath();
 
     if (csgoDir != null && await source.exists()) {
       try {
@@ -61,11 +67,21 @@ class ReplayLaunchService {
           await source.copy(stagedPath);
         }
 
+        final consolePath = 'biobase_replays/$safeName';
+        final execConfigPath = cfgPath == null
+            ? null
+            : p.join(cfgPath, replayExecConfigName);
+        final execInstalled = execConfigPath == null
+            ? false
+            : await writeReplayExecConfig(execConfigPath, consolePath);
+
         return ReplayDemoTarget(
           sourcePath: absoluteSource,
           stagedPath: stagedPath,
+          execConfigPath: execConfigPath,
           staged: true,
-          consolePath: 'biobase_replays/$safeName',
+          execConfigInstalled: execInstalled,
+          consolePath: consolePath,
         );
       } catch (_) {
         // Fall through to absolute-path playback. Some Steam library folders
@@ -73,11 +89,21 @@ class ReplayLaunchService {
       }
     }
 
+    final consolePath = normalizeConsolePath(absoluteSource);
+    final execConfigPath = cfgPath == null
+        ? null
+        : p.join(cfgPath, replayExecConfigName);
+    final execInstalled = execConfigPath == null
+        ? false
+        : await writeReplayExecConfig(execConfigPath, consolePath);
+
     return ReplayDemoTarget(
       sourcePath: absoluteSource,
       stagedPath: null,
+      execConfigPath: execConfigPath,
       staged: false,
-      consolePath: normalizeConsolePath(absoluteSource),
+      execConfigInstalled: execInstalled,
+      consolePath: consolePath,
     );
   }
 
@@ -91,7 +117,7 @@ class ReplayLaunchService {
       final cs2Exe = await GsiService.findCs2Exe();
       if (cs2Exe != null) {
         final args = buildDirectLaunchArgs(demo.consolePath);
-        diagnostics.add('Launching CS2 directly with Netcon + demo.');
+        diagnostics.add('Launching CS2 directly with Netcon + replay cfg.');
         try {
           await Process.start(
             cs2Exe,
@@ -101,7 +127,7 @@ class ReplayLaunchService {
           );
           return ReplayLaunchResult(
             started: true,
-            method: 'direct-cs2',
+            method: 'direct-cs2-cfg',
             diagnostics: diagnostics,
           );
         } catch (e) {
@@ -114,12 +140,12 @@ class ReplayLaunchService {
       final steamExe = await findSteamExe();
       if (steamExe != null) {
         final args = buildSteamLaunchArgs(demo.consolePath);
-        diagnostics.add('Falling back to Steam +playdemo launch.');
+        diagnostics.add('Falling back to Steam replay cfg launch.');
         try {
           await Process.start(steamExe, args, mode: ProcessStartMode.detached);
           return ReplayLaunchResult(
             started: true,
-            method: 'steam-playdemo',
+            method: 'steam-replay-cfg',
             diagnostics: diagnostics,
           );
         } catch (e) {
@@ -153,13 +179,36 @@ class ReplayLaunchService {
     );
   }
 
+  Future<bool> sendPlaydemoConsoleFallback(ReplayDemoTarget demo) async {
+    if (!Platform.isWindows) return false;
+
+    final command = buildPlaydemoCommand(demo.consolePath);
+    final script = buildWindowsConsolePasteScript(command);
+    try {
+      final result = await Process.run('powershell', [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        script,
+      ]).timeout(const Duration(seconds: 12));
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static List<String> buildDirectLaunchArgs(String consoleDemoPath) => [
+    '-steam',
     '-novid',
     '-console',
+    '-condebug',
     '-windowed',
     '-noborder',
     '-netconport',
     '$replayNetconPort',
+    '+exec',
+    replayExecConfigName,
     '+playdemo',
     consoleDemoPath,
   ];
@@ -168,9 +217,83 @@ class ReplayLaunchService {
     '-applaunch',
     '730',
     '-console',
+    '-netconport',
+    '$replayNetconPort',
+    '+exec',
+    replayExecConfigName,
     '+playdemo',
     consoleDemoPath,
   ];
+
+  static Future<bool> writeReplayExecConfig(
+    String configPath,
+    String consoleDemoPath,
+  ) async {
+    try {
+      final file = File(configPath);
+      final parent = file.parent;
+      if (!await parent.exists()) {
+        await parent.create(recursive: true);
+      }
+      await file.writeAsString(buildReplayExecConfig(consoleDemoPath));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static String buildReplayExecConfig(String consoleDemoPath) {
+    final escapedPath = escapeCfgString(consoleDemoPath);
+    return [
+      '// Generated by BioBase. Safe to overwrite.',
+      'con_enable "1"',
+      'echo "BioBase replay bootstrap"',
+      'playdemo "$escapedPath"',
+      'demo_resume',
+      '',
+    ].join('\r\n');
+  }
+
+  static String buildPlaydemoCommand(String consoleDemoPath) {
+    return 'playdemo "${escapeCfgString(consoleDemoPath)}"';
+  }
+
+  static String escapeCfgString(String value) {
+    return value.replaceAll('\\', '/').replaceAll('"', r'\"');
+  }
+
+  static String buildWindowsConsolePasteScript(String command) {
+    final psCommand = command.replaceAll("'", "''");
+    return '''
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class BioBaseWin32 {
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+"@
+\$proc = Get-Process cs2 -ErrorAction SilentlyContinue | Where-Object { \$_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if (-not \$proc) { exit 2 }
+[BioBaseWin32]::ShowWindowAsync(\$proc.MainWindowHandle, 9) | Out-Null
+Start-Sleep -Milliseconds 350
+[BioBaseWin32]::SetForegroundWindow(\$proc.MainWindowHandle) | Out-Null
+Start-Sleep -Milliseconds 350
+Set-Clipboard -Value '$psCommand'
+[System.Windows.Forms.SendKeys]::SendWait("^v")
+Start-Sleep -Milliseconds 100
+[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+Start-Sleep -Milliseconds 800
+[System.Windows.Forms.SendKeys]::SendWait("``")
+Start-Sleep -Milliseconds 250
+[System.Windows.Forms.SendKeys]::SendWait("^v")
+Start-Sleep -Milliseconds 100
+[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+''';
+  }
 
   static String sanitizeDemoFileName(String name) {
     var cleaned = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');

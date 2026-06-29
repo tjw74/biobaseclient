@@ -62,7 +62,7 @@ void main() {
       final commands = ReplayLaunchService.buildConsoleFallbackCommands(
         'biobase_replays/test.dem',
       );
-      final script = ReplayLaunchService.buildWindowsConsolePasteScript(
+      final script = ReplayLaunchService.buildWindowsConsoleInjectionScript(
         commands,
       );
 
@@ -74,10 +74,11 @@ void main() {
       expect(script, contains('SetForegroundWindow'));
       expect(script, contains('Set-Clipboard -Value'));
       expect(script, contains('playdemo biobase_replays/test.dem'));
-      expect(script, contains('^v'));
-      expect(script, contains('+{INSERT}'));
+      expect(script, contains('SendInput'));
+      expect(script, contains('KEYEVENTF_UNICODE'));
+      expect(script, contains('CtrlV'));
       expect(script, contains('foreach'));
-      expect(script, contains('SendKeys'));
+      expect(script, contains('BioBaseInput'));
     },
   );
 }

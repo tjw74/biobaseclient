@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-29T08:05:31Z
+updated: 2026-06-29T09:42:46Z
 ---
 
 # Hot Cache
@@ -8,6 +8,8 @@ updated: 2026-06-29T08:05:31Z
 *A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
+
+- [2026-06-29T09:42:46Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.25 Win32 SendInput fallback** — Replaced fragile Windows Forms `SendKeys` console injection with lower-level Win32 `SendInput`: foreground CS2, Ctrl+V the command block, then directly type `exec biobase_replay` and `playdemo <staged-demo>` as keyboard events. Updated [[biobase-replay-demo-playback]].
 
 - [2026-06-29T08:05:31Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.24 console injection hardening** — v0.11.23 opened CS2 and displayed the console but did not land the `playdemo` input. v0.11.24 shortens the pre-fallback Netcon wait to 8s and injects `exec biobase_replay` plus `playdemo <staged-demo>` through Ctrl+V, Shift+Insert, and direct SendKeys typing. Updated [[biobase-replay-demo-playback]].
 
@@ -40,7 +42,7 @@ updated: 2026-06-29T08:05:31Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.24). Current focus: verifying Replay demo render playback on Windows. The Replay flow stages demos into CS2's own `game/csgo/biobase_replays` directory, writes `biobase_replay.cfg`, launches CS2 with `+exec`/`+playdemo` and `-netconport 2121`, then quickly injects `exec biobase_replay` + `playdemo <staged-demo>` into the visible CS2 console if Netcon does not appear.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.25). Current focus: verifying Replay demo render playback on Windows. The Replay flow stages demos into CS2's own `game/csgo/biobase_replays` directory, writes `biobase_replay.cfg`, launches CS2 with `+exec`/`+playdemo` and `-netconport 2121`, then uses Win32 `SendInput` to inject `exec biobase_replay` + `playdemo <staged-demo>` into the CS2 console if Netcon does not appear.
 
 ## Key Takeaways
 

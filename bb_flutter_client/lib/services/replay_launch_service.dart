@@ -183,7 +183,7 @@ class ReplayLaunchService {
     if (!Platform.isWindows) return false;
 
     final commands = buildConsoleFallbackCommands(demo.consolePath);
-    final script = buildWindowsConsolePasteScript(commands);
+    final script = buildWindowsConsoleInjectionScript(commands);
     try {
       final result = await Process.run('powershell', [
         '-NoProfile',
@@ -270,19 +270,76 @@ class ReplayLaunchService {
     return value.replaceAll('\\', '/').replaceAll('"', r'\"');
   }
 
-  static String buildWindowsConsolePasteScript(List<String> commands) {
+  static String buildWindowsConsoleInjectionScript(List<String> commands) {
     final commandText = commands.join('\r\n');
     final psCommandText = commandText.replaceAll("'@", "' + '@' + '");
     return '''
-Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class BioBaseWin32 {
+public static class BioBaseInput {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct INPUT {
+    public UInt32 type;
+    public INPUTUNION U;
+  }
+  [StructLayout(LayoutKind.Explicit)]
+  public struct INPUTUNION {
+    [FieldOffset(0)] public KEYBDINPUT ki;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KEYBDINPUT {
+    public UInt16 wVk;
+    public UInt16 wScan;
+    public UInt32 dwFlags;
+    public UInt32 time;
+    public IntPtr dwExtraInfo;
+  }
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern UInt32 SendInput(UInt32 nInputs, INPUT[] pInputs, Int32 cbSize);
   [DllImport("user32.dll")]
   public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")]
   public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
+  public const UInt32 INPUT_KEYBOARD = 1;
+  public const UInt32 KEYEVENTF_KEYUP = 0x0002;
+  public const UInt32 KEYEVENTF_UNICODE = 0x0004;
+  public const UInt16 VK_RETURN = 0x0D;
+  public const UInt16 VK_CONTROL = 0x11;
+  public const UInt16 VK_V = 0x56;
+  public static void Key(UInt16 vk, bool up) {
+    INPUT[] inputs = new INPUT[1];
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].U.ki.wVk = vk;
+    inputs[0].U.ki.wScan = 0;
+    inputs[0].U.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+    SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+  }
+  public static void Press(UInt16 vk) {
+    Key(vk, false);
+    Key(vk, true);
+  }
+  public static void CtrlV() {
+    Key(VK_CONTROL, false);
+    Press(VK_V);
+    Key(VK_CONTROL, true);
+  }
+  public static void Text(string text) {
+    foreach (char c in text) {
+      INPUT[] inputs = new INPUT[2];
+      inputs[0].type = INPUT_KEYBOARD;
+      inputs[0].U.ki.wVk = 0;
+      inputs[0].U.ki.wScan = c;
+      inputs[0].U.ki.dwFlags = KEYEVENTF_UNICODE;
+      inputs[1].type = INPUT_KEYBOARD;
+      inputs[1].U.ki.wVk = 0;
+      inputs[1].U.ki.wScan = c;
+      inputs[1].U.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+      SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+  }
 }
 "@
 \$commandsText = @'
@@ -291,26 +348,30 @@ $psCommandText
 \$commands = \$commandsText -split "``r?``n" | Where-Object { \$_.Trim().Length -gt 0 }
 \$proc = Get-Process cs2 -ErrorAction SilentlyContinue | Where-Object { \$_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if (-not \$proc) { exit 2 }
-[BioBaseWin32]::ShowWindowAsync(\$proc.MainWindowHandle, 9) | Out-Null
-Start-Sleep -Milliseconds 350
-[BioBaseWin32]::SetForegroundWindow(\$proc.MainWindowHandle) | Out-Null
-Start-Sleep -Milliseconds 350
+if ([BioBaseInput]::IsIconic(\$proc.MainWindowHandle)) { [BioBaseInput]::ShowWindowAsync(\$proc.MainWindowHandle, 9) | Out-Null }
+[BioBaseInput]::ShowWindowAsync(\$proc.MainWindowHandle, 5) | Out-Null
+Start-Sleep -Milliseconds 250
+[BioBaseInput]::SetForegroundWindow(\$proc.MainWindowHandle) | Out-Null
+Start-Sleep -Milliseconds 450
 Set-Clipboard -Value \$commandsText
-[System.Windows.Forms.SendKeys]::SendWait("^v")
+[BioBaseInput]::CtrlV()
 Start-Sleep -Milliseconds 120
-[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-Start-Sleep -Milliseconds 450
-[System.Windows.Forms.SendKeys]::SendWait("+{INSERT}")
-Start-Sleep -Milliseconds 120
-[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-Start-Sleep -Milliseconds 450
+[BioBaseInput]::Press([BioBaseInput]::VK_RETURN)
+Start-Sleep -Milliseconds 400
 foreach (\$command in \$commands) {
-  [System.Windows.Forms.SendKeys]::SendWait(\$command)
-  Start-Sleep -Milliseconds 120
-  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-  Start-Sleep -Milliseconds 450
+  [BioBaseInput]::Text(\$command)
+  Start-Sleep -Milliseconds 100
+  [BioBaseInput]::Press([BioBaseInput]::VK_RETURN)
+  Start-Sleep -Milliseconds 500
 }
 ''';
+  }
+
+  @Deprecated(
+    'Use buildWindowsConsoleInjectionScript; kept for test/backcompat.',
+  )
+  static String buildWindowsConsolePasteScript(List<String> commands) {
+    return buildWindowsConsoleInjectionScript(commands);
   }
 
   static String sanitizeDemoFileName(String name) {

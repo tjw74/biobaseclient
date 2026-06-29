@@ -28,6 +28,27 @@ void main() {
     );
   });
 
+  test('Windows Steam app launch args pass playdemo as explicit app args', () {
+    final args = ReplayLaunchService.buildSteamAppLaunchArgs(
+      'biobase_replays/test.dem',
+    );
+
+    expect(args, [
+      '-applaunch',
+      '$cs2SteamAppId',
+      '-novid',
+      '-console',
+      '-netconport',
+      '$replayNetconPort',
+      '+playdemo',
+      'biobase_replays/test.dem',
+    ]);
+    expect(
+      ReplayLaunchService.formatLaunchCommand(args),
+      '-applaunch $cs2SteamAppId -novid -console -netconport $replayNetconPort +playdemo biobase_replays/test.dem',
+    );
+  });
+
   test('Steam run URL uses documented double-slash command-line shape', () {
     final url = ReplayLaunchService.buildSteamRunUrl(
       'biobase_replays/test.dem',

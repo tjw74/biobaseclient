@@ -5,10 +5,10 @@ tags: [biobase, cs2, demo-playback, gsi, netcon, replay]
 sources: [projects/biobase]
 summary: >-
   CS2 is the render engine for demo playback; BioBase stages demos inside the
-  CS2 game tree, launches CS2 through the documented Steam URL command-line
-  path with +playdemo, then uses Netcon only as an optional control channel.
+  CS2 game tree, launches CS2 through Steam app launch arguments with
+  +playdemo, then uses Netcon only as an optional control channel.
 created: 2026-06-27T01:30:00Z
-updated: 2026-06-29T11:06:47Z
+updated: 2026-06-29T11:26:07Z
 ---
 
 # Biobase Replay Demo Playback Architecture
@@ -98,36 +98,34 @@ The `-netconport 2121` launch option must be passed to CS2 at startup. This prov
 
 **The file-check false positive.** `hasNetconLaunchOption()` searches the VDF for the string `-netconport`. If a previous failed write put this string in the file (but Steam never loaded it), the check returns true and the critical Steam restart is skipped. The setting exists in the file but not in Steam's running config.
 
-### Current Approach (v0.11.28): Documented Steam URL + `+playdemo` Launch Command
+### Current Approach (v0.11.29): Steam `-applaunch` + Explicit `+playdemo` App Args
 
-After v0.11.22-v0.11.27 proved that console injection was the wrong seam, Replay moved back to the documented launch-command contract. Steamworks documents the Steam URL command-line path as `steam://run/<appid>//<command line>/`; BioBase now uses that shape directly and stops trying to fake human keyboard input into CS2.
+v0.11.28 proved that the Steam URL command-line handoff opens CS2 but does not make this CS2 client apply `+playdemo` to the engine startup path. v0.11.29 therefore makes Windows primary launch use `steam.exe -applaunch 730` with explicit CS2 app arguments. The Steam URL path remains a fallback only.
 
 ```text
 1. Copy selected demo → <CS2>/game/csgo/biobase_replays/<safe-name>.dem
-2. Build the CS2 launch command line:
-   -novid -console -netconport 2121 +playdemo biobase_replays/<safe-name>.dem
-3. URL-encode the command line into:
-   steam://run/730//-novid%20-console%20-netconport%202121%20+playdemo%20biobase_replays%2F<safe-name>.dem/
-4. Close an existing CS2 instance so startup arguments are not swallowed by an already-open menu.
-5. Ensure Steam is running, then open the Steam URL through the Windows URL handler (`rundll32.exe url.dll,FileProtocolHandler`) with `steam.exe <steam-url>` as the handler fallback.
+2. Build the Steam app launch arguments:
+   -applaunch 730 -novid -console -netconport 2121 +playdemo biobase_replays/<safe-name>.dem
+3. Close an existing CS2 instance so startup arguments are not swallowed by an already-open menu.
+4. Ensure Steam is running, then start `steam.exe` with those explicit app arguments.
+5. If `steam.exe` cannot be found or `-applaunch` fails, fall back to the Steam URL command-line shape from v0.11.28.
 6. Wait briefly for Netcon. If it opens, attach pause/seek/speed controls and resend `playdemo` through the socket. If it does not open, keep the UI in “Replay launched in CS2” state and background-retry Netcon for controls.
 ```
 
-What changed in v0.11.28:
+What changed in v0.11.29:
 
-- **Removed replay cfg bootstrap from the active path.** BioBase no longer writes or depends on `biobase_replay.cfg` to start the demo.
-- **Removed direct `cs2.exe` launch as the primary path.** The main path is now Steam URL launch command, matching Steamworks documentation.
-- **Removed Windows console/keyboard injection.** No `SendKeys`, no clipboard paste, no Unicode `SendInput`, no scan-code fallback. If the documented launch command fails, the next diagnostic is not “type harder”; it is to inspect whether CS2 accepted the launch command.
-- **Separated render start from controls.** `+playdemo` is the render-start command. Netcon is only the control attach path for pause/resume/seek/timescale.
-- **Updated diagnostics.** The UI shows the exact `playdemo` command and the launch command line, then reports “Replay launched in CS2” while controls attach in the background.
+- **Promoted `steam.exe -applaunch` to Windows primary.** The app now asks Steam to launch CS2 with explicit app arguments instead of relying on a Steam URL payload.
+- **Kept Steam URL only as fallback.** The screenshot from Windows QA showed v0.11.28 opened CS2 but left it in the menu, which means CS2 ignored the URL command-line handoff.
+- **Kept console injection retired.** No `SendKeys`, clipboard paste, Unicode `SendInput`, or scan-code fallback.
+- **Separated render start from controls.** `+playdemo` is still the render-start command. Netcon remains only the pause/resume/seek/timescale attach path.
 
-**Status: v0.11.28 is the current Windows QA build.** The exact launch command being tested is:
+**Status: v0.11.29 is the current Windows QA build.** The exact Windows primary command being tested is:
 
 ```text
--novid -console -netconport 2121 +playdemo biobase_replays/<demo>.dem
+steam.exe -applaunch 730 -novid -console -netconport 2121 +playdemo biobase_replays/<demo>.dem
 ```
 
-The exact Steam URL shape is:
+The fallback Steam URL shape remains:
 
 ```text
 steam://run/730//<url-encoded command line>/
@@ -163,7 +161,7 @@ The GSI config file (`gamestate_integration_biobase.cfg`) is written automatical
 
 1. User opens Replay, selects a demo (local, server, or pro)
 2. BioBase parses the PBDEMS2 header → shows map, event, duration, tickrate
-3. User clicks "Watch in CS2" → BioBase stages the file under `game/csgo/biobase_replays`, launches CS2 through `steam://run/730//<command line>/` with `+playdemo`, and waits briefly for optional Netcon controls
+3. User clicks "Watch in CS2" → BioBase stages the file under `game/csgo/biobase_replays`, launches CS2 through `steam.exe -applaunch 730 ... +playdemo <staged-demo>`, and waits briefly for optional Netcon controls
 4. CS2 renders the demo; BioBase attaches controls through Netcon and GSI streams game state back
 5. BioBase timeline syncs to CS2 tick position
 6. User marks move start/end in BioBase UI, synced to CS2's game clock

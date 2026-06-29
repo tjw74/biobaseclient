@@ -91,8 +91,29 @@ class ReplayLaunchService {
       await _closeRunningCs2(diagnostics);
       await _ensureSteamRunning(diagnostics);
 
+      final steamExe = await findSteamExe();
+      if (steamExe != null) {
+        final args = buildSteamAppLaunchArgs(demo.consolePath);
+        diagnostics.add(
+          'Launching CS2 through steam.exe -applaunch with explicit replay args.',
+        );
+        diagnostics.add('Launch command: ${formatLaunchCommand(args)}');
+        try {
+          await Process.start(steamExe, args, mode: ProcessStartMode.detached);
+          return ReplayLaunchResult(
+            started: true,
+            method: 'steam-applaunch-playdemo',
+            diagnostics: diagnostics,
+          );
+        } catch (e) {
+          diagnostics.add('Steam -applaunch failed: $e');
+        }
+      } else {
+        diagnostics.add('Steam executable was not found; trying Steam URL.');
+      }
+
       diagnostics.add(
-        'Launching CS2 through Steam URL with documented launch command line.',
+        'Falling back to Steam URL with documented launch command line.',
       );
       diagnostics.add('Launch command: $commandLine');
       try {
@@ -140,6 +161,21 @@ class ReplayLaunchService {
       '+playdemo',
       quoteLaunchCommandArg(consoleDemoPath),
     ].join(' ');
+  }
+
+  static List<String> buildSteamAppLaunchArgs(String consoleDemoPath) => [
+    '-applaunch',
+    '$cs2SteamAppId',
+    '-novid',
+    '-console',
+    '-netconport',
+    '$replayNetconPort',
+    '+playdemo',
+    consoleDemoPath,
+  ];
+
+  static String formatLaunchCommand(List<String> args) {
+    return args.map(quoteLaunchCommandArg).join(' ');
   }
 
   static String buildSteamRunUrl(String consoleDemoPath) {

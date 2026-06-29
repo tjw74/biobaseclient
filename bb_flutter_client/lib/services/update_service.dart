@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 
 const String _downloadBaseUrl =
     'https://github.com/tjw74/biobaseclient/releases/download/flutter-latest/';
-const String currentVersion = '0.11.28';
+const String currentVersion = '0.11.29';
 
 String get _updateFeedUrl {
   if (Platform.isMacOS) return '${_downloadBaseUrl}latest-mac.yml';

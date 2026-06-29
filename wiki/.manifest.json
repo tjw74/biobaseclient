@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-06-29T10:06:49Z",
+  "last_updated": "2026-06-29T10:27:42Z",
   "sources": {
     "/home/clearmined/code/prod/biobase/docs/llm-wiki-raw/karpathy-llm-wiki-gist.md": {
       "ingested_at": "2026-05-11T12:00:00Z",
@@ -32,7 +32,7 @@
   "projects": {
     "biobase": {
       "source_cwd": "/home/clearmined/code/prod/biobase",
-      "last_synced": "2026-06-29T10:06:49Z",
+      "last_synced": "2026-06-29T10:27:42Z",
       "last_commit_synced": "894ce7c0fff25838f61ba92d486e76267e01ea5f",
       "pages_in_vault": [
         "projects/biobase/biobase.md",

@@ -8,7 +8,7 @@ summary: >-
   CS2 game tree, writes a replay cfg, launches CS2 with +exec/+playdemo,
   then uses Netcon or a Windows console fallback for playback control.
 created: 2026-06-27T01:30:00Z
-updated: 2026-06-29T10:06:49Z
+updated: 2026-06-29T10:27:42Z
 ---
 
 # Biobase Replay Demo Playback Architecture
@@ -98,9 +98,9 @@ The `-netconport 2121` launch option must be passed to CS2 at startup. This prov
 
 **The file-check false positive.** `hasNetconLaunchOption()` searches the VDF for the string `-netconport`. If a previous failed write put this string in the file (but Steam never loaded it), the check returns true and the critical Steam restart is skipped. The setting exists in the file but not in Steam's running config.
 
-### Current Approach (v0.11.26): Stage Demo + Replay CFG + Console-Open SendInput Injection
+### Current Approach (v0.11.27): Stage Demo + Replay CFG + Scan-Code Console Injection
 
-Windows QA of v0.11.22-v0.11.25 showed CS2 could be opened from BioBase and the demo could be staged, but the command handoff was still the failing seam: direct `+playdemo` was not a reliable startup contract, Netcon did not open on the target machine, and v0.11.25 could report a successful SendInput run without proving the CS2 console was actually open. v0.11.26 therefore treats initial rendering as a console-command delivery problem rather than a Netcon dependency.
+Windows QA of v0.11.22-v0.11.26 showed CS2 could be opened from BioBase and the demo could be staged, but the command handoff was still the failing seam: direct `+playdemo` was not a reliable startup contract, Netcon did not open on the target machine, and v0.11.26 still left CS2 on the menu after paste/Unicode SendInput. v0.11.27 treats this as a raw keyboard-input problem: CS2 can ignore Unicode text injection because games often consume scan-code/raw keyboard input instead of normal Windows text events.
 
 ```text
 1. Copy selected demo → <CS2>/game/csgo/biobase_replays/<safe-name>.dem
@@ -111,9 +111,9 @@ Windows QA of v0.11.22-v0.11.25 showed CS2 could be opened from BioBase and the 
    playdemo biobase_replays/<safe-name>.dem
    demo_resume
 3. Launch cs2.exe directly with:
-   -steam -novid -console -dev -condebug -windowed -noborder -netconport 2121 +exec biobase_replay.cfg +playdemo biobase_replays/<safe-name>.dem
+   -steam -novid -console -dev -condebug -windowed -noborder -netconport 2121 +con_enable 1 +bind ` toggleconsole +bind F8 toggleconsole +toggleconsole +exec biobase_replay.cfg +playdemo biobase_replays/<safe-name>.dem
 4. Wait for Netcon on 127.0.0.1:2121; if connected, resend playdemo and attach pause/seek/speed controls
-5. If Netcon does not open after 8 seconds, force-focus CS2 with PowerShell/Win32, send command passes before and after console-toggle (`VK_OEM_3`), and inject `exec biobase_replay` plus `playdemo <staged-demo>` via both clipboard paste and direct Unicode `SendInput`
+5. If Netcon does not open after 8 seconds, force-focus CS2 with PowerShell/Win32, run command passes before/after console-toggle (`VK_OEM_3`, then `F8`), and inject `exec biobase_replay` plus `playdemo <staged-demo>` via both clipboard paste and physical scan-code `SendInput` generated from `VkKeyScan`/`MapVirtualKey`
 6. Stop blocking initial rendering on Netcon: if command injection runs, mark the render command as issued, retry Netcon in the background for controls, and surface diagnostics that distinguish command handoff from socket attach
 ```
 
@@ -122,11 +122,11 @@ This is intentionally layered rather than elegant because Replay is a release-cr
 - **Demo file staging:** CS2 receives a relative path under its own `game/csgo` tree, matching the already-used render-worker pattern of copying demos into the game directory before `playdemo`.
 - **Replay cfg bootstrap:** `biobase_replay.cfg` lets CS2 execute `playdemo` after the client config system exists, which is more reliable than only passing a one-shot launch command.
 - **Launch-time redundancy:** BioBase passes both `+exec biobase_replay.cfg` and `+playdemo <staged-demo>` so either command path can start rendering.
-- **Windows console fallback:** if CS2 opens but ignores startup commands, BioBase force-focuses the CS2 window, attempts command delivery in the current console state, toggles the developer console with `VK_OEM_3`, and repeats delivery using both clipboard paste and direct Unicode `SendInput`. This fixes the v0.11.25 flaw where input could be sent to the CS2 window without the console being open.
+- **Windows console fallback:** if CS2 opens but ignores startup commands, BioBase force-focuses the CS2 window, attempts command delivery in the current console state, toggles the developer console with `VK_OEM_3` and `F8`, and repeats delivery using both clipboard paste and scan-code `SendInput`. This replaces Unicode text injection because CS2 can ignore normal Windows text events while accepting physical keyboard scan codes.
 - **Control attach:** Netcon remains the preferred control channel for pause/resume/timescale/seek, but it is no longer treated as required for the first render. After fallback command issue, the UI stops spinning and background-retries Netcon so controls attach if the socket appears.
 - **Diagnostics:** Replay surfaces the exact failure stage instead of spinning: staging, replay cfg, GSI config, CS2 launch, Netcon timeout, console fallback, or command send.
 
-**Status: v0.11.26 is the current Windows QA build.** v0.11.25 proved that lower-level `SendInput` alone was not enough because the CS2 console might not be open/focused; the app could say “typed” while CS2 stayed in the menu. v0.11.26 adds explicit console-toggle multi-pass injection, `-dev`, replay-cfg console bindings, and a UI state fix so Netcon absence does not masquerade as render failure once `playdemo` has been issued.
+**Status: v0.11.27 is the current Windows QA build.** v0.11.26 proved that console-toggle plus paste/Unicode input could still fail: CS2 stayed in the menu after the fallback reported command issue. v0.11.27 adds launch-time `+con_enable 1`, `+bind`/`+toggleconsole`, and scan-code keyboard injection for the typed command pass so CS2 receives keyboard-like events instead of Unicode text events.
 
 ### GSI Config Auto-Install
 

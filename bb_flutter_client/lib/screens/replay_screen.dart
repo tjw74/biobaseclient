@@ -340,7 +340,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     if (!mounted) return;
     diagnostics.add(
       fallbackSent
-          ? 'Console fallback issued exec/playdemo with focus, console-toggle, paste, and direct typing passes.'
+          ? 'Console fallback issued exec/playdemo with focus, console-toggle, paste, and scan-code keyboard passes.'
           : 'Console fallback could not focus/type into CS2.',
     );
     setState(() {

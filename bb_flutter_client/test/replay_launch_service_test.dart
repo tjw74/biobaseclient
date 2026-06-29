@@ -27,6 +27,8 @@ void main() {
       expect(args, contains('-steam'));
       expect(args, contains('-dev'));
       expect(args, containsAll(['-netconport', '$replayNetconPort']));
+      expect(args, containsAll(['+con_enable', '1']));
+      expect(args, contains('+toggleconsole'));
       expect(args, containsAll(['+exec', replayExecConfigName]));
       expect(args, containsAll(['+playdemo', 'biobase_replays/test.dem']));
       expect(args.indexOf('+exec'), lessThan(args.indexOf('+playdemo')));
@@ -43,6 +45,8 @@ void main() {
       expect(args.take(2), ['-applaunch', '730']);
       expect(args, contains('-dev'));
       expect(args, containsAll(['-netconport', '$replayNetconPort']));
+      expect(args, containsAll(['+con_enable', '1']));
+      expect(args, contains('+toggleconsole'));
       expect(args, containsAll(['+exec', replayExecConfigName]));
       expect(args, containsAll(['+playdemo', 'biobase_replays/test.dem']));
     },
@@ -81,11 +85,14 @@ void main() {
       expect(script, contains('Set-Clipboard -Value'));
       expect(script, contains('playdemo biobase_replays/test.dem'));
       expect(script, contains('SendInput'));
-      expect(script, contains('KEYEVENTF_UNICODE'));
+      expect(script, contains('KEYEVENTF_SCANCODE'));
+      expect(script, contains('VkKeyScan'));
+      expect(script, contains('MapVirtualKey'));
       expect(script, contains('CtrlV'));
       expect(script, contains('CtrlA'));
       expect(script, contains('VK_BACK'));
       expect(script, contains('VK_OEM_3'));
+      expect(script, contains('VK_F8'));
       expect(script, contains('Send-BioBaseReplayCommands'));
       expect(script, contains('foreach'));
       expect(script, contains('BioBaseInput'));

@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-29T10:27:42Z
+updated: 2026-06-29T11:06:47Z
 ---
 
 # Hot Cache
@@ -8,6 +8,8 @@ updated: 2026-06-29T10:27:42Z
 *A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
+
+- [2026-06-29T11:06:47Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.28 documented Steam launch** — Replaced the failed console-injection path with Steamworks-style `steam://run/730//<command line>/` launch handoff. BioBase now stages the demo, opens CS2 with `-novid -console -netconport 2121 +playdemo <staged-demo>`, treats Netcon only as optional controls, and surfaces launch diagnostics without fake keyboard fallback. Updated [[biobase-replay-demo-playback]].
 
 - [2026-06-29T10:27:42Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.27 scan-code keyboard fallback** — Windows QA on v0.11.26 still left CS2 in the menu after command issue, proving paste/Unicode SendInput was not enough. Updated Replay to launch with `+con_enable 1`, console binds, startup `+toggleconsole`, and physical scan-code command typing via `VkKeyScan`/`MapVirtualKey`; diagnostic text now identifies scan-code fallback. Updated [[biobase-replay-demo-playback]].
 
@@ -46,7 +48,7 @@ updated: 2026-06-29T10:27:42Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.27). Current focus: verifying Replay demo render playback on Windows. The Replay flow stages demos into CS2's own `game/csgo/biobase_replays` directory, writes `biobase_replay.cfg`, launches CS2 with `+exec`/`+playdemo` and `-netconport 2121`, then force-focuses CS2 and runs console-toggle scan-code SendInput passes (`exec biobase_replay` + `playdemo <staged-demo>`) if Netcon does not appear. Netcon is now treated as the control channel, not the prerequisite for initial demo rendering.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.28). Current focus: verifying Replay demo render playback on Windows. The Replay flow stages demos into CS2's own `game/csgo/biobase_replays` directory, closes an existing CS2 instance, then launches through Steam's documented `steam://run/730//<command line>/` shape with `-novid -console -netconport 2121 +playdemo <staged-demo>`. Console typing / SendInput fallbacks are retired; Netcon is optional pause/seek/speed control attach after the render launch.
 
 ## Key Takeaways
 

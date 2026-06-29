@@ -40,6 +40,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   // CS2 integration state
   bool _cs2Connected = false;
   bool _cs2Connecting = false;
+  bool _replayLaunched = false;
   String _connectStatus = 'Waiting for connection';
   GsiState? _gsiState;
   StreamSubscription<GsiState>? _gsiSub;
@@ -94,6 +95,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _playing = false;
     _cs2Connected = false;
     _cs2Connecting = false;
+    _replayLaunched = false;
     _currentTick = 0;
     _connectStatus = 'Waiting for connection';
     _replayIssue = null;
@@ -233,6 +235,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       setState(() {
         _cs2Connecting = true;
         _cs2Connected = false;
+        _replayLaunched = false;
         _playing = false;
         _currentTick = 0;
         _playbackPosition = 0;
@@ -258,9 +261,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       target.staged
           ? 'Demo staged at ${target.stagedPath}'
           : 'Using absolute demo path ${target.consolePath}',
-      target.execConfigInstalled
-          ? 'Replay cfg installed at ${target.execConfigPath}'
-          : 'Replay cfg was not installed; using launch commands only.',
+      'Replay command: ${ReplayLaunchService.buildPlaydemoCommand(target.consolePath)}',
     ];
 
     if (mounted) {
@@ -319,7 +320,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
       return;
     }
 
-    final connected = await _waitForNetcon(timeout: const Duration(seconds: 8));
+    final connected = await _waitForNetcon(
+      timeout: const Duration(seconds: 12),
+    );
     if (!mounted) return;
     if (connected) {
       diagnostics.add('Netcon connected after launch.');
@@ -328,53 +331,18 @@ class _ReplayScreenState extends State<ReplayScreen> {
       return;
     }
 
-    diagnostics.add('Netcon did not open before timeout.');
-    setState(() {
-      _connectStatus = 'Trying CS2 console fallback...';
-      _replayDiagnostics = List.of(diagnostics);
-    });
-
-    final fallbackSent = await _replayLauncher.sendPlaydemoConsoleFallback(
-      target,
-    );
-    if (!mounted) return;
     diagnostics.add(
-      fallbackSent
-          ? 'Console fallback issued exec/playdemo with focus, console-toggle, paste, and scan-code keyboard passes.'
-          : 'Console fallback could not focus/type into CS2.',
+      'Netcon did not open; CS2 was still launched with the documented +playdemo command.',
     );
-    setState(() {
-      _connectStatus = fallbackSent
-          ? 'Replay command issued to CS2'
-          : 'CS2 launch sent';
-      _replayDiagnostics = List.of(diagnostics);
-    });
-
-    if (fallbackSent) {
-      await Future.delayed(const Duration(seconds: 4));
-      if (!mounted) return;
-      final reconnected = await _netcon.connect();
-      if (reconnected) {
-        diagnostics.add('Netcon connected after console fallback.');
-        setState(() => _replayDiagnostics = List.of(diagnostics));
-        await _startDemoOverNetcon(target);
-        return;
-      }
-      diagnostics.add(
-        'Netcon still unavailable after console fallback; render command was issued without attached controls.',
-      );
-    }
-
     setState(() {
       _cs2Connecting = false;
       _cs2Connected = false;
-      _connectStatus = fallbackSent
-          ? 'Replay command issued to CS2'
-          : 'CS2 launch sent';
+      _replayLaunched = true;
+      _playing = true;
+      _connectStatus = 'Replay launched in CS2';
       _replayDiagnostics = List.of(diagnostics);
-      _replayIssue = fallbackSent
-          ? 'BioBase issued the playdemo command to CS2. If CS2 is still on the menu, the command is not landing in the CS2 console; open the CS2 console and check whether playdemo is visible or rejected.'
-          : 'CS2 was launched with the replay cfg and +playdemo, but BioBase could not open Netcon or inject the console fallback. CS2 may be ignoring startup replay commands on this machine.';
+      _replayIssue =
+          'BioBase handed this demo to CS2 through Steam with +playdemo. Controls will attach if CS2 opens the Netcon socket.';
     });
     _startBackgroundNetconReconnect(target);
   }
@@ -408,6 +376,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     setState(() {
       _cs2Connected = true;
       _cs2Connecting = false;
+      _replayLaunched = true;
       _playing = true;
       _connectStatus = 'Playing demo in CS2';
     });
@@ -566,6 +535,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
             parsingDemo: _parsingDemo,
             cs2Connected: _cs2Connected,
             cs2Connecting: _cs2Connecting,
+            replayLaunched: _replayLaunched,
             connectStatus: _connectStatus,
             replayIssue: _replayIssue,
             replayDiagnostics: _replayDiagnostics,
@@ -1725,6 +1695,7 @@ class _RenderArea extends StatelessWidget {
   final bool parsingDemo;
   final bool cs2Connected;
   final bool cs2Connecting;
+  final bool replayLaunched;
   final String connectStatus;
   final String? replayIssue;
   final List<String> replayDiagnostics;
@@ -1742,6 +1713,7 @@ class _RenderArea extends StatelessWidget {
     required this.parsingDemo,
     required this.cs2Connected,
     required this.cs2Connecting,
+    required this.replayLaunched,
     required this.connectStatus,
     required this.replayIssue,
     required this.replayDiagnostics,
@@ -1947,6 +1919,30 @@ class _RenderArea extends StatelessWidget {
         ),
       );
     }
+    if (replayLaunched) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: BiobaseColors.accentDim,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.play_arrow_rounded,
+              size: 12,
+              color: BiobaseColors.accent,
+            ),
+            SizedBox(width: 6),
+            Text(
+              'Launched',
+              style: TextStyle(fontSize: 10, color: BiobaseColors.accent),
+            ),
+          ],
+        ),
+      );
+    }
     return const SizedBox.shrink();
   }
 
@@ -2002,10 +1998,12 @@ class _RenderArea extends StatelessWidget {
           const SizedBox(height: 24),
           if (cs2Connecting)
             _launchingInfo()
-          else if (!cs2Connected)
-            _WatchButton(onTap: onWatchInCS2)
+          else if (cs2Connected)
+            _connectedInfo()
+          else if (replayLaunched)
+            _launchedInfo()
           else
-            _connectedInfo(),
+            _WatchButton(onTap: onWatchInCS2),
           if (replayIssue != null) ...[
             const SizedBox(height: 12),
             _issueBox(replayIssue!),
@@ -2080,6 +2078,38 @@ class _RenderArea extends StatelessWidget {
             fontWeight: FontWeight.w500,
             color: BiobaseColors.textSecondary,
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _launchedInfo() {
+    return const Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.play_arrow_rounded,
+              size: 18,
+              color: BiobaseColors.accent,
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Replay launched in CS2',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: BiobaseColors.accent,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 6),
+        Text(
+          'BioBase is waiting for controls to attach.',
+          style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
         ),
       ],
     );

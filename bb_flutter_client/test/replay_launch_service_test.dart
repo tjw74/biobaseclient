@@ -17,85 +17,47 @@ void main() {
     );
   });
 
-  test(
-    'direct CS2 launch includes steam context, netcon, exec cfg, and playdemo',
-    () {
-      final args = ReplayLaunchService.buildDirectLaunchArgs(
-        'biobase_replays/test.dem',
-      );
-
-      expect(args, contains('-steam'));
-      expect(args, contains('-dev'));
-      expect(args, containsAll(['-netconport', '$replayNetconPort']));
-      expect(args, containsAll(['+con_enable', '1']));
-      expect(args, contains('+toggleconsole'));
-      expect(args, containsAll(['+exec', replayExecConfigName]));
-      expect(args, containsAll(['+playdemo', 'biobase_replays/test.dem']));
-      expect(args.indexOf('+exec'), lessThan(args.indexOf('+playdemo')));
-    },
-  );
-
-  test(
-    'Steam fallback carries the same replay cfg and netcon launch options',
-    () {
-      final args = ReplayLaunchService.buildSteamLaunchArgs(
-        'biobase_replays/test.dem',
-      );
-
-      expect(args.take(2), ['-applaunch', '730']);
-      expect(args, contains('-dev'));
-      expect(args, containsAll(['-netconport', '$replayNetconPort']));
-      expect(args, containsAll(['+con_enable', '1']));
-      expect(args, contains('+toggleconsole'));
-      expect(args, containsAll(['+exec', replayExecConfigName]));
-      expect(args, containsAll(['+playdemo', 'biobase_replays/test.dem']));
-    },
-  );
-
-  test('replay exec cfg starts the selected demo', () {
-    final cfg = ReplayLaunchService.buildReplayExecConfig(
+  test('Steam replay command line uses documented playdemo launch command', () {
+    final commandLine = ReplayLaunchService.buildSteamReplayCommandLine(
       'biobase_replays/test.dem',
     );
 
-    expect(cfg, contains('con_enable "1"'));
-    expect(cfg, contains('bind "`" "toggleconsole"'));
-    expect(cfg, contains('bind "F8" "toggleconsole"'));
-    expect(cfg, contains('playdemo biobase_replays/test.dem'));
-    expect(cfg, contains('demo_resume'));
+    expect(
+      commandLine,
+      '-novid -console -netconport $replayNetconPort +playdemo biobase_replays/test.dem',
+    );
   });
 
-  test(
-    'console fallback executes cfg and playdemo through multiple input paths',
-    () {
-      final commands = ReplayLaunchService.buildConsoleFallbackCommands(
-        'biobase_replays/test.dem',
-      );
-      final script = ReplayLaunchService.buildWindowsConsoleInjectionScript(
-        commands,
-      );
+  test('Steam run URL uses documented double-slash command-line shape', () {
+    final url = ReplayLaunchService.buildSteamRunUrl(
+      'biobase_replays/test.dem',
+    );
 
-      expect(commands, [
-        'exec biobase_replay',
-        'playdemo biobase_replays/test.dem',
-      ]);
-      expect(script, contains('Get-Process cs2'));
-      expect(script, contains('SetForegroundWindow'));
-      expect(script, contains('BringWindowToTop'));
-      expect(script, contains('ForceForeground'));
-      expect(script, contains('Set-Clipboard -Value'));
-      expect(script, contains('playdemo biobase_replays/test.dem'));
-      expect(script, contains('SendInput'));
-      expect(script, contains('KEYEVENTF_SCANCODE'));
-      expect(script, contains('VkKeyScan'));
-      expect(script, contains('MapVirtualKey'));
-      expect(script, contains('CtrlV'));
-      expect(script, contains('CtrlA'));
-      expect(script, contains('VK_BACK'));
-      expect(script, contains('VK_OEM_3'));
-      expect(script, contains('VK_F8'));
-      expect(script, contains('Send-BioBaseReplayCommands'));
-      expect(script, contains('foreach'));
-      expect(script, contains('BioBaseInput'));
-    },
-  );
+    expect(
+      url,
+      'steam://run/$cs2SteamAppId//-novid%20-console%20-netconport%20$replayNetconPort%20+playdemo%20biobase_replays%2Ftest.dem/',
+    );
+  });
+
+  test('launch command quotes demo paths with whitespace', () {
+    final commandLine = ReplayLaunchService.buildSteamReplayCommandLine(
+      r'C:\Users\me\Counter Strike Demos\test demo.dem',
+    );
+
+    expect(
+      commandLine,
+      '-novid -console -netconport $replayNetconPort +playdemo "C:/Users/me/Counter Strike Demos/test demo.dem"',
+    );
+  });
+
+  test('playdemo command quotes whitespace paths for manual diagnostics', () {
+    expect(
+      ReplayLaunchService.buildPlaydemoCommand('biobase_replays/test.dem'),
+      'playdemo biobase_replays/test.dem',
+    );
+    expect(
+      ReplayLaunchService.buildPlaydemoCommand('C:/demo files/test.dem'),
+      'playdemo "C:/demo files/test.dem"',
+    );
+  });
 }

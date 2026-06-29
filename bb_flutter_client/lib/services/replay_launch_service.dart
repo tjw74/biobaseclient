@@ -5,24 +5,20 @@ import 'package:path/path.dart' as p;
 
 import 'gsi_service.dart';
 
+const int cs2SteamAppId = 730;
 const int replayNetconPort = 2121;
-const String replayExecConfigName = 'biobase_replay.cfg';
 
 class ReplayDemoTarget {
   final String sourcePath;
   final String consolePath;
   final String? stagedPath;
-  final String? execConfigPath;
   final bool staged;
-  final bool execConfigInstalled;
 
   const ReplayDemoTarget({
     required this.sourcePath,
     required this.consolePath,
     required this.stagedPath,
-    required this.execConfigPath,
     required this.staged,
-    required this.execConfigInstalled,
   });
 }
 
@@ -43,7 +39,6 @@ class ReplayLaunchService {
     final source = File(sourcePath);
     final absoluteSource = source.absolute.path;
     final csgoDir = await GsiService.findCs2GameCsgoPath();
-    final cfgPath = await GsiService.findCs2CfgPath();
 
     if (csgoDir != null && await source.exists()) {
       try {
@@ -67,21 +62,11 @@ class ReplayLaunchService {
           await source.copy(stagedPath);
         }
 
-        final consolePath = 'biobase_replays/$safeName';
-        final execConfigPath = cfgPath == null
-            ? null
-            : p.join(cfgPath, replayExecConfigName);
-        final execInstalled = execConfigPath == null
-            ? false
-            : await writeReplayExecConfig(execConfigPath, consolePath);
-
         return ReplayDemoTarget(
           sourcePath: absoluteSource,
           stagedPath: stagedPath,
-          execConfigPath: execConfigPath,
           staged: true,
-          execConfigInstalled: execInstalled,
-          consolePath: consolePath,
+          consolePath: 'biobase_replays/$safeName',
         );
       } catch (_) {
         // Fall through to absolute-path playback. Some Steam library folders
@@ -89,84 +74,51 @@ class ReplayLaunchService {
       }
     }
 
-    final consolePath = normalizeConsolePath(absoluteSource);
-    final execConfigPath = cfgPath == null
-        ? null
-        : p.join(cfgPath, replayExecConfigName);
-    final execInstalled = execConfigPath == null
-        ? false
-        : await writeReplayExecConfig(execConfigPath, consolePath);
-
     return ReplayDemoTarget(
       sourcePath: absoluteSource,
       stagedPath: null,
-      execConfigPath: execConfigPath,
       staged: false,
-      execConfigInstalled: execInstalled,
-      consolePath: consolePath,
+      consolePath: normalizeConsolePath(absoluteSource),
     );
   }
 
   Future<ReplayLaunchResult> launchForReplay(ReplayDemoTarget demo) async {
     final diagnostics = <String>[];
+    final steamUrl = buildSteamRunUrl(demo.consolePath);
+    final commandLine = buildSteamReplayCommandLine(demo.consolePath);
 
     if (Platform.isWindows) {
       await _closeRunningCs2(diagnostics);
       await _ensureSteamRunning(diagnostics);
 
-      final cs2Exe = await GsiService.findCs2Exe();
-      if (cs2Exe != null) {
-        final args = buildDirectLaunchArgs(demo.consolePath);
-        diagnostics.add('Launching CS2 directly with Netcon + replay cfg.');
-        try {
-          await Process.start(
-            cs2Exe,
-            args,
-            mode: ProcessStartMode.detached,
-            workingDirectory: File(cs2Exe).parent.path,
-          );
-          return ReplayLaunchResult(
-            started: true,
-            method: 'direct-cs2-cfg',
-            diagnostics: diagnostics,
-          );
-        } catch (e) {
-          diagnostics.add('Direct launch failed: $e');
-        }
-      } else {
-        diagnostics.add('CS2 executable was not found from Steam cfg path.');
-      }
-
-      final steamExe = await findSteamExe();
-      if (steamExe != null) {
-        final args = buildSteamLaunchArgs(demo.consolePath);
-        diagnostics.add('Falling back to Steam replay cfg launch.');
-        try {
-          await Process.start(steamExe, args, mode: ProcessStartMode.detached);
-          return ReplayLaunchResult(
-            started: true,
-            method: 'steam-replay-cfg',
-            diagnostics: diagnostics,
-          );
-        } catch (e) {
-          diagnostics.add('Steam fallback failed: $e');
-        }
-      } else {
-        diagnostics.add('Steam executable was not found.');
-      }
-    } else if (Platform.isMacOS) {
+      diagnostics.add(
+        'Launching CS2 through Steam URL with documented launch command line.',
+      );
+      diagnostics.add('Launch command: $commandLine');
       try {
-        await Process.start('open', [
-          'steam://rungameid/730',
-        ], mode: ProcessStartMode.detached);
-        diagnostics.add('Opened CS2 through Steam on macOS.');
+        await openSteamRunUrl(steamUrl);
         return ReplayLaunchResult(
           started: true,
-          method: 'steam-macos',
+          method: 'steam-url-playdemo',
           diagnostics: diagnostics,
         );
       } catch (e) {
-        diagnostics.add('macOS Steam launch failed: $e');
+        diagnostics.add('Steam URL launch failed: $e');
+      }
+    } else if (Platform.isMacOS) {
+      try {
+        await openSteamRunUrl(steamUrl);
+        diagnostics.add(
+          'Opened CS2 through Steam URL with documented launch command line.',
+        );
+        diagnostics.add('Launch command: $commandLine');
+        return ReplayLaunchResult(
+          started: true,
+          method: 'steam-url-playdemo',
+          diagnostics: diagnostics,
+        );
+      } catch (e) {
+        diagnostics.add('macOS Steam URL launch failed: $e');
       }
     } else {
       diagnostics.add('Replay launch is only automated on Windows/macOS.');
@@ -179,106 +131,57 @@ class ReplayLaunchService {
     );
   }
 
-  Future<bool> sendPlaydemoConsoleFallback(ReplayDemoTarget demo) async {
-    if (!Platform.isWindows) return false;
-
-    final commands = buildConsoleFallbackCommands(demo.consolePath);
-    final script = buildWindowsConsoleInjectionScript(commands);
-    try {
-      final result = await Process.run('powershell', [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-Command',
-        script,
-      ]).timeout(const Duration(seconds: 15));
-      return result.exitCode == 0;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static List<String> buildDirectLaunchArgs(String consoleDemoPath) => [
-    '-steam',
-    '-novid',
-    '-console',
-    '-dev',
-    '-condebug',
-    '-windowed',
-    '-noborder',
-    '-netconport',
-    '$replayNetconPort',
-    '+con_enable',
-    '1',
-    '+bind',
-    '`',
-    'toggleconsole',
-    '+bind',
-    'F8',
-    'toggleconsole',
-    '+toggleconsole',
-    '+exec',
-    replayExecConfigName,
-    '+playdemo',
-    consoleDemoPath,
-  ];
-
-  static List<String> buildSteamLaunchArgs(String consoleDemoPath) => [
-    '-applaunch',
-    '730',
-    '-console',
-    '-dev',
-    '-netconport',
-    '$replayNetconPort',
-    '+con_enable',
-    '1',
-    '+bind',
-    '`',
-    'toggleconsole',
-    '+bind',
-    'F8',
-    'toggleconsole',
-    '+toggleconsole',
-    '+exec',
-    replayExecConfigName,
-    '+playdemo',
-    consoleDemoPath,
-  ];
-
-  static Future<bool> writeReplayExecConfig(
-    String configPath,
-    String consoleDemoPath,
-  ) async {
-    try {
-      final file = File(configPath);
-      final parent = file.parent;
-      if (!await parent.exists()) {
-        await parent.create(recursive: true);
-      }
-      await file.writeAsString(buildReplayExecConfig(consoleDemoPath));
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static String buildReplayExecConfig(String consoleDemoPath) {
+  static String buildSteamReplayCommandLine(String consoleDemoPath) {
     return [
-      '// Generated by BioBase. Safe to overwrite.',
-      'con_enable "1"',
-      'bind "`" "toggleconsole"',
-      'bind "F8" "toggleconsole"',
-      'echo "BioBase replay bootstrap"',
-      buildPlaydemoCommand(consoleDemoPath),
-      'demo_resume',
-      '',
-    ].join('\r\n');
+      '-novid',
+      '-console',
+      '-netconport',
+      '$replayNetconPort',
+      '+playdemo',
+      quoteLaunchCommandArg(consoleDemoPath),
+    ].join(' ');
   }
 
-  static List<String> buildConsoleFallbackCommands(String consoleDemoPath) => [
-    'exec ${replayExecConfigName.replaceAll('.cfg', '')}',
-    buildPlaydemoCommand(consoleDemoPath),
-  ];
+  static String buildSteamRunUrl(String consoleDemoPath) {
+    final commandLine = buildSteamReplayCommandLine(consoleDemoPath);
+    final encoded = Uri.encodeComponent(commandLine).replaceAll('%2B', '+');
+    return 'steam://run/$cs2SteamAppId//$encoded/';
+  }
+
+  static Future<void> openSteamRunUrl(String steamUrl) async {
+    if (Platform.isWindows) {
+      try {
+        await Process.start('rundll32.exe', [
+          'url.dll,FileProtocolHandler',
+          steamUrl,
+        ], mode: ProcessStartMode.detached);
+        return;
+      } catch (_) {
+        final steamExe = await findSteamExe();
+        if (steamExe == null) rethrow;
+        await Process.start(steamExe, [
+          steamUrl,
+        ], mode: ProcessStartMode.detached);
+        return;
+      }
+    }
+
+    if (Platform.isMacOS) {
+      await Process.start('open', [steamUrl], mode: ProcessStartMode.detached);
+      return;
+    }
+
+    await Process.start('xdg-open', [
+      steamUrl,
+    ], mode: ProcessStartMode.detached);
+  }
+
+  static String quoteLaunchCommandArg(String value) {
+    final normalized = value.replaceAll('\\', '/');
+    if (!RegExp(r'\s|"').hasMatch(normalized)) return normalized;
+    final escaped = normalized.replaceAll('"', r'\"');
+    return '"$escaped"';
+  }
 
   static String buildPlaydemoCommand(String consoleDemoPath) {
     final escapedPath = escapeCfgString(consoleDemoPath);
@@ -290,154 +193,6 @@ class ReplayLaunchService {
 
   static String escapeCfgString(String value) {
     return value.replaceAll('\\', '/').replaceAll('"', r'\"');
-  }
-
-  static String buildWindowsConsoleInjectionScript(List<String> commands) {
-    final commandText = commands.join('\r\n');
-    final psCommandText = commandText.replaceAll("'@", "' + '@' + '");
-    return '''
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class BioBaseInput {
-  [StructLayout(LayoutKind.Sequential)]
-  public struct INPUT {
-    public UInt32 type;
-    public INPUTUNION U;
-  }
-  [StructLayout(LayoutKind.Explicit)]
-  public struct INPUTUNION {
-    [FieldOffset(0)] public KEYBDINPUT ki;
-  }
-  [StructLayout(LayoutKind.Sequential)]
-  public struct KEYBDINPUT {
-    public UInt16 wVk;
-    public UInt16 wScan;
-    public UInt32 dwFlags;
-    public UInt32 time;
-    public IntPtr dwExtraInfo;
-  }
-  [DllImport("user32.dll", SetLastError=true)]
-  public static extern UInt32 SendInput(UInt32 nInputs, INPUT[] pInputs, Int32 cbSize);
-  [DllImport("user32.dll")]
-  public static extern bool SetForegroundWindow(IntPtr hWnd);
-  [DllImport("user32.dll")]
-  public static extern bool BringWindowToTop(IntPtr hWnd);
-  [DllImport("user32.dll")]
-  public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")]
-  public static extern bool IsIconic(IntPtr hWnd);
-  [DllImport("user32.dll")]
-  public static extern UInt32 MapVirtualKey(UInt32 uCode, UInt32 uMapType);
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)]
-  public static extern short VkKeyScan(char ch);
-  public const UInt32 INPUT_KEYBOARD = 1;
-  public const UInt32 KEYEVENTF_KEYUP = 0x0002;
-  public const UInt32 KEYEVENTF_SCANCODE = 0x0008;
-  public const UInt16 VK_BACK = 0x08;
-  public const UInt16 VK_RETURN = 0x0D;
-  public const UInt16 VK_SHIFT = 0x10;
-  public const UInt16 VK_CONTROL = 0x11;
-  public const UInt16 VK_MENU = 0x12;
-  public const UInt16 VK_A = 0x41;
-  public const UInt16 VK_V = 0x56;
-  public const UInt16 VK_F8 = 0x77;
-  public const UInt16 VK_OEM_3 = 0xC0;
-  public static void Key(UInt16 vk, bool up) {
-    UInt16 scan = (UInt16)MapVirtualKey(vk, 0);
-    INPUT[] inputs = new INPUT[1];
-    inputs[0].type = INPUT_KEYBOARD;
-    inputs[0].U.ki.wVk = 0;
-    inputs[0].U.ki.wScan = scan;
-    inputs[0].U.ki.dwFlags = KEYEVENTF_SCANCODE | (up ? KEYEVENTF_KEYUP : 0);
-    SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
-  }
-  public static void Press(UInt16 vk) {
-    Key(vk, false);
-    Key(vk, true);
-  }
-  public static void CtrlV() {
-    Key(VK_CONTROL, false);
-    Press(VK_V);
-    Key(VK_CONTROL, true);
-  }
-  public static void CtrlA() {
-    Key(VK_CONTROL, false);
-    Press(VK_A);
-    Key(VK_CONTROL, true);
-  }
-  public static void ForceForeground(IntPtr hWnd) {
-    if (IsIconic(hWnd)) { ShowWindowAsync(hWnd, 9); }
-    ShowWindowAsync(hWnd, 5);
-    BringWindowToTop(hWnd);
-    Key(VK_MENU, false);
-    SetForegroundWindow(hWnd);
-    Key(VK_MENU, true);
-    SetForegroundWindow(hWnd);
-  }
-  public static void Text(string text) {
-    foreach (char c in text) {
-      short key = VkKeyScan(c);
-      if (key == -1) { continue; }
-      UInt16 vk = (UInt16)(key & 0xff);
-      UInt16 mods = (UInt16)((key >> 8) & 0xff);
-      if ((mods & 1) != 0) { Key(VK_SHIFT, false); }
-      if ((mods & 2) != 0) { Key(VK_CONTROL, false); }
-      if ((mods & 4) != 0) { Key(VK_MENU, false); }
-      Press(vk);
-      if ((mods & 4) != 0) { Key(VK_MENU, true); }
-      if ((mods & 2) != 0) { Key(VK_CONTROL, true); }
-      if ((mods & 1) != 0) { Key(VK_SHIFT, true); }
-    }
-  }
-}
-"@
-\$commandsText = @'
-$psCommandText
-'@
-\$commands = \$commandsText -split "``r?``n" | Where-Object { \$_.Trim().Length -gt 0 }
-\$proc = Get-Process cs2 -ErrorAction SilentlyContinue | Where-Object { \$_.MainWindowHandle -ne 0 } | Select-Object -First 1
-if (-not \$proc) { exit 2 }
-[BioBaseInput]::ForceForeground(\$proc.MainWindowHandle)
-Start-Sleep -Milliseconds 900
-function Send-BioBaseReplayCommands {
-  foreach (\$command in \$commands) {
-    [BioBaseInput]::CtrlA()
-    Start-Sleep -Milliseconds 60
-    [BioBaseInput]::Press([BioBaseInput]::VK_BACK)
-    Start-Sleep -Milliseconds 80
-    Set-Clipboard -Value \$command
-    [BioBaseInput]::CtrlV()
-    Start-Sleep -Milliseconds 140
-    [BioBaseInput]::Press([BioBaseInput]::VK_RETURN)
-    Start-Sleep -Milliseconds 650
-    [BioBaseInput]::CtrlA()
-    Start-Sleep -Milliseconds 60
-    [BioBaseInput]::Press([BioBaseInput]::VK_BACK)
-    Start-Sleep -Milliseconds 80
-    [BioBaseInput]::Text(\$command)
-    Start-Sleep -Milliseconds 120
-    [BioBaseInput]::Press([BioBaseInput]::VK_RETURN)
-    Start-Sleep -Milliseconds 850
-  }
-}
-Send-BioBaseReplayCommands
-[BioBaseInput]::Press([BioBaseInput]::VK_OEM_3)
-Start-Sleep -Milliseconds 900
-Send-BioBaseReplayCommands
-[BioBaseInput]::Press([BioBaseInput]::VK_OEM_3)
-Start-Sleep -Milliseconds 500
-[BioBaseInput]::Press([BioBaseInput]::VK_F8)
-Start-Sleep -Milliseconds 900
-Send-BioBaseReplayCommands
-''';
-  }
-
-  @Deprecated(
-    'Use buildWindowsConsoleInjectionScript; kept for test/backcompat.',
-  )
-  static String buildWindowsConsolePasteScript(List<String> commands) {
-    return buildWindowsConsoleInjectionScript(commands);
   }
 
   static String sanitizeDemoFileName(String name) {
@@ -492,7 +247,7 @@ Send-BioBaseReplayCommands
         '/NH',
       ]);
       if ((taskCheck.stdout as String).contains('cs2.exe')) {
-        diagnostics.add('Closing existing CS2 instance.');
+        diagnostics.add('Closing existing CS2 instance before replay launch.');
         await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
         await Future.delayed(const Duration(seconds: 3));
       }

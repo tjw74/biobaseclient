@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-06-29T11:26:07Z
+updated: 2026-06-30T07:17:17Z
 ---
 
 # Hot Cache
@@ -8,6 +8,8 @@ updated: 2026-06-29T11:26:07Z
 *A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
+
+- [2026-06-30T07:17:17Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.30 CS2 cfg bootstrap** — v0.11.28/v0.11.29 showed Steam launch paths can open CS2 without starting the demo. Updated Replay to resolve the actual Steam CS2 library via `libraryfolders.vdf` / `appmanifest_730.acf`, write `biobase_replay.cfg` with `playdemo`, patch a marker-delimited `autoexec.cfg` block that executes it, launch Steam with `+exec biobase_replay +playdemo`, and clean the replay cfg after the startup window. Console injection remains retired. Updated [[biobase-replay-demo-playback]].
 
 - [2026-06-29T11:26:07Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.29 Steam applaunch primary** — Windows QA of v0.11.28 showed Steam URL opened CS2 but left it in the menu, so CS2 was not applying the URL command line. Updated Replay to use `steam.exe -applaunch 730 -novid -console -netconport 2121 +playdemo <staged-demo>` as Windows primary, with Steam URL fallback only and console injection still retired. Updated [[biobase-replay-demo-playback]].
 
@@ -50,7 +52,7 @@ updated: 2026-06-29T11:26:07Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.29). Current focus: verifying Replay demo render playback on Windows. v0.11.28 proved Steam URL command-line handoff opens CS2 but leaves it in the menu on the target client. v0.11.29 stages demos into CS2 `game/csgo/biobase_replays`, closes existing CS2, then starts `steam.exe -applaunch 730 -novid -console -netconport 2121 +playdemo <staged-demo>`. Console typing / SendInput fallbacks are retired; Netcon is optional pause/seek/speed control attach after render launch.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.30). Current focus: verifying Replay demo render playback on Windows. Since Steam URL and `steam.exe -applaunch` both opened CS2 without starting the demo on the target client, Replay now resolves the actual Steam CS2 library, stages demos under CS2 `game/csgo/biobase_replays`, writes `cfg/biobase_replay.cfg` containing `playdemo`, patches a marker-delimited BioBase block into `autoexec.cfg`, launches with `+exec biobase_replay +playdemo`, and treats Netcon as optional controls. Console typing / SendInput fallbacks remain retired.
 
 ## Key Takeaways
 

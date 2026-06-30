@@ -332,7 +332,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
 
     diagnostics.add(
-      'Netcon did not open; CS2 was still launched with the documented +playdemo command.',
+      'Netcon did not open; CS2 was launched with replay cfg bootstrap and +playdemo.',
     );
     setState(() {
       _cs2Connecting = false;
@@ -342,7 +342,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _connectStatus = 'Replay launched in CS2';
       _replayDiagnostics = List.of(diagnostics);
       _replayIssue =
-          'BioBase handed this demo to CS2 through Steam with +playdemo. Controls will attach if CS2 opens the Netcon socket.';
+          'BioBase staged this demo through CS2 cfg bootstrap and Steam launch args. Controls will attach if CS2 opens the Netcon socket.';
     });
     _startBackgroundNetconReconnect(target);
   }
@@ -2193,9 +2193,12 @@ class _RenderArea extends StatelessWidget {
   }
 
   Widget _diagnosticsBox() {
-    final lines = replayDiagnostics.length <= 5
+    const maxDiagnosticLines = 10;
+    final lines = replayDiagnostics.length <= maxDiagnosticLines
         ? replayDiagnostics
-        : replayDiagnostics.sublist(replayDiagnostics.length - 5);
+        : replayDiagnostics.sublist(
+            replayDiagnostics.length - maxDiagnosticLines,
+          );
     return Container(
       constraints: const BoxConstraints(maxWidth: 520),
       padding: const EdgeInsets.all(10),

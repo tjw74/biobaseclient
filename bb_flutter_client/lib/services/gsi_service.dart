@@ -109,62 +109,181 @@ class GsiService {
   // --- CS2 path detection & config install ---
 
   static Future<String?> findCs2CfgPath() async {
-    final candidates = <String>[];
+    final candidates = await findCs2CfgPathCandidates();
 
-    if (Platform.isWindows) {
-      try {
-        final result = await Process.run('reg', [
-          'query',
-          r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
-          '/v',
-          'InstallPath',
-        ]);
-        if (result.exitCode == 0) {
-          final match = RegExp(
-            r'REG_SZ\s+(.+)',
-          ).firstMatch(result.stdout as String);
-          if (match != null) {
-            candidates.add(
-              p.join(
-                match.group(1)!.trim(),
-                'steamapps',
-                'common',
-                'Counter-Strike Global Offensive',
-                'game',
-                'csgo',
-                'cfg',
-              ),
-            );
-          }
-        }
-      } catch (_) {}
-      candidates.addAll([
-        r'C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
-        r'D:\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
-        r'E:\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
-      ]);
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'] ?? '';
-      candidates.add(
-        p.join(
-          home,
-          'Library',
-          'Application Support',
-          'Steam',
-          'steamapps',
-          'common',
-          'Counter-Strike Global Offensive',
-          'game',
-          'csgo',
-          'cfg',
-        ),
-      );
+    for (final candidate in candidates) {
+      if (isLikelyCs2CfgPath(candidate)) return candidate;
     }
 
-    for (final c in candidates) {
-      if (Directory(c).existsSync()) return c;
+    // Fallback for partially-installed or moving Steam libraries: a real cfg
+    // directory is still better than no automation, but appmanifest-backed
+    // candidates above are preferred to avoid writing into stale CS2 folders.
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync()) return candidate;
     }
     return null;
+  }
+
+  static Future<List<String>> findCs2CfgPathCandidates() async {
+    final steamPath = await findSteamPath();
+    final libraryPaths = <String>[];
+
+    if (steamPath != null) {
+      libraryPaths.add(steamPath);
+      final libraryVdf = File(
+        p.join(steamPath, 'steamapps', 'libraryfolders.vdf'),
+      );
+      if (libraryVdf.existsSync()) {
+        try {
+          libraryPaths.addAll(
+            steamLibraryPathsFromVdf(
+              libraryVdf.readAsStringSync(),
+              steamRoot: steamPath,
+            ),
+          );
+        } catch (_) {}
+      }
+    }
+
+    if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'] ?? '';
+      libraryPaths.add(p.join(home, 'Library', 'Application Support', 'Steam'));
+    }
+
+    final manifestBacked = <String>[];
+    final discovered = <String>[];
+    for (final library in _uniquePaths(libraryPaths)) {
+      final cfg = cs2CfgPathForSteamLibrary(library);
+      final manifest = p.join(library, 'steamapps', 'appmanifest_730.acf');
+      if (File(manifest).existsSync()) {
+        manifestBacked.add(cfg);
+      } else {
+        discovered.add(cfg);
+      }
+    }
+
+    if (Platform.isWindows) {
+      discovered.addAll([
+        r'C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
+        r'C:\Program Files\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
+        r'D:\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
+        r'D:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
+        r'E:\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
+        r'E:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg',
+      ]);
+    }
+
+    return _uniquePaths([...manifestBacked, ...discovered]);
+  }
+
+  static String cs2CfgPathForSteamLibrary(String libraryPath) {
+    return p.join(
+      libraryPath,
+      'steamapps',
+      'common',
+      'Counter-Strike Global Offensive',
+      'game',
+      'csgo',
+      'cfg',
+    );
+  }
+
+  static List<String> steamLibraryPathsFromVdf(
+    String content, {
+    String? steamRoot,
+  }) {
+    final paths = <String>[];
+    if (steamRoot != null && steamRoot.trim().isNotEmpty) {
+      paths.add(steamRoot.trim());
+    }
+
+    final structuredPath = RegExp(r'"path"\s+"((?:\\.|[^"\\])*)"');
+    for (final match in structuredPath.allMatches(content)) {
+      paths.add(_decodeVdfString(match.group(1)!));
+    }
+
+    // Older Steam libraryfolders.vdf files used: "1" "D:\\SteamLibrary".
+    final legacyPath = RegExp(r'"\d+"\s+"((?:\\.|[^"\\])*)"');
+    for (final match in legacyPath.allMatches(content)) {
+      final decoded = _decodeVdfString(match.group(1)!);
+      if (_looksLikeSteamLibraryPath(decoded)) paths.add(decoded);
+    }
+
+    return _uniquePaths(paths);
+  }
+
+  static bool isLikelyCs2CfgPath(String cfgPath) {
+    if (!Directory(cfgPath).existsSync()) return false;
+    final gameDir = Directory(cfgPath).parent.parent.path;
+    return File(p.join(gameDir, 'bin', 'win64', 'cs2.exe')).existsSync() ||
+        File(p.join(gameDir, 'bin', 'linuxsteamrt64', 'cs2')).existsSync();
+  }
+
+  static Future<String?> findSteamPath() async {
+    if (Platform.isWindows) {
+      for (final key in [
+        r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
+        r'HKCU\Software\Valve\Steam',
+      ]) {
+        for (final valueName in ['InstallPath', 'SteamPath']) {
+          final path = await _readWindowsRegistryString(key, valueName);
+          if (path != null && Directory(path).existsSync()) return path;
+        }
+      }
+
+      for (final path in [
+        r'C:\Program Files (x86)\Steam',
+        r'C:\Program Files\Steam',
+        r'D:\Steam',
+        r'E:\Steam',
+      ]) {
+        if (Directory(path).existsSync()) return path;
+      }
+    } else if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'] ?? '';
+      final path = p.join(home, 'Library', 'Application Support', 'Steam');
+      if (Directory(path).existsSync()) return path;
+    }
+    return null;
+  }
+
+  static Future<String?> _readWindowsRegistryString(
+    String key,
+    String valueName,
+  ) async {
+    try {
+      final result = await Process.run('reg', ['query', key, '/v', valueName]);
+      if (result.exitCode != 0) return null;
+      final match = RegExp(
+        '$valueName\\s+REG_SZ\\s+(.+)',
+        caseSensitive: false,
+      ).firstMatch(result.stdout as String);
+      return match?.group(1)?.trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String _decodeVdfString(String value) {
+    return value.replaceAll('\\\\', '\\').replaceAll(r'\"', '"');
+  }
+
+  static bool _looksLikeSteamLibraryPath(String value) {
+    return value.contains(':\\') ||
+        value.startsWith('/') ||
+        value.contains('\\');
+  }
+
+  static List<String> _uniquePaths(Iterable<String> paths) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final raw in paths) {
+      final value = raw.trim();
+      if (value.isEmpty) continue;
+      final key = value.replaceAll('\\', '/').toLowerCase();
+      if (seen.add(key)) result.add(value);
+    }
+    return result;
   }
 
   static Future<bool> installConfig() async {
@@ -201,36 +320,7 @@ class GsiService {
     ).existsSync();
   }
 
-  static Future<String?> _findSteamPath() async {
-    if (Platform.isWindows) {
-      try {
-        final result = await Process.run('reg', [
-          'query',
-          r'HKLM\SOFTWARE\WOW6432Node\Valve\Steam',
-          '/v',
-          'InstallPath',
-        ]);
-        if (result.exitCode == 0) {
-          final match = RegExp(
-            r'REG_SZ\s+(.+)',
-          ).firstMatch(result.stdout as String);
-          if (match != null) return match.group(1)!.trim();
-        }
-      } catch (_) {}
-      for (final path in [
-        r'C:\Program Files (x86)\Steam',
-        r'D:\Steam',
-        r'E:\Steam',
-      ]) {
-        if (Directory(path).existsSync()) return path;
-      }
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'] ?? '';
-      final path = p.join(home, 'Library', 'Application Support', 'Steam');
-      if (Directory(path).existsSync()) return path;
-    }
-    return null;
-  }
+  static Future<String?> _findSteamPath() => findSteamPath();
 
   static Future<bool> ensureNetconLaunchOption() async {
     final steamPath = await _findSteamPath();

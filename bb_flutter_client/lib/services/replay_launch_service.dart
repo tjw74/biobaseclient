@@ -7,18 +7,30 @@ import 'gsi_service.dart';
 
 const int cs2SteamAppId = 730;
 const int replayNetconPort = 2121;
+const String replayExecConfigBase = 'biobase_replay';
+const String replayExecConfigName = '$replayExecConfigBase.cfg';
+const String replayAutoexecBegin = '// BEGIN BIOBASE REPLAY BOOTSTRAP';
+const String replayAutoexecEnd = '// END BIOBASE REPLAY BOOTSTRAP';
 
 class ReplayDemoTarget {
   final String sourcePath;
   final String consolePath;
   final String? stagedPath;
+  final String? replayConfigPath;
+  final String? autoexecPath;
   final bool staged;
+  final bool replayConfigInstalled;
+  final bool autoexecPatched;
 
   const ReplayDemoTarget({
     required this.sourcePath,
     required this.consolePath,
     required this.stagedPath,
+    required this.replayConfigPath,
+    required this.autoexecPath,
     required this.staged,
+    required this.replayConfigInstalled,
+    required this.autoexecPatched,
   });
 }
 
@@ -35,10 +47,15 @@ class ReplayLaunchResult {
 }
 
 class ReplayLaunchService {
+  Timer? _bootstrapCleanupTimer;
+
   Future<ReplayDemoTarget> prepareDemo(String sourcePath) async {
     final source = File(sourcePath);
     final absoluteSource = source.absolute.path;
     final csgoDir = await GsiService.findCs2GameCsgoPath();
+    final cfgPath = await GsiService.findCs2CfgPath();
+
+    ReplayBootstrapInstall bootstrap = const ReplayBootstrapInstall.none();
 
     if (csgoDir != null && await source.exists()) {
       try {
@@ -62,11 +79,18 @@ class ReplayLaunchService {
           await source.copy(stagedPath);
         }
 
+        final consolePath = 'biobase_replays/$safeName';
+        bootstrap = await installReplayBootstrap(cfgPath, consolePath);
+
         return ReplayDemoTarget(
           sourcePath: absoluteSource,
           stagedPath: stagedPath,
+          replayConfigPath: bootstrap.replayConfigPath,
+          autoexecPath: bootstrap.autoexecPath,
           staged: true,
-          consolePath: 'biobase_replays/$safeName',
+          replayConfigInstalled: bootstrap.replayConfigInstalled,
+          autoexecPatched: bootstrap.autoexecPatched,
+          consolePath: consolePath,
         );
       } catch (_) {
         // Fall through to absolute-path playback. Some Steam library folders
@@ -74,16 +98,29 @@ class ReplayLaunchService {
       }
     }
 
+    final consolePath = normalizeConsolePath(absoluteSource);
+    bootstrap = await installReplayBootstrap(cfgPath, consolePath);
     return ReplayDemoTarget(
       sourcePath: absoluteSource,
       stagedPath: null,
+      replayConfigPath: bootstrap.replayConfigPath,
+      autoexecPath: bootstrap.autoexecPath,
       staged: false,
-      consolePath: normalizeConsolePath(absoluteSource),
+      replayConfigInstalled: bootstrap.replayConfigInstalled,
+      autoexecPatched: bootstrap.autoexecPatched,
+      consolePath: consolePath,
     );
   }
 
   Future<ReplayLaunchResult> launchForReplay(ReplayDemoTarget demo) async {
-    final diagnostics = <String>[];
+    final diagnostics = <String>[
+      demo.replayConfigInstalled
+          ? 'Replay cfg installed at ${demo.replayConfigPath}'
+          : 'Replay cfg was not installed; using launch args only.',
+      demo.autoexecPatched
+          ? 'Autoexec bootstrap is installed at ${demo.autoexecPath}'
+          : 'Autoexec bootstrap was not installed.',
+    ];
     final steamUrl = buildSteamRunUrl(demo.consolePath);
     final commandLine = buildSteamReplayCommandLine(demo.consolePath);
 
@@ -95,14 +132,15 @@ class ReplayLaunchService {
       if (steamExe != null) {
         final args = buildSteamAppLaunchArgs(demo.consolePath);
         diagnostics.add(
-          'Launching CS2 through steam.exe -applaunch with explicit replay args.',
+          'Launching CS2 through steam.exe -applaunch with replay cfg bootstrap.',
         );
         diagnostics.add('Launch command: ${formatLaunchCommand(args)}');
         try {
           await Process.start(steamExe, args, mode: ProcessStartMode.detached);
+          _scheduleReplayBootstrapCleanup(demo, diagnostics);
           return ReplayLaunchResult(
             started: true,
-            method: 'steam-applaunch-playdemo',
+            method: 'steam-applaunch-cfg-bootstrap',
             diagnostics: diagnostics,
           );
         } catch (e) {
@@ -112,15 +150,14 @@ class ReplayLaunchService {
         diagnostics.add('Steam executable was not found; trying Steam URL.');
       }
 
-      diagnostics.add(
-        'Falling back to Steam URL with documented launch command line.',
-      );
+      diagnostics.add('Falling back to Steam URL launch with replay cfg.');
       diagnostics.add('Launch command: $commandLine');
       try {
         await openSteamRunUrl(steamUrl);
+        _scheduleReplayBootstrapCleanup(demo, diagnostics);
         return ReplayLaunchResult(
           started: true,
-          method: 'steam-url-playdemo',
+          method: 'steam-url-cfg-bootstrap',
           diagnostics: diagnostics,
         );
       } catch (e) {
@@ -129,13 +166,12 @@ class ReplayLaunchService {
     } else if (Platform.isMacOS) {
       try {
         await openSteamRunUrl(steamUrl);
-        diagnostics.add(
-          'Opened CS2 through Steam URL with documented launch command line.',
-        );
+        diagnostics.add('Opened CS2 through Steam URL with replay cfg launch.');
         diagnostics.add('Launch command: $commandLine');
+        _scheduleReplayBootstrapCleanup(demo, diagnostics);
         return ReplayLaunchResult(
           started: true,
-          method: 'steam-url-playdemo',
+          method: 'steam-url-cfg-bootstrap',
           diagnostics: diagnostics,
         );
       } catch (e) {
@@ -152,12 +188,99 @@ class ReplayLaunchService {
     );
   }
 
+  static Future<ReplayBootstrapInstall> installReplayBootstrap(
+    String? cfgPath,
+    String consoleDemoPath,
+  ) async {
+    if (cfgPath == null) return const ReplayBootstrapInstall.none();
+
+    final replayConfigPath = p.join(cfgPath, replayExecConfigName);
+    final autoexecPath = p.join(cfgPath, 'autoexec.cfg');
+    var replayConfigInstalled = false;
+    var autoexecPatched = false;
+
+    try {
+      final replayConfig = File(replayConfigPath);
+      final parent = replayConfig.parent;
+      if (!await parent.exists()) {
+        await parent.create(recursive: true);
+      }
+      await replayConfig.writeAsString(buildReplayExecConfig(consoleDemoPath));
+      replayConfigInstalled = true;
+    } catch (_) {}
+
+    try {
+      final autoexec = File(autoexecPath);
+      final existing = await autoexec.exists()
+          ? await autoexec.readAsString()
+          : '';
+      await autoexec.writeAsString(patchAutoexecContent(existing));
+      autoexecPatched = true;
+    } catch (_) {}
+
+    return ReplayBootstrapInstall(
+      replayConfigPath: replayConfigPath,
+      autoexecPath: autoexecPath,
+      replayConfigInstalled: replayConfigInstalled,
+      autoexecPatched: autoexecPatched,
+    );
+  }
+
+  static String buildReplayExecConfig(String consoleDemoPath) {
+    return [
+      '// Generated by BioBase for the next Replay launch. Safe to overwrite.',
+      'con_enable "1"',
+      'echo "BioBase Replay bootstrap: launching demo"',
+      buildPlaydemoCommand(consoleDemoPath),
+      'demo_resume',
+      '',
+    ].join('\r\n');
+  }
+
+  static String buildReplayNoopConfig() {
+    return [
+      '// Generated by BioBase. No pending Replay launch.',
+      'echo "BioBase Replay bootstrap: no pending demo"',
+      '',
+    ].join('\r\n');
+  }
+
+  static String buildAutoexecBootstrapBlock() {
+    return [
+      replayAutoexecBegin,
+      'exec $replayExecConfigBase',
+      replayAutoexecEnd,
+    ].join('\r\n');
+  }
+
+  static String patchAutoexecContent(String existing) {
+    final normalized = existing.replaceAll('\r\n', '\n');
+    final block = buildAutoexecBootstrapBlock().replaceAll('\r\n', '\n');
+    final pattern = RegExp(
+      '^${RegExp.escape(replayAutoexecBegin)}\n.*?^${RegExp.escape(replayAutoexecEnd)}\n?',
+      multiLine: true,
+      dotAll: true,
+    );
+    final patched = pattern.hasMatch(normalized)
+        ? normalized.replaceFirst(pattern, '$block\n')
+        : [
+            normalized.trimRight(),
+            '',
+            block,
+            '',
+          ].where((part) => part.isNotEmpty).join('\n');
+    return '${patched.trimRight()}\r\n';
+  }
+
   static String buildSteamReplayCommandLine(String consoleDemoPath) {
     return [
       '-novid',
       '-console',
+      '-condebug',
       '-netconport',
       '$replayNetconPort',
+      '+exec',
+      replayExecConfigBase,
       '+playdemo',
       quoteLaunchCommandArg(consoleDemoPath),
     ].join(' ');
@@ -168,8 +291,11 @@ class ReplayLaunchService {
     '$cs2SteamAppId',
     '-novid',
     '-console',
+    '-condebug',
     '-netconport',
     '$replayNetconPort',
+    '+exec',
+    replayExecConfigBase,
     '+playdemo',
     consoleDemoPath,
   ];
@@ -246,6 +372,13 @@ class ReplayLaunchService {
 
   static Future<String?> findSteamExe() async {
     if (!Platform.isWindows) return null;
+
+    final steamPath = await GsiService.findSteamPath();
+    if (steamPath != null) {
+      final exe = p.join(steamPath, 'steam.exe');
+      if (File(exe).existsSync()) return exe;
+    }
+
     try {
       final result = await Process.run('reg', [
         'query',
@@ -273,6 +406,22 @@ class ReplayLaunchService {
       if (File(path).existsSync()) return path;
     }
     return null;
+  }
+
+  void _scheduleReplayBootstrapCleanup(
+    ReplayDemoTarget demo,
+    List<String> diagnostics,
+  ) {
+    if (!demo.replayConfigInstalled || demo.replayConfigPath == null) return;
+    _bootstrapCleanupTimer?.cancel();
+    _bootstrapCleanupTimer = Timer(const Duration(minutes: 4), () async {
+      try {
+        await File(
+          demo.replayConfigPath!,
+        ).writeAsString(buildReplayNoopConfig());
+      } catch (_) {}
+    });
+    diagnostics.add('Replay cfg cleanup scheduled after launch window.');
   }
 
   Future<void> _closeRunningCs2(List<String> diagnostics) async {
@@ -319,4 +468,24 @@ class ReplayLaunchService {
       diagnostics.add('Could not start Steam: $e');
     }
   }
+}
+
+class ReplayBootstrapInstall {
+  final String? replayConfigPath;
+  final String? autoexecPath;
+  final bool replayConfigInstalled;
+  final bool autoexecPatched;
+
+  const ReplayBootstrapInstall({
+    required this.replayConfigPath,
+    required this.autoexecPath,
+    required this.replayConfigInstalled,
+    required this.autoexecPatched,
+  });
+
+  const ReplayBootstrapInstall.none()
+    : replayConfigPath = null,
+      autoexecPath = null,
+      replayConfigInstalled = false,
+      autoexecPatched = false;
 }

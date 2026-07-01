@@ -1,6 +1,6 @@
 ---
 title: Hot Cache
-updated: 2026-07-01T07:35:26Z
+updated: 2026-07-01T08:14:50Z
 ---
 
 # Hot Cache
@@ -8,6 +8,8 @@ updated: 2026-07-01T07:35:26Z
 *A ~500-word semantic snapshot of recent activity. Updated after every major write operation. **LLM edits must include `agent=` on each line below** (see [[index]]).*
 
 ## Recent Activity
+
+- [2026-07-01T08:14:50Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.32 single Steam +exec launch** — Windows QA of v0.11.31 still opened CS2 without starting the selected demo. Updated Replay to stop pre-starting Steam silently, launch Steam+CS2 in one documented `steam.exe -applaunch 730 -console -condebug -netconport 2121 +exec biobase_replay` request, remove direct `+playdemo` launch args, make the generated cfg the single owner of quoted `playdemo`, add `disconnect`/`demo_timescale 1`/`demo_resume`/`demoui`, and extend Netcon wait to 75s. Updated [[biobase-replay-demo-playback]].
 
 - [2026-07-01T07:35:26Z] WIKI_UPDATE agent=Codex project=biobase — **Replay v0.11.31 Steam LaunchOptions + Netcon** — Windows QA of v0.11.30 showed the cfg was written to the actual CS2 install but CS2 stayed on the menu, proving startup cfg/arg timing still missed `playdemo`. Updated Replay to close Steam, patch CS2 app `730` LaunchOptions in `userdata/*/config/localconfig.vdf` with `-console -condebug -netconport 2121 +exec biobase_replay`, restart Steam, launch CS2, wait up to 45s for Netcon, then send `playdemo` after CS2 is alive. Updated [[biobase-replay-demo-playback]].
 
@@ -54,7 +56,7 @@ updated: 2026-07-01T07:35:26Z
 
 ## Active Threads
 
-**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.31). Current focus: verifying Replay demo render playback on Windows. v0.11.30 proved cfg staging works but startup command timing still misses `playdemo`; v0.11.31 closes Steam, patches Steam app `730` LaunchOptions with `-console -condebug -netconport 2121 +exec biobase_replay`, restarts Steam, launches CS2, waits for Netcon, and sends `playdemo` after CS2 is alive. Console typing / SendInput fallbacks remain retired.
+**Biobase** — CS2 performance analytics platform approaching initial release. The Flutter desktop client is the release UI (v0.11.32). Current focus: verifying Replay demo playback on Windows. v0.11.32 closes Steam, patches Steam app `730` LaunchOptions with `-console -condebug -netconport 2121 +exec biobase_replay`, then launches Steam+CS2 in one documented `-applaunch +exec` request. The generated replay cfg owns quoted `playdemo`; Netcon is used for controls if it opens. Console typing / SendInput fallbacks remain retired.
 
 ## Key Takeaways
 

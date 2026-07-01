@@ -6,10 +6,11 @@ sources: [projects/biobase]
 summary: >-
   CS2 is the render engine for demo playback; BioBase stages demos inside the
   actual Steam CS2 library, writes a temporary CS2-owned cfg bootstrap,
-  patches Steam CS2 LaunchOptions while Steam is closed so Netcon opens, then
-  sends playdemo after CS2 is alive.
+  patches Steam CS2 LaunchOptions while Steam is closed, then launches
+  Steam and CS2 in one documented `steam.exe -applaunch 730 +exec` request;
+  the generated cfg owns `playdemo`.
 created: 2026-06-27T01:30:00Z
-updated: 2026-07-01T07:35:26Z
+updated: 2026-07-01T08:14:50Z
 ---
 
 # Biobase Replay Demo Playback Architecture
@@ -45,7 +46,7 @@ CS2 client launched with `-netconport 2121` opens a TCP socket accepting console
 - `demo_gototick <tick>` — seek to specific tick
 - `demo_timescale <float>` — playback speed (0.25x to 4x)
 
-Netcon is now treated as an optional control channel. Initial demo rendering is started through Steam's documented launch-command URL path instead of waiting on Netcon.
+Netcon is treated as a control channel after CS2 starts. Initial demo playback is started by a generated CS2 cfg executed through Steam launch args; once Netcon opens, BioBase can issue follow-up playback controls.
 
 ### GSI (CS2 → BioBase)
 
@@ -99,9 +100,9 @@ The `-netconport 2121` launch option must be passed to CS2 at startup. This prov
 
 **The file-check false positive.** `hasNetconLaunchOption()` searches the VDF for the string `-netconport`. If a previous failed write put this string in the file (but Steam never loaded it), the check returns true and the critical Steam restart is skipped. The setting exists in the file but not in Steam's running config.
 
-### Current Approach (v0.11.31): Persistent Steam LaunchOptions + Netcon Post-Launch Command
+### Current Approach (v0.11.32): Single Steam `-applaunch +exec` Request + Generated Replay CFG
 
-v0.11.30 proved the demo and cfg are landing in the correct CS2 install, but CS2 can still remain on the menu. That means the startup command path is not reliable enough: Steam app args can be stripped and CS2 startup/autoexec timing can miss `playdemo`. v0.11.31 therefore moves the critical command delivery to Netcon after CS2 is alive by forcing Steam itself to launch CS2 with BioBase LaunchOptions.
+v0.11.30/v0.11.31 proved the demo and cfg are landing in the correct CS2 install, but CS2 can still remain on the menu. v0.11.31 also showed that pre-starting Steam silently before `-applaunch` keeps the same brittle two-step handoff. v0.11.32 narrows the launch to the documented practical path: close Steam, patch CS2 app LaunchOptions, write the generated replay cfg, then start Steam and CS2 in one `steam.exe -applaunch 730 -console +exec biobase_replay` request. The generated cfg is the single owner of `playdemo`.
 
 ```text
 1. Resolve the actual CS2 install from Steam `libraryfolders.vdf` / `appmanifest_730.acf` before falling back to legacy guesses.
@@ -109,36 +110,37 @@ v0.11.30 proved the demo and cfg are landing in the correct CS2 install, but CS2
 3. Write <CS2>/game/csgo/cfg/biobase_replay.cfg containing:
    con_enable "1"
    echo "BioBase Replay bootstrap: launching demo"
-   playdemo biobase_replays/<safe-name>.dem
+   disconnect
+   playdemo "biobase_replays/<safe-name>.dem"
+   demo_timescale 1
    demo_resume
+   demoui
 4. Patch <CS2>/game/csgo/cfg/autoexec.cfg with the marker-delimited BioBase block as a secondary path.
 5. Close CS2.
 6. Close Steam, patch each Steam account `userdata/*/config/localconfig.vdf` app `730` LaunchOptions while Steam is not running, and add/normalize:
    -console -condebug -netconport 2121 +exec biobase_replay
-7. Restart Steam silently.
-8. Launch CS2 through `steam.exe -applaunch 730`.
-9. Wait up to 45 seconds for Netcon to open, then send `playdemo <staged-demo>` through the socket after CS2 is alive.
-10. Keep the replay cfg cleanup timer so the persistent `+exec biobase_replay` becomes harmless on later launches.
+7. Do not pre-start Steam silently; launch Steam and CS2 together with `steam.exe -applaunch 730 -novid -console -condebug -netconport 2121 +exec biobase_replay`.
+8. Wait up to 75 seconds for Netcon to open, then attach playback controls if available.
+9. Keep the replay cfg cleanup timer so the persistent `+exec biobase_replay` becomes harmless on later launches.
 ```
 
-What changed in v0.11.31:
+What changed in v0.11.32:
 
-- **Steam must be closed before patching LaunchOptions.** Steam caches `localconfig.vdf`, so v0.11.31 intentionally closes Steam before writing CS2 app `730` LaunchOptions.
-- **Netcon is now the primary render command path.** The persistent LaunchOptions are designed to open `-netconport 2121`; once the socket opens, BioBase sends `playdemo` post-launch instead of hoping startup args execute at the right time.
-- **The replay cfg remains useful but is no longer the only path.** `+exec biobase_replay` is persisted; the cfg contains the selected demo during the launch window and is later overwritten with a no-op.
-- **LaunchOptions are idempotent and preserve user options.** BioBase keeps existing options, normalizes any old `-netconport`, and appends only the BioBase control args.
-- **Replay waits longer after launch.** The control-socket wait is now 45 seconds because Steam may need to restart before CS2 starts.
+- **Single launch handoff.** BioBase no longer starts Steam silently and then sends a second app-launch request; it closes Steam and starts Steam+CS2 in one `-applaunch` command so startup args are applied to the game launch.
+- **Generated cfg owns `playdemo`.** Launch args no longer include direct `+playdemo`; they only execute `biobase_replay.cfg`, which contains the selected quoted `playdemo` command and playback defaults.
+- **LaunchOptions remain idempotent.** BioBase still preserves existing user options, normalizes any old `-netconport`, and appends only the BioBase control args.
+- **Replay waits longer after launch.** The control-socket wait is now 75 seconds because Steam may be starting cold before CS2 opens.
 
-**Status: v0.11.31 is the current Windows QA build.** The persistent Steam LaunchOptions added are:
+**Status: v0.11.32 is the current Windows QA build.** The persistent Steam LaunchOptions added are:
 
 ```text
 -console -condebug -netconport 2121 +exec biobase_replay
 ```
 
-The post-launch Netcon command remains:
+The generated replay cfg command is:
 
 ```text
-playdemo biobase_replays/<demo>.dem
+playdemo "biobase_replays/<demo>.dem"
 ```
 
 ### GSI Config Auto-Install
@@ -171,7 +173,7 @@ The GSI config file (`gamestate_integration_biobase.cfg`) is written automatical
 
 1. User opens Replay, selects a demo (local, server, or pro)
 2. BioBase parses the PBDEMS2 header → shows map, event, duration, tickrate
-3. User clicks "Watch in CS2" → BioBase resolves the Steam library containing CS2, stages the file under `game/csgo/biobase_replays`, writes `biobase_replay.cfg`, patches the BioBase autoexec marker, closes Steam to patch CS2 app `730` LaunchOptions, restarts Steam, launches CS2, waits for Netcon, then sends `playdemo` after CS2 is alive
+3. User clicks "Watch in CS2" → BioBase resolves the Steam library containing CS2, stages the file under `game/csgo/biobase_replays`, writes `biobase_replay.cfg`, patches the BioBase autoexec marker, closes Steam to patch CS2 app `730` LaunchOptions, then launches Steam+CS2 in one documented `-applaunch +exec` request and waits for Netcon controls
 4. CS2 renders the demo; BioBase attaches controls through Netcon and GSI streams game state back
 5. BioBase timeline syncs to CS2 tick position
 6. User marks move start/end in BioBase UI, synced to CS2's game clock

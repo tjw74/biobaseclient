@@ -24,8 +24,11 @@ void main() {
 
     expect(cfg, contains('con_enable "1"'));
     expect(cfg, contains('echo "BioBase Replay bootstrap: launching demo"'));
-    expect(cfg, contains('playdemo biobase_replays/test.dem'));
+    expect(cfg, contains('disconnect'));
+    expect(cfg, contains('playdemo "biobase_replays/test.dem"'));
+    expect(cfg, contains('demo_timescale 1'));
     expect(cfg, contains('demo_resume'));
+    expect(cfg, contains('demoui'));
   });
 
   test('autoexec bootstrap is marker-delimited and idempotent', () {
@@ -116,18 +119,18 @@ void main() {
     },
   );
 
-  test('Steam replay command line includes cfg bootstrap and playdemo', () {
+  test('Steam replay command line launches cfg bootstrap only', () {
     final commandLine = ReplayLaunchService.buildSteamReplayCommandLine(
       'biobase_replays/test.dem',
     );
 
     expect(
       commandLine,
-      '-novid -console -condebug -netconport $replayNetconPort +exec $replayExecConfigBase +playdemo biobase_replays/test.dem',
+      '-novid -console -condebug -netconport $replayNetconPort +exec $replayExecConfigBase',
     );
   });
 
-  test('Windows Steam app launch args pass cfg bootstrap and playdemo', () {
+  test('Windows Steam app launch args pass cfg bootstrap only', () {
     final args = ReplayLaunchService.buildSteamAppLaunchArgs(
       'biobase_replays/test.dem',
     );
@@ -142,12 +145,10 @@ void main() {
       '$replayNetconPort',
       '+exec',
       replayExecConfigBase,
-      '+playdemo',
-      'biobase_replays/test.dem',
     ]);
     expect(
       ReplayLaunchService.formatLaunchCommand(args),
-      '-applaunch $cs2SteamAppId -novid -console -condebug -netconport $replayNetconPort +exec $replayExecConfigBase +playdemo biobase_replays/test.dem',
+      '-applaunch $cs2SteamAppId -novid -console -condebug -netconport $replayNetconPort +exec $replayExecConfigBase',
     );
   });
 
@@ -158,7 +159,7 @@ void main() {
 
     expect(
       url,
-      'steam://run/$cs2SteamAppId//-novid%20-console%20-condebug%20-netconport%20$replayNetconPort%20+exec%20$replayExecConfigBase%20+playdemo%20biobase_replays%2Ftest.dem/',
+      'steam://run/$cs2SteamAppId//-novid%20-console%20-condebug%20-netconport%20$replayNetconPort%20+exec%20$replayExecConfigBase/',
     );
   });
 
@@ -169,14 +170,14 @@ void main() {
 
     expect(
       commandLine,
-      '-novid -console -condebug -netconport $replayNetconPort +exec $replayExecConfigBase +playdemo "C:/Users/me/Counter Strike Demos/test demo.dem"',
+      '-novid -console -condebug -netconport $replayNetconPort +exec $replayExecConfigBase',
     );
   });
 
   test('playdemo command quotes whitespace paths for manual diagnostics', () {
     expect(
       ReplayLaunchService.buildPlaydemoCommand('biobase_replays/test.dem'),
-      'playdemo biobase_replays/test.dem',
+      'playdemo "biobase_replays/test.dem"',
     );
     expect(
       ReplayLaunchService.buildPlaydemoCommand('C:/demo files/test.dem'),

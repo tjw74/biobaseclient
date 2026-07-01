@@ -173,7 +173,7 @@ class NativeDemoService {
     request.files.add(await http.MultipartFile.fromPath('demo', file.path));
     final streamed = await _client
         .send(request)
-        .timeout(const Duration(minutes: 4));
+        .timeout(const Duration(minutes: 15));
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
       throw Exception(_extractError(body, streamed.statusCode));
@@ -189,7 +189,7 @@ class NativeDemoService {
   Future<NativeDemo> fetchDemo(String demoId) async {
     final response = await _client
         .get(Uri.parse('$baseUrl/api/demos/$demoId'))
-        .timeout(const Duration(seconds: 30));
+        .timeout(const Duration(minutes: 2));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(_extractError(response.body, response.statusCode));
     }

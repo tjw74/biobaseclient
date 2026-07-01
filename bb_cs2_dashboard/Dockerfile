@@ -29,7 +29,7 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py client_api.py client_movement_feed.py client_session_store.py demo_field_catalog.py demo_parse_preview.py demo_parser_compare.py demo_movement.py demo_native.py ./
+COPY app.py client_api.py client_movement_feed.py client_session_store.py shadow_api.py demo_field_catalog.py demo_parse_preview.py demo_parser_compare.py demo_movement.py demo_native.py ./
 COPY parser_workers ./parser_workers
 COPY render_workers ./render_workers
 RUN chmod 755 /app/render_workers/*.sh
@@ -39,6 +39,7 @@ COPY --from=frontend-build /fe/dist ./static
 COPY --from=companion-build /companion/dist ./static_companion
 RUN mkdir -p /data/clips \
     && chown -R nobody:nogroup /data/clips \
+    && chmod -R a+rX /app \
     && chmod -R a+rX /app/static \
     && chmod -R a+rX /app/static_companion \
     && chmod -R a+rX /app/parser_workers

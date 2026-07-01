@@ -261,6 +261,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
   }
 
+  // ignore: unused_element
   Future<void> _watchInCS2() async {
     final sourcePath = _demoPath;
     if (sourcePath == null) return;
@@ -675,7 +676,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
             moves: _demoMoves,
             playbackPosition: _playbackPosition,
             moveStart: _moveStart,
-            onWatchInCS2: _watchInCS2,
           ),
         ),
       ],
@@ -1841,7 +1841,6 @@ class _RenderArea extends StatelessWidget {
   final List<Move> moves;
   final double playbackPosition;
   final double? moveStart;
-  final VoidCallback onWatchInCS2;
 
   const _RenderArea({
     required this.demoPath,
@@ -1864,7 +1863,6 @@ class _RenderArea extends StatelessWidget {
     required this.playing,
     required this.moves,
     required this.playbackPosition,
-    required this.onWatchInCS2,
     this.moveStart,
   });
 
@@ -2208,14 +2206,7 @@ class _RenderArea extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 24),
-          if (cs2Connecting)
-            _launchingInfo()
-          else if (cs2Connected)
-            _connectedInfo()
-          else if (replayLaunched)
-            _launchedInfo()
-          else
-            _WatchButton(onTap: onWatchInCS2),
+          _nativeReplayInfo(),
           if (nativeError != null) ...[
             const SizedBox(height: 12),
             _issueBox('Native parser unavailable: $nativeError'),
@@ -2240,6 +2231,43 @@ class _RenderArea extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _nativeReplayInfo() {
+    if (nativeParsing || parsingDemo) {
+      return const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: BiobaseColors.accent,
+            ),
+          ),
+          SizedBox(height: 12),
+          Text(
+            'Parsing native in-app replay...',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: BiobaseColors.textSecondary,
+            ),
+          ),
+          SizedBox(height: 5),
+          Text(
+            'Replay no longer launches CS2 for this MVP path.',
+            style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
+          ),
+        ],
+      );
+    }
+    return _issueBox(
+      nativeError == null
+          ? 'Native replay is waiting for parsed demo frames. This build does not launch CS2 for Replay; if frames do not appear, deploy the dashboard native parser endpoint and retry.'
+          : 'Native replay parsing failed. BioBase will not launch CS2 for this MVP path; fix the parser endpoint and retry.',
     );
   }
 
@@ -2274,6 +2302,7 @@ class _RenderArea extends StatelessWidget {
     return Container(width: 1, height: 28, color: BiobaseColors.border);
   }
 
+  // ignore: unused_element
   Widget _launchingInfo() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -2299,6 +2328,7 @@ class _RenderArea extends StatelessWidget {
     );
   }
 
+  // ignore: unused_element
   Widget _launchedInfo() {
     return const Column(
       mainAxisSize: MainAxisSize.min,
@@ -2331,6 +2361,7 @@ class _RenderArea extends StatelessWidget {
     );
   }
 
+  // ignore: unused_element
   Widget _connectedInfo() {
     return Column(
       mainAxisSize: MainAxisSize.min,

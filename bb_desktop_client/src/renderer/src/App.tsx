@@ -7,6 +7,7 @@ import type { LiveMovementStatus, LiveServerStatus } from '../../shared/liveType
 import type { ClientSettings, LocalDemoFile, ParsedDemoSummary, PlaybackState, TimelineFrame, UploadQueueItem } from '../../shared/types';
 import type { UpdateStatus } from '../../shared/updateTypes';
 import { formatVersionClickFeedback } from '../../shared/updateFeedback';
+import { DemoReviewPlayer } from './components/DemoReviewPlayer';
 import './styles.css';
 
 declare const __APP_VERSION__: string;
@@ -576,21 +577,37 @@ function ReplayRoute(props: {
 }) {
   const base = usePlaybackClock();
   const frame = frameFromParsed(props.parsed, props.playback?.currentTimeSec ?? base.currentTimeSec);
+  const hasNativePlayback = Boolean(props.parsed?.frames?.length);
   return (
     <>
-      <MovementPanel frame={frame} live={false} />
       <section className="panel">
-        <div className="panel-head"><h2>Local Demos</h2></div>
+        <div className="panel-head">
+          <h2>Local Demos</h2>
+          <div className="panel-actions">
+            <button onClick={() => { void props.chooseDemo(); }}>Import .dem</button>
+            <button className="primary" disabled={!props.selected || props.busy} onClick={() => { void props.parseSelectedDemo(); }}>
+              {props.busy ? 'Parsing…' : 'Parse selected'}
+            </button>
+            <button disabled={!props.parsed || props.busy} onClick={() => { void props.uploadSummary(); }}>Upload summary</button>
+          </div>
+        </div>
         <div className="demo-list">
-          {props.demos.length === 0 && <div className="empty">No demos auto-detected. Use Import .dem in the sidebar.</div>}
+          {props.demos.length === 0 && <div className="empty">No demos auto-detected. Import a `.dem` file to review it inside BioBase.</div>}
           {props.demos.map((d) => <button key={d.path} className={props.selected?.path === d.path ? 'demo-row selected' : 'demo-row'} onClick={() => props.setSelected(d)}><span>{d.name}</span><em>{(d.bytes / 1024 / 1024).toFixed(1)} MB · {d.source}</em></button>)}
         </div>
       </section>
-      <section className="panel">
-        <div className="panel-head"><h2>Timeline</h2></div>
-        <div className="timeline-bar"><span style={{ width: `${Math.min(100, ((props.playback?.currentTimeSec ?? 0) / (props.parsed?.durationSec || 120)) * 100)}%` }} /></div>
-        <div className="timeline-meta">{(props.playback?.currentTimeSec ?? frame.currentTimeSec).toFixed(2)}s · tick {frame.currentTick}</div>
-      </section>
+      {hasNativePlayback && props.parsed ? (
+        <DemoReviewPlayer parsed={props.parsed} />
+      ) : (
+        <>
+          <MovementPanel frame={frame} live={false} />
+          <section className="panel">
+            <div className="panel-head"><h2>Timeline</h2></div>
+            <div className="timeline-bar"><span style={{ width: `${Math.min(100, ((props.playback?.currentTimeSec ?? 0) / (props.parsed?.durationSec || 120)) * 100)}%` }} /></div>
+            <div className="timeline-meta">{(props.playback?.currentTimeSec ?? frame.currentTimeSec).toFixed(2)}s · tick {frame.currentTick}</div>
+          </section>
+        </>
+      )}
       <section className="panel">
         <div className="panel-head"><h2>Upload Queue</h2></div>
         <div className="queue-list">
@@ -598,7 +615,7 @@ function ReplayRoute(props: {
           {props.queue.slice(0, 8).map((item) => <div key={item.id} className={`queue-row ${item.status}`}><span>{item.demoName}</span><em>{item.status}{item.lastError ? ` · ${item.lastError}` : ''}</em></div>)}
         </div>
       </section>
-      <p className="hint-line">Sync: {props.syncStatus} · Parser: {props.parsed?.parser ?? 'not run'} · Samples: {props.parsed?.movementSamples.length ?? 0}</p>
+      <p className="hint-line">Sync: {props.syncStatus} · Parser: {props.parsed?.parser ?? 'not run'} · Frames: {props.parsed?.frames?.length ?? 0} · Samples: {props.parsed?.movementSamples.length ?? 0}</p>
     </>
   );
 }
@@ -664,7 +681,7 @@ function DashboardRoute() {
   }, []);
 
   async function chooseDemo() { const f = await window.biobaseDesktop?.selectDemo(); if (!f) return; setSelected(f); setDemos((e) => (e.some((d) => d.path === f.path) ? e : [f, ...e])); }
-  async function parseSelectedDemo() { if (!selected) return; setBusy(true); try { const r = await window.biobaseDesktop?.parseDemo(selected.path); if (r) setParsed(r); setSyncStatus('parsed locally'); } finally { setBusy(false); } }
+  async function parseSelectedDemo() { if (!selected) return; setBusy(true); try { const r = await window.biobaseDesktop?.parseDemo(selected.path); if (r) setParsed(r); setSyncStatus(r.frames?.length ? 'demo playback ready' : 'parsed locally'); } finally { setBusy(false); } }
   async function seek(delta: number) { const c = playback?.currentTimeSec ?? 0; const s = await window.biobaseDesktop?.setPlayback({ currentTimeSec: Math.max(0, c + delta), playing: playback?.playing ?? false }); if (s) setPlayback(s); }
   async function togglePlayback() { const s = await window.biobaseDesktop?.setPlayback({ currentTimeSec: playback?.currentTimeSec ?? 0, playing: !playback?.playing }); if (s) setPlayback(s); }
   async function uploadSummary() { if (!parsed) return; setSyncStatus('uploading…'); const r = await window.biobaseDesktop?.uploadParsedSummary(parsed); if (!r) return; setQueue(r.queue); setSyncStatus(r.item.status === 'uploaded' ? 'uploaded' : r.item.lastError ?? r.item.status); }

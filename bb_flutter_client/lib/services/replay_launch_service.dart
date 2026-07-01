@@ -11,6 +11,14 @@ const String replayExecConfigBase = 'biobase_replay';
 const String replayExecConfigName = '$replayExecConfigBase.cfg';
 const String replayAutoexecBegin = '// BEGIN BIOBASE REPLAY BOOTSTRAP';
 const String replayAutoexecEnd = '// END BIOBASE REPLAY BOOTSTRAP';
+const List<String> replaySteamLaunchOptionTokens = [
+  '-console',
+  '-condebug',
+  '-netconport',
+  '2121',
+  '+exec',
+  replayExecConfigBase,
+];
 
 class ReplayDemoTarget {
   final String sourcePath;
@@ -126,6 +134,7 @@ class ReplayLaunchService {
 
     if (Platform.isWindows) {
       await _closeRunningCs2(diagnostics);
+      await _installSteamReplayLaunchOptions(diagnostics);
       await _ensureSteamRunning(diagnostics);
 
       final steamExe = await findSteamExe();
@@ -357,6 +366,81 @@ class ReplayLaunchService {
     return value.replaceAll('\\', '/').replaceAll('"', r'\"');
   }
 
+  static String buildPersistentSteamLaunchOptions(String existing) {
+    var updated = existing.trim();
+    updated = updated.replaceAll(
+      RegExp(r'(^|\s)-netconport\s+\S+', caseSensitive: false),
+      ' ',
+    );
+
+    for (final token in ['-console', '-condebug']) {
+      if (!_launchOptionsContainToken(updated, token)) {
+        updated = '$updated $token'.trim();
+      }
+    }
+
+    updated = '$updated -netconport $replayNetconPort'.trim();
+    if (!RegExp(
+      r'(^|\s)\+exec\s+biobase_replay(?:\.cfg)?(?=\s|$)',
+      caseSensitive: false,
+    ).hasMatch(updated)) {
+      updated = '$updated +exec $replayExecConfigBase'.trim();
+    }
+
+    return updated.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  static bool _launchOptionsContainToken(String options, String token) {
+    return RegExp(
+      '(^|\\s)${RegExp.escape(token)}(?=\\s|\$)',
+      caseSensitive: false,
+    ).hasMatch(options);
+  }
+
+  static String? patchSteamAppLaunchOptionsContent(String content) {
+    final app730 = RegExp(r'"730"\s*\{').firstMatch(content);
+    if (app730 == null) return null;
+
+    final blockStart = app730.end;
+    var depth = 1;
+    var blockEnd = blockStart;
+    for (var i = blockStart; i < content.length && depth > 0; i++) {
+      if (content[i] == '{') depth++;
+      if (content[i] == '}') depth--;
+      if (depth == 0) blockEnd = i;
+    }
+    if (depth != 0) return null;
+
+    final block = content.substring(blockStart, blockEnd);
+    final launchMatch = RegExp(
+      r'"LaunchOptions"\s+"((?:\\.|[^"\\])*)"',
+    ).firstMatch(block);
+    final encodedOptions = _encodeVdfString(
+      buildPersistentSteamLaunchOptions(
+        launchMatch == null ? '' : _decodeVdfString(launchMatch.group(1)!),
+      ),
+    );
+
+    if (launchMatch != null) {
+      final absStart = blockStart + launchMatch.start;
+      final absEnd = blockStart + launchMatch.end;
+      return '${content.substring(0, absStart)}"LaunchOptions"\t\t"$encodedOptions"${content.substring(absEnd)}';
+    }
+
+    final insertion = '\n\t\t\t\t\t"LaunchOptions"\t\t"$encodedOptions"';
+    return content.substring(0, blockEnd) +
+        insertion +
+        content.substring(blockEnd);
+  }
+
+  static String _decodeVdfString(String value) {
+    return value.replaceAll('\\\\', '\\').replaceAll(r'\"', '"');
+  }
+
+  static String _encodeVdfString(String value) {
+    return value.replaceAll('\\', '\\\\').replaceAll('"', r'\"');
+  }
+
   static String sanitizeDemoFileName(String name) {
     var cleaned = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
     if (!cleaned.toLowerCase().endsWith('.dem')) {
@@ -422,6 +506,94 @@ class ReplayLaunchService {
       } catch (_) {}
     });
     diagnostics.add('Replay cfg cleanup scheduled after launch window.');
+  }
+
+  Future<void> _installSteamReplayLaunchOptions(
+    List<String> diagnostics,
+  ) async {
+    final steamPath = await GsiService.findSteamPath();
+    if (steamPath == null) {
+      diagnostics.add(
+        'Steam path was not found; skipping persistent LaunchOptions patch.',
+      );
+      return;
+    }
+
+    final userdata = Directory(p.join(steamPath, 'userdata'));
+    if (!userdata.existsSync()) {
+      diagnostics.add(
+        'Steam userdata was not found; skipping persistent LaunchOptions patch.',
+      );
+      return;
+    }
+
+    await _closeRunningSteam(diagnostics);
+
+    var filesSeen = 0;
+    var filesReady = 0;
+    var filesChanged = 0;
+    for (final dir in userdata.listSync().whereType<Directory>()) {
+      final vdf = File(p.join(dir.path, 'config', 'localconfig.vdf'));
+      if (!vdf.existsSync()) continue;
+      filesSeen += 1;
+      try {
+        final content = await vdf.readAsString();
+        final patched = patchSteamAppLaunchOptionsContent(content);
+        if (patched == null) continue;
+        filesReady += 1;
+        if (patched != content) {
+          await vdf.writeAsString(patched);
+          filesChanged += 1;
+        }
+      } catch (e) {
+        diagnostics.add('Could not patch ${vdf.path}: $e');
+      }
+    }
+
+    if (filesReady == 0) {
+      diagnostics.add(
+        'No Steam CS2 LaunchOptions block was found in $filesSeen localconfig file(s).',
+      );
+      return;
+    }
+
+    diagnostics.add(
+      filesChanged > 0
+          ? 'Patched Steam CS2 LaunchOptions in $filesChanged/$filesReady account config(s).'
+          : 'Steam CS2 LaunchOptions already contained BioBase replay options in $filesReady account config(s).',
+    );
+  }
+
+  Future<void> _closeRunningSteam(List<String> diagnostics) async {
+    try {
+      final steamCheck = await Process.run('tasklist', [
+        '/FI',
+        'IMAGENAME eq steam.exe',
+        '/NH',
+      ]);
+      if (!(steamCheck.stdout as String).contains('steam.exe')) return;
+
+      diagnostics.add(
+        'Closing Steam so CS2 LaunchOptions can be patched safely.',
+      );
+      await Process.run('taskkill', ['/IM', 'steam.exe']);
+      await Future.delayed(const Duration(seconds: 5));
+
+      final checkAgain = await Process.run('tasklist', [
+        '/FI',
+        'IMAGENAME eq steam.exe',
+        '/NH',
+      ]);
+      if ((checkAgain.stdout as String).contains('steam.exe')) {
+        diagnostics.add(
+          'Steam was still running; forcing Steam shutdown for LaunchOptions patch.',
+        );
+        await Process.run('taskkill', ['/F', '/T', '/IM', 'steam.exe']);
+        await Future.delayed(const Duration(seconds: 3));
+      }
+    } catch (e) {
+      diagnostics.add('Could not close Steam before LaunchOptions patch: $e');
+    }
   }
 
   Future<void> _closeRunningCs2(List<String> diagnostics) async {

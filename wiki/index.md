@@ -1,11 +1,11 @@
 ---
 title: Wiki Index
-updated: 2026-06-30T07:17:17Z
+updated: 2026-07-01T07:35:26Z
 ---
 
 # Wiki Index
 
-*Last updated: 2026-06-30T07:17:17Z*
+*Last updated: 2026-07-01T07:35:26Z*
 
 ## LLM updates (attribution)
 
@@ -58,4 +58,4 @@ Format: `[ISO8601] WIKI_UPDATE agent=<id> project=<biobase|meta|…> — <one-li
 - [BioBase CS2 Telemetry + Reconciliation](projects/biobase/concepts/biobase-cs2-telemetry-and-reconciliation.md) — FACEIT/game-plane JSON v1 bundle, ZSTD drop, reconcile stub + parser notes
 - [Windows Client Primary UI](projects/biobase/concepts/biobase-windows-client-primary-ui.md) — Windows-first local Biobase client: CS2 desktop playback, overlay HUD, local demo parsing, stats dashboard, bio sensor capture, and central sync
 - [Product Roadmap](projects/biobase/concepts/biobase-product-roadmap.md) — Phased delivery plan (Phase 1–3), progress tracking, current state v0.1.44
-- [Replay Demo Playback](projects/biobase/concepts/biobase-replay-demo-playback.md) — CS2 as render engine; v0.11.30 resolves the real Steam CS2 library, then uses a CS2-owned replay cfg/autoexec bootstrap with `+exec biobase_replay` and `+playdemo`; console injection remains retired
+- [Replay Demo Playback](projects/biobase/concepts/biobase-replay-demo-playback.md) — CS2 as render engine; v0.11.31 resolves the real Steam CS2 library, patches Steam CS2 LaunchOptions for Netcon, then sends `playdemo` after CS2 is alive; console injection remains retired

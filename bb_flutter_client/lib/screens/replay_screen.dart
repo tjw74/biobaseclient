@@ -321,7 +321,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
 
     final connected = await _waitForNetcon(
-      timeout: const Duration(seconds: 12),
+      timeout: const Duration(seconds: 45),
     );
     if (!mounted) return;
     if (connected) {
@@ -332,7 +332,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
 
     diagnostics.add(
-      'Netcon did not open; CS2 was launched with replay cfg bootstrap and +playdemo.',
+      'Netcon did not open; CS2 was launched after patching Steam LaunchOptions and replay cfg bootstrap.',
     );
     setState(() {
       _cs2Connecting = false;
@@ -342,7 +342,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _connectStatus = 'Replay launched in CS2';
       _replayDiagnostics = List.of(diagnostics);
       _replayIssue =
-          'BioBase staged this demo through CS2 cfg bootstrap and Steam launch args. Controls will attach if CS2 opens the Netcon socket.';
+          'BioBase patched Steam LaunchOptions and staged the replay cfg, but CS2 still did not open Netcon. If the demo is not playing, Steam did not apply the patched LaunchOptions on this launch.';
     });
     _startBackgroundNetconReconnect(target);
   }

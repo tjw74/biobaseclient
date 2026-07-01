@@ -40,6 +40,82 @@ void main() {
     expect(patchedAgain, patched);
   });
 
+  test('persistent Steam LaunchOptions add BioBase replay control args', () {
+    final options = ReplayLaunchService.buildPersistentSteamLaunchOptions(
+      '-novid -high -netconport 1234 +exec autoexec',
+    );
+
+    expect(options, contains('-novid'));
+    expect(options, contains('-high'));
+    expect(options, contains('+exec autoexec'));
+    expect(options, contains('-console'));
+    expect(options, contains('-condebug'));
+    expect(options, contains('-netconport $replayNetconPort'));
+    expect(options, contains('+exec $replayExecConfigBase'));
+    expect(options, isNot(contains('-netconport 1234')));
+  });
+
+  test('Steam localconfig LaunchOptions are patched inside app 730 block', () {
+    const vdf = r'''
+"UserLocalConfigStore"
+{
+  "Software"
+  {
+    "Valve"
+    {
+      "Steam"
+      {
+        "Apps"
+        {
+          "730"
+          {
+            "LaunchOptions" "-novid -netconport 1234"
+          }
+        }
+      }
+    }
+  }
+}
+''';
+
+    final patched = ReplayLaunchService.patchSteamAppLaunchOptionsContent(vdf);
+
+    expect(patched, isNotNull);
+    expect(patched!, contains('"730"'));
+    expect(patched, contains('"LaunchOptions"'));
+    expect(patched, contains('-novid'));
+    expect(patched, contains('-console'));
+    expect(patched, contains('-condebug'));
+    expect(patched, contains('-netconport $replayNetconPort'));
+    expect(patched, contains('+exec $replayExecConfigBase'));
+    expect(patched, isNot(contains('-netconport 1234')));
+  });
+
+  test(
+    'Steam localconfig LaunchOptions are inserted when app 730 has none',
+    () {
+      const vdf = r'''
+"Apps"
+{
+  "730"
+  {
+    "LastPlayed" "1"
+  }
+}
+''';
+
+      final patched = ReplayLaunchService.patchSteamAppLaunchOptionsContent(
+        vdf,
+      );
+
+      expect(patched, isNotNull);
+      expect(patched!, contains('"LastPlayed" "1"'));
+      expect(patched, contains('"LaunchOptions"'));
+      expect(patched, contains('-netconport $replayNetconPort'));
+      expect(patched, contains('+exec $replayExecConfigBase'));
+    },
+  );
+
   test('Steam replay command line includes cfg bootstrap and playdemo', () {
     final commandLine = ReplayLaunchService.buildSteamReplayCommandLine(
       'biobase_replays/test.dem',

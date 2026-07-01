@@ -261,7 +261,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
   }
 
-  // ignore: unused_element
   Future<void> _watchInCS2() async {
     final sourcePath = _demoPath;
     if (sourcePath == null) return;
@@ -676,6 +675,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
             moves: _demoMoves,
             playbackPosition: _playbackPosition,
             moveStart: _moveStart,
+            onWatchInCS2: _demoPath != null && !_cs2Connecting ? _watchInCS2 : null,
           ),
         ),
       ],
@@ -1841,6 +1841,7 @@ class _RenderArea extends StatelessWidget {
   final List<Move> moves;
   final double playbackPosition;
   final double? moveStart;
+  final VoidCallback? onWatchInCS2;
 
   const _RenderArea({
     required this.demoPath,
@@ -1864,6 +1865,7 @@ class _RenderArea extends StatelessWidget {
     required this.moves,
     required this.playbackPosition,
     this.moveStart,
+    this.onWatchInCS2,
   });
 
   @override
@@ -1937,6 +1939,53 @@ class _RenderArea extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+        // Watch in CS2 button
+        if (onWatchInCS2 != null && !cs2Connected && !cs2Connecting && !replayLaunched && (hasNativePlayback || demoInfo != null))
+          Positioned(
+            bottom: 12,
+            right: 12,
+            child: _WatchButton(onTap: onWatchInCS2!),
+          ),
+        // CS2 connecting status
+        if (cs2Connecting)
+          Positioned(
+            bottom: 12,
+            right: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: BiobaseColors.bg.withAlpha(220),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: BiobaseColors.border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: BiobaseColors.accent,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    connectStatus,
+                    style: const TextStyle(fontSize: 10, color: BiobaseColors.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        // Replay issue
+        if (replayIssue != null && !cs2Connecting)
+          Positioned(
+            bottom: 12,
+            right: 12,
+            left: hasNativePlayback ? null : 12,
+            child: _issueBox(replayIssue!),
           ),
         // Move marking indicator
         if (moveStart != null)

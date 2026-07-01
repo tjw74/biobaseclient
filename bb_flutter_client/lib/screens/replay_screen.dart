@@ -2004,7 +2004,7 @@ class _RenderArea extends StatelessWidget {
             ),
             SizedBox(height: 12),
             Text(
-              'Parsing demo for in-app replay...',
+              'Parsing demo...',
               style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
             ),
           ],
@@ -2249,26 +2249,20 @@ class _RenderArea extends StatelessWidget {
           ),
           SizedBox(height: 12),
           Text(
-            'Parsing native in-app replay...',
+            'Parsing demo for replay...',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
               color: BiobaseColors.textSecondary,
             ),
           ),
-          SizedBox(height: 5),
-          Text(
-            'Replay no longer launches CS2 for this MVP path.',
-            style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
-          ),
         ],
       );
     }
-    return _issueBox(
-      nativeError == null
-          ? 'Native replay is waiting for parsed demo frames. This build does not launch CS2 for Replay; if frames do not appear, deploy the dashboard native parser endpoint and retry.'
-          : 'Native replay parsing failed. BioBase will not launch CS2 for this MVP path; fix the parser endpoint and retry.',
-    );
+    if (nativeError != null) {
+      return _issueBox('Could not parse demo: $nativeError');
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _statBlock(String value, String label) {

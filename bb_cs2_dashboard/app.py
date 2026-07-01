@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from pydantic import BaseModel, Field, field_validator
@@ -1098,14 +1098,10 @@ def _write_demo_player_labels(demo_id: str, labels: list[dict]) -> list[dict]:
 
 @dashboard.post("/api/demos/upload")
 async def api_demos_upload(
-    request: Request,
-    authorization: str | None = Header(None),
-    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
     demo: UploadFile | None = File(None),
     file: UploadFile | None = File(None),
 ) -> JSONResponse:
     """Upload one CS2 .dem, parse native in-app playback frames, and persist parsed JSON."""
-    require_dashboard_auth(request, authorization, x_dashboard_key)
     if demo is not None and file is not None:
         raise HTTPException(status_code=400, detail="provide_only_one_demo_file")
     incoming = demo or file
@@ -1152,30 +1148,18 @@ async def api_demos_upload(
 @dashboard.get("/api/demos/{demo_id}")
 def api_demos_get(
     demo_id: str,
-    request: Request,
-    authorization: str | None = Header(None),
-    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
-) -> JSONResponse:
+) -> Response:
     """Return parsed native demo JSON for in-app Replay playback."""
-    require_dashboard_auth(request, authorization, x_dashboard_key)
     path = _demo_player_parsed_path(demo_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="parsed_demo_not_found")
-    try:
-        payload = json.loads(path.read_text())
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail="parsed_demo_json_invalid") from e
-    return JSONResponse(payload)
+    return Response(content=path.read_bytes(), media_type="application/json")
 
 
 @dashboard.get("/api/demos/{demo_id}/labels")
 def api_demos_labels_get(
     demo_id: str,
-    request: Request,
-    authorization: str | None = Header(None),
-    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
 ) -> JSONResponse:
-    require_dashboard_auth(request, authorization, x_dashboard_key)
     _validate_demo_id(demo_id)
     return JSONResponse(_read_demo_player_labels(demo_id))
 
@@ -1184,11 +1168,7 @@ def api_demos_labels_get(
 def api_demos_labels_post(
     demo_id: str,
     body: DemoLabelIn,
-    request: Request,
-    authorization: str | None = Header(None),
-    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
 ) -> JSONResponse:
-    require_dashboard_auth(request, authorization, x_dashboard_key)
     demo_id = _validate_demo_id(demo_id)
     if not _demo_player_parsed_path(demo_id).is_file():
         raise HTTPException(status_code=404, detail="parsed_demo_not_found")

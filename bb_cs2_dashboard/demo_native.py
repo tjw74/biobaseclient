@@ -357,6 +357,16 @@ def parse_cs2_demo(demo_path: Path | str, *, source_filename: str | None = None)
     }
 
 
+def _scrub_nan(obj: Any) -> Any:
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: _scrub_nan(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_scrub_nan(v) for v in obj]
+    return obj
+
+
 def parsed_demo_path(output_dir: Path, demo_id: str) -> Path:
     return output_dir / f"{demo_id}.json"
 
@@ -365,7 +375,7 @@ def write_parsed_demo(parsed: dict[str, Any], output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     out = parsed_demo_path(output_dir, str(parsed["demoId"]))
     tmp = out.with_suffix(out.suffix + ".tmp")
-    tmp.write_text(json.dumps(parsed, separators=(",", ":")))
+    tmp.write_text(json.dumps(_scrub_nan(parsed), separators=(",", ":")))
     tmp.replace(out)
     return out
 

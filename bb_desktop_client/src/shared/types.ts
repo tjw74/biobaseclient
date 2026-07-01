@@ -16,6 +16,60 @@ export interface LocalDemoFile {
   source: 'scan' | 'selected' | 'imported';
 }
 
+export interface PlayerState {
+  steamid: string;
+  name: string;
+  team: 'T' | 'CT' | 'UNKNOWN';
+  x: number;
+  y: number;
+  z?: number;
+  yaw?: number;
+  pitch?: number;
+  health?: number;
+  isAlive?: boolean;
+  hasHelmet?: boolean;
+  hasDefuser?: boolean;
+  isScoped?: boolean;
+  activeWeapon?: string | number | null;
+}
+
+export interface DemoFrame {
+  tick: DemoTick;
+  timeSec: number;
+  players: PlayerState[];
+}
+
+export interface DemoEvent {
+  tick: DemoTick;
+  timeSec: number;
+  type: string;
+  data: Record<string, unknown>;
+}
+
+export interface ParsedDemo {
+  demoId: string;
+  demoPath: string;
+  importedPath?: string;
+  mapName: string;
+  tickRateGuess: number;
+  startTick: DemoTick;
+  endTick: DemoTick;
+  frames: DemoFrame[];
+  events: DemoEvent[];
+}
+
+export interface DemoLabel {
+  id: string;
+  demoId: string;
+  startTick: DemoTick;
+  endTick: DemoTick;
+  title: string;
+  note?: string;
+  tags: string[];
+  createdBy?: string;
+  createdAt: string;
+}
+
 export interface MovementSample {
   tick: DemoTick;
   timeSec: number;
@@ -48,6 +102,7 @@ export interface TimelineFrame {
 
 export interface ParsedDemoSummary {
   ok: boolean;
+  demoId?: string;
   demoPath: string;
   importedPath?: string;
   sha256: string;
@@ -57,6 +112,11 @@ export interface ParsedDemoSummary {
   tickRate: number;
   tickCount: number;
   durationSec: number;
+  mapName?: string;
+  startTick?: DemoTick;
+  endTick?: DemoTick;
+  frames?: DemoFrame[];
+  events?: DemoEvent[];
   players: Array<{ steamid: string; name: string; rows: number; firstTick: number; lastTick: number; travelUnits: number }>;
   movementSamples: Array<{
     tick: number;

@@ -681,7 +681,7 @@ function DashboardRoute() {
   }, []);
 
   async function chooseDemo() { const f = await window.biobaseDesktop?.selectDemo(); if (!f) return; setSelected(f); setDemos((e) => (e.some((d) => d.path === f.path) ? e : [f, ...e])); }
-  async function parseSelectedDemo() { if (!selected) return; setBusy(true); try { const r = await window.biobaseDesktop?.parseDemo(selected.path); if (r) setParsed(r); setSyncStatus(r.frames?.length ? 'demo playback ready' : 'parsed locally'); } finally { setBusy(false); } }
+  async function parseSelectedDemo() { if (!selected) return; setBusy(true); try { const r = await window.biobaseDesktop?.parseDemo(selected.path); if (!r) return; setParsed(r); setSyncStatus(r.frames?.length ? 'demo playback ready' : 'parsed locally'); } finally { setBusy(false); } }
   async function seek(delta: number) { const c = playback?.currentTimeSec ?? 0; const s = await window.biobaseDesktop?.setPlayback({ currentTimeSec: Math.max(0, c + delta), playing: playback?.playing ?? false }); if (s) setPlayback(s); }
   async function togglePlayback() { const s = await window.biobaseDesktop?.setPlayback({ currentTimeSec: playback?.currentTimeSec ?? 0, playing: !playback?.playing }); if (s) setPlayback(s); }
   async function uploadSummary() { if (!parsed) return; setSyncStatus('uploading…'); const r = await window.biobaseDesktop?.uploadParsedSummary(parsed); if (!r) return; setQueue(r.queue); setSyncStatus(r.item.status === 'uploaded' ? 'uploaded' : r.item.lastError ?? r.item.status); }
@@ -796,7 +796,7 @@ function DashboardRoute() {
             <div className="advanced-grid">
               <button onClick={() => { void connectToCs2Server(); }}>Connect to Server</button>
               <button onClick={() => { void window.biobaseDesktop?.releaseMouse?.(); }}>Release mouse (Ctrl+Shift+M)</button>
-              <button onClick={() => { void window.biobaseDesktop?.createCs2Shortcut().then((r) => r && setSyncStatus(r.ok ? 'Desktop icon created' : r.error)); }}>Desktop Play icon</button>
+              <button onClick={() => { void window.biobaseDesktop?.createCs2Shortcut().then((r) => { if (r) setSyncStatus(r.ok ? 'Desktop icon created' : r.error); }); }}>Desktop Play icon</button>
             </div>
             <div className="advanced-grid">
               <input value={settings.deviceName} placeholder="Device name" onChange={(e) => setSettings({ ...settings, deviceName: e.target.value })} />

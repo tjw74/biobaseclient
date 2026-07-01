@@ -95,6 +95,7 @@ if not os.access(CLIPS_UPLOAD_DIR, os.W_OK):
     )
 MAX_UPLOAD_MB = int(os.environ.get("BB_DASHBOARD_MAX_UPLOAD_MB", "512"))
 DEMO_PARSE_MAX_MB = int(os.environ.get("BB_DEMO_PARSE_MAX_MB", "256"))
+DEMO_PLAYER_MAX_MB = int(os.environ.get("BB_DEMO_PLAYER_MAX_MB", "2048"))
 DEMO_PARSE_ALLOW_URL_FETCH = os.environ.get("BB_DEMO_PARSE_ALLOW_URL_FETCH", "").lower() in (
     "1",
     "true",
@@ -834,9 +835,39 @@ async def api_demo_parser_compare(
 DEMO_MOVEMENT_DIR = CLIPS_UPLOAD_DIR / ".parsed_movement"
 DEMO_LABELS_DIR = CLIPS_UPLOAD_DIR / ".movement_labels"
 DEMO_RENDERS_DIR = CLIPS_UPLOAD_DIR / ".demo_renders"
+DEMO_PLAYER_STORAGE_DIR = Path(
+    os.environ.get("BB_DEMO_PLAYER_STORAGE_DIR", str(CLIPS_UPLOAD_DIR / ".demo_player"))
+).resolve()
+DEMO_PLAYER_UPLOAD_DIR = DEMO_PLAYER_STORAGE_DIR / "uploads"
+DEMO_PLAYER_PARSED_DIR = DEMO_PLAYER_STORAGE_DIR / "parsed-demos"
+DEMO_PLAYER_LABELS_DIR = DEMO_PLAYER_STORAGE_DIR / "labels"
 DEMO_RENDER_COMMAND = os.environ.get("BB_DEMO_RENDER_COMMAND", "").strip()
 DEMO_STEAM_PLAYBACK_COMMAND = os.environ.get("BB_DEMO_STEAM_PLAYBACK_COMMAND", "").strip()
 DEMO_STEAM_VIEWER_URL = os.environ.get("BB_DEMO_STEAM_VIEWER_URL", "http://192.168.1.120:6080/vnc.html?autoconnect=1&resize=remote&path=websockify").strip()
+
+
+class DemoLabelIn(BaseModel):
+    startTick: int = Field(ge=0)
+    endTick: int = Field(ge=0)
+    title: str = Field(default="Untitled moment", max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+    tags: list[str] = Field(default_factory=list)
+    createdBy: str | None = Field(default=None, max_length=120)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_title(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip() or "Untitled moment"
+        return v
+
+    @field_validator("note", "createdBy", mode="before")
+    @classmethod
+    def _strip_optional_text(cls, v: object) -> object:
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
 
 
 class DemoMovementAnnotationIn(BaseModel):
@@ -980,6 +1011,204 @@ def _list_demo_movement_artifacts() -> list[dict[str, str | int | float | bool |
         except Exception as e:  # noqa: BLE001
             logger.warning("bad movement artifact %s: %s", p, e)
     return rows
+
+
+_DEMO_ID_RE = re.compile(r"^[a-fA-F0-9]{24,64}$")
+
+
+def _validate_demo_id(demo_id: str) -> str:
+    did = demo_id.strip()
+    if not _DEMO_ID_RE.match(did):
+        raise HTTPException(status_code=400, detail="bad_demo_id")
+    return did
+
+
+def _demo_player_parsed_path(demo_id: str) -> Path:
+    return DEMO_PLAYER_PARSED_DIR / f"{_validate_demo_id(demo_id)}.json"
+
+
+def _demo_player_labels_path(demo_id: str) -> Path:
+    return DEMO_PLAYER_LABELS_DIR / f"{_validate_demo_id(demo_id)}.labels.json"
+
+
+async def _save_demo_player_upload(file: UploadFile) -> tuple[Path, str, int]:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="missing_filename")
+    if not str(file.filename).lower().endswith(".dem"):
+        raise HTTPException(status_code=400, detail="expected_dem_extension")
+    safe = _UNSAFE_NAME.sub("_", Path(file.filename).name)[:200]
+    if not safe or safe in (".", ".."):
+        raise HTTPException(status_code=400, detail="bad_filename")
+    DEMO_PLAYER_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = DEMO_PLAYER_UPLOAD_DIR / f"{uuid.uuid4().hex}_{safe}"
+    max_bytes = DEMO_PLAYER_MAX_MB * 1024 * 1024
+    written = 0
+    try:
+        with dest.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    out.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="file_too_large")
+                out.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+    except OSError as e:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(e)[:200]) from e
+    if written < 4096:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"demo_too_small_bytes:{written}")
+    return dest, safe, written
+
+
+def _read_demo_player_labels(demo_id: str) -> list[dict]:
+    path = _demo_player_labels_path(demo_id)
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        logger.warning("bad native demo labels artifact %s", path)
+        return []
+    labels = payload.get("labels") if isinstance(payload, dict) else payload
+    return [x for x in labels if isinstance(x, dict)] if isinstance(labels, list) else []
+
+
+def _write_demo_player_labels(demo_id: str, labels: list[dict]) -> list[dict]:
+    path = _demo_player_labels_path(demo_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    normalized = sorted(labels, key=lambda x: (int(x.get("startTick") or 0), int(x.get("endTick") or 0), str(x.get("title") or "")))
+    payload = {
+        "ok": True,
+        "demoId": _validate_demo_id(demo_id),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "labels": normalized,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, separators=(",", ":")))
+    tmp.replace(path)
+    return normalized
+
+
+@dashboard.post("/api/demos/upload")
+async def api_demos_upload(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
+    demo: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),
+) -> JSONResponse:
+    """Upload one CS2 .dem, parse native in-app playback frames, and persist parsed JSON."""
+    require_dashboard_auth(request, authorization, x_dashboard_key)
+    if demo is not None and file is not None:
+        raise HTTPException(status_code=400, detail="provide_only_one_demo_file")
+    incoming = demo or file
+    if incoming is None:
+        raise HTTPException(status_code=400, detail="missing_demo_file")
+    demo_path, original_name, written = await _save_demo_player_upload(incoming)
+    try:
+        from demo_native import parse_and_save_demo
+
+        parsed, out_path = await asyncio.to_thread(
+            parse_and_save_demo,
+            demo_path,
+            DEMO_PLAYER_PARSED_DIR,
+            source_filename=original_name,
+        )
+    except ImportError as e:
+        logger.exception("native demo parser import failed")
+        return JSONResponse(
+            {"error": "native_demo_parser_unavailable", "detail": str(e)[:800]},
+            status_code=503,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("native demo parse failed")
+        return JSONResponse(
+            {"error": "native_demo_parse_failed", "detail": str(e)[:1200]},
+            status_code=422,
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "demoId": parsed["demoId"],
+            "mapName": parsed.get("mapName"),
+            "startTick": parsed.get("startTick"),
+            "endTick": parsed.get("endTick"),
+            "frameCount": len(parsed.get("frames") or []),
+            "eventCount": len(parsed.get("events") or []),
+            "bytes": written,
+            "storageName": demo_path.name,
+            "parsedJsonPath": str(out_path),
+        }
+    )
+
+
+@dashboard.get("/api/demos/{demo_id}")
+def api_demos_get(
+    demo_id: str,
+    request: Request,
+    authorization: str | None = Header(None),
+    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
+) -> JSONResponse:
+    """Return parsed native demo JSON for in-app Replay playback."""
+    require_dashboard_auth(request, authorization, x_dashboard_key)
+    path = _demo_player_parsed_path(demo_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="parsed_demo_not_found")
+    try:
+        payload = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail="parsed_demo_json_invalid") from e
+    return JSONResponse(payload)
+
+
+@dashboard.get("/api/demos/{demo_id}/labels")
+def api_demos_labels_get(
+    demo_id: str,
+    request: Request,
+    authorization: str | None = Header(None),
+    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
+) -> JSONResponse:
+    require_dashboard_auth(request, authorization, x_dashboard_key)
+    _validate_demo_id(demo_id)
+    return JSONResponse(_read_demo_player_labels(demo_id))
+
+
+@dashboard.post("/api/demos/{demo_id}/labels")
+def api_demos_labels_post(
+    demo_id: str,
+    body: DemoLabelIn,
+    request: Request,
+    authorization: str | None = Header(None),
+    x_dashboard_key: str | None = Header(None, alias="X-Dashboard-Key"),
+) -> JSONResponse:
+    require_dashboard_auth(request, authorization, x_dashboard_key)
+    demo_id = _validate_demo_id(demo_id)
+    if not _demo_player_parsed_path(demo_id).is_file():
+        raise HTTPException(status_code=404, detail="parsed_demo_not_found")
+    start_tick = min(body.startTick, body.endTick)
+    end_tick = max(body.startTick, body.endTick)
+    label = {
+        "id": str(uuid.uuid4()),
+        "demoId": demo_id,
+        "startTick": start_tick,
+        "endTick": end_tick,
+        "title": body.title or "Untitled moment",
+        "note": body.note or "",
+        "tags": [str(tag).strip() for tag in body.tags if str(tag).strip()][:20],
+        "createdBy": body.createdBy,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    labels = _read_demo_player_labels(demo_id)
+    labels.append(label)
+    _write_demo_player_labels(demo_id, labels)
+    return JSONResponse(label)
 
 
 @dashboard.get("/api/demo-movement")

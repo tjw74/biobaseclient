@@ -129,57 +129,76 @@ class ReplayLaunchService {
           ? 'Autoexec bootstrap is installed at ${demo.autoexecPath}'
           : 'Autoexec bootstrap was not installed.',
     ];
-    final steamUrl = buildSteamRunUrl(demo.consolePath);
-    final commandLine = buildSteamReplayCommandLine(demo.consolePath);
 
     if (Platform.isWindows) {
       await _closeRunningCs2(diagnostics);
-      await _installSteamReplayLaunchOptions(diagnostics);
 
+      // Try launching cs2.exe directly — fastest, Steam just needs to be running.
+      final cs2Exe = await GsiService.findCs2Exe();
+      if (cs2Exe != null) {
+        final args = [
+          '-steam',
+          '-netconport', '$replayNetconPort',
+          '-condebug',
+          '+exec', replayExecConfigBase,
+        ];
+        diagnostics.add('Launching cs2.exe directly: $cs2Exe ${args.join(' ')}');
+        try {
+          await Process.start(cs2Exe, args, mode: ProcessStartMode.detached);
+          _scheduleReplayBootstrapCleanup(demo, diagnostics);
+          return ReplayLaunchResult(
+            started: true,
+            method: 'cs2-exe-direct',
+            diagnostics: diagnostics,
+          );
+        } catch (e) {
+          diagnostics.add('Direct cs2.exe launch failed: $e');
+        }
+      } else {
+        diagnostics.add('cs2.exe not found; falling back to Steam.');
+      }
+
+      // Fallback: steam -applaunch (don't kill Steam, just ask it to launch CS2).
       final steamExe = await findSteamExe();
       if (steamExe != null) {
         final args = buildSteamAppLaunchArgs(demo.consolePath);
-        diagnostics.add(
-          'Launching Steam and CS2 in one documented -applaunch call with replay cfg bootstrap.',
-        );
-        diagnostics.add('Launch command: ${formatLaunchCommand(args)}');
+        diagnostics.add('Steam -applaunch fallback: ${formatLaunchCommand(args)}');
         try {
           await Process.start(steamExe, args, mode: ProcessStartMode.detached);
           _scheduleReplayBootstrapCleanup(demo, diagnostics);
           return ReplayLaunchResult(
             started: true,
-            method: 'steam-applaunch-cfg-bootstrap',
+            method: 'steam-applaunch',
             diagnostics: diagnostics,
           );
         } catch (e) {
           diagnostics.add('Steam -applaunch failed: $e');
         }
-      } else {
-        diagnostics.add('Steam executable was not found; trying Steam URL.');
       }
 
-      diagnostics.add('Falling back to Steam URL launch with replay cfg.');
-      diagnostics.add('Launch command: $commandLine');
+      // Last resort: steam:// URL.
+      final steamUrl = buildSteamRunUrl(demo.consolePath);
+      diagnostics.add('Falling back to Steam URL launch.');
       try {
         await openSteamRunUrl(steamUrl);
         _scheduleReplayBootstrapCleanup(demo, diagnostics);
         return ReplayLaunchResult(
           started: true,
-          method: 'steam-url-cfg-bootstrap',
+          method: 'steam-url',
           diagnostics: diagnostics,
         );
       } catch (e) {
         diagnostics.add('Steam URL launch failed: $e');
       }
     } else if (Platform.isMacOS) {
+      final steamUrl = buildSteamRunUrl(demo.consolePath);
       try {
         await openSteamRunUrl(steamUrl);
         diagnostics.add('Opened CS2 through Steam URL with replay cfg launch.');
-        diagnostics.add('Launch command: $commandLine');
         _scheduleReplayBootstrapCleanup(demo, diagnostics);
         return ReplayLaunchResult(
           started: true,
-          method: 'steam-url-cfg-bootstrap',
+          method: 'steam-url',
           diagnostics: diagnostics,
         );
       } catch (e) {
@@ -501,94 +520,6 @@ class ReplayLaunchService {
       } catch (_) {}
     });
     diagnostics.add('Replay cfg cleanup scheduled after launch window.');
-  }
-
-  Future<void> _installSteamReplayLaunchOptions(
-    List<String> diagnostics,
-  ) async {
-    final steamPath = await GsiService.findSteamPath();
-    if (steamPath == null) {
-      diagnostics.add(
-        'Steam path was not found; skipping persistent LaunchOptions patch.',
-      );
-      return;
-    }
-
-    final userdata = Directory(p.join(steamPath, 'userdata'));
-    if (!userdata.existsSync()) {
-      diagnostics.add(
-        'Steam userdata was not found; skipping persistent LaunchOptions patch.',
-      );
-      return;
-    }
-
-    await _closeRunningSteam(diagnostics);
-
-    var filesSeen = 0;
-    var filesReady = 0;
-    var filesChanged = 0;
-    for (final dir in userdata.listSync().whereType<Directory>()) {
-      final vdf = File(p.join(dir.path, 'config', 'localconfig.vdf'));
-      if (!vdf.existsSync()) continue;
-      filesSeen += 1;
-      try {
-        final content = await vdf.readAsString();
-        final patched = patchSteamAppLaunchOptionsContent(content);
-        if (patched == null) continue;
-        filesReady += 1;
-        if (patched != content) {
-          await vdf.writeAsString(patched);
-          filesChanged += 1;
-        }
-      } catch (e) {
-        diagnostics.add('Could not patch ${vdf.path}: $e');
-      }
-    }
-
-    if (filesReady == 0) {
-      diagnostics.add(
-        'No Steam CS2 LaunchOptions block was found in $filesSeen localconfig file(s).',
-      );
-      return;
-    }
-
-    diagnostics.add(
-      filesChanged > 0
-          ? 'Patched Steam CS2 LaunchOptions in $filesChanged/$filesReady account config(s).'
-          : 'Steam CS2 LaunchOptions already contained BioBase replay options in $filesReady account config(s).',
-    );
-  }
-
-  Future<void> _closeRunningSteam(List<String> diagnostics) async {
-    try {
-      final steamCheck = await Process.run('tasklist', [
-        '/FI',
-        'IMAGENAME eq steam.exe',
-        '/NH',
-      ]);
-      if (!(steamCheck.stdout as String).contains('steam.exe')) return;
-
-      diagnostics.add(
-        'Closing Steam so CS2 LaunchOptions can be patched safely.',
-      );
-      await Process.run('taskkill', ['/IM', 'steam.exe']);
-      await Future.delayed(const Duration(seconds: 5));
-
-      final checkAgain = await Process.run('tasklist', [
-        '/FI',
-        'IMAGENAME eq steam.exe',
-        '/NH',
-      ]);
-      if ((checkAgain.stdout as String).contains('steam.exe')) {
-        diagnostics.add(
-          'Steam was still running; forcing Steam shutdown for LaunchOptions patch.',
-        );
-        await Process.run('taskkill', ['/F', '/T', '/IM', 'steam.exe']);
-        await Future.delayed(const Duration(seconds: 3));
-      }
-    } catch (e) {
-      diagnostics.add('Could not close Steam before LaunchOptions patch: $e');
-    }
   }
 
   Future<void> _closeRunningCs2(List<String> diagnostics) async {

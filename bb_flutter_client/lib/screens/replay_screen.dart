@@ -9,6 +9,8 @@ import '../services/server_service.dart';
 import '../services/moves_service.dart';
 import '../services/hltv_service.dart';
 import '../services/demo_parser.dart';
+import '../services/gsi_service.dart';
+import '../services/replay_launch_service.dart';
 import '../services/native_demo_service.dart';
 
 class ReplayScreen extends StatefulWidget {
@@ -22,6 +24,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   final ServerService _server = ServerService();
   final MovesService _moves = MovesService();
   final HltvService _hltv = HltvService();
+  final ReplayLaunchService _launcher = ReplayLaunchService();
   final NativeDemoService _nativeDemos = NativeDemoService();
 
   List<DemoFile>? _demos;
@@ -49,6 +52,10 @@ class _ReplayScreenState extends State<ReplayScreen> {
   int? _downloadingDemoId;
   double _downloadProgress = 0;
   String? _proMessage;
+
+  // CS2 launch state
+  bool _cs2Launching = false;
+  String? _cs2LaunchError;
 
   // Move marking state
   double? _moveStart;
@@ -81,6 +88,49 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _nativeLabels = const [];
     _nativeParsing = false;
     _nativeError = null;
+    _cs2Launching = false;
+    _cs2LaunchError = null;
+  }
+
+  Future<void> _playInCS2() async {
+    final path = _demoPath;
+    if (path == null) return;
+
+    setState(() {
+      _cs2Launching = true;
+      _cs2LaunchError = null;
+    });
+
+    try {
+      final target = await _launcher.prepareDemo(path);
+      await GsiService.installConfig();
+
+      if (Platform.isWindows) {
+        final steamExe = await ReplayLaunchService.findSteamExe();
+        if (steamExe != null) {
+          await Process.start(
+            steamExe,
+            ['-applaunch', '730', '+exec', 'biobase_replay'],
+            mode: ProcessStartMode.detached,
+          );
+        } else {
+          final url = 'steam://run/730//+exec%20biobase_replay/';
+          await ReplayLaunchService.openSteamRunUrl(url);
+        }
+      } else {
+        final url = 'steam://run/730//+exec%20biobase_replay/';
+        await ReplayLaunchService.openSteamRunUrl(url);
+      }
+
+      if (!mounted) return;
+      setState(() => _cs2Launching = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cs2Launching = false;
+        _cs2LaunchError = '$e';
+      });
+    }
   }
 
   Future<void> _loadDemos() async {
@@ -399,6 +449,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
             onTogglePlayback: _togglePlayback,
             onSeek: _seekTo,
             onSetSpeed: _setSpeed,
+            onPlayInCS2: _demoPath != null && !_cs2Launching ? _playInCS2 : null,
+            cs2Launching: _cs2Launching,
+            cs2LaunchError: _cs2LaunchError,
           ),
         ),
       ],
@@ -1556,6 +1609,9 @@ class _RenderArea extends StatelessWidget {
   final VoidCallback onTogglePlayback;
   final ValueChanged<double> onSeek;
   final ValueChanged<double> onSetSpeed;
+  final VoidCallback? onPlayInCS2;
+  final bool cs2Launching;
+  final String? cs2LaunchError;
 
   const _RenderArea({
     required this.demoPath,
@@ -1576,6 +1632,9 @@ class _RenderArea extends StatelessWidget {
     required this.onSeek,
     required this.onSetSpeed,
     this.moveStart,
+    this.onPlayInCS2,
+    this.cs2Launching = false,
+    this.cs2LaunchError,
   });
 
   @override
@@ -1638,6 +1697,9 @@ class _RenderArea extends StatelessWidget {
         onTogglePlayback: onTogglePlayback,
         onSeek: onSeek,
         onSetSpeed: onSetSpeed,
+        onPlayInCS2: onPlayInCS2,
+        cs2Launching: cs2Launching,
+        cs2LaunchError: cs2LaunchError,
       );
     }
 
@@ -1914,6 +1976,9 @@ class _NativeDemoViewer extends StatefulWidget {
   final VoidCallback onTogglePlayback;
   final ValueChanged<double> onSeek;
   final ValueChanged<double> onSetSpeed;
+  final VoidCallback? onPlayInCS2;
+  final bool cs2Launching;
+  final String? cs2LaunchError;
 
   const _NativeDemoViewer({
     required this.demo,
@@ -1928,6 +1993,9 @@ class _NativeDemoViewer extends StatefulWidget {
     required this.onSeek,
     required this.onSetSpeed,
     this.moveStart,
+    this.onPlayInCS2,
+    this.cs2Launching = false,
+    this.cs2LaunchError,
   });
 
   @override
@@ -2096,6 +2164,32 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                 ),
               ),
 
+            // CS2 launch error
+            if (widget.cs2LaunchError != null)
+              Positioned(
+                top: 10,
+                left: 14,
+                right: 14,
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: BiobaseColors.errorDim,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: BiobaseColors.error.withAlpha(60)),
+                    ),
+                    child: Text(
+                      widget.cs2LaunchError!,
+                      style: const TextStyle(fontSize: 10, color: BiobaseColors.error),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
+
             // Move marking indicator
             if (widget.moveStart != null)
               Positioned(
@@ -2226,6 +2320,12 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
             // Controls row
             Row(
               children: [
+                // Play in CS2 button
+                if (widget.onPlayInCS2 != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: _cs2LaunchBtn(),
+                  ),
                 // Play/Pause
                 _iconBtn(
                   widget.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -2233,20 +2333,17 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                   size: 22,
                 ),
                 const SizedBox(width: 2),
-                // Skip back 5s
                 _iconBtn(Icons.replay_5_rounded, () {
                   final newTick = (tick - widget.demo.tickRateGuess * 5)
                       .clamp(widget.demo.startTick, widget.demo.endTick);
                   widget.onJumpToTick(newTick);
                 }),
-                // Skip forward 5s
                 _iconBtn(Icons.forward_5_rounded, () {
                   final newTick = (tick + widget.demo.tickRateGuess * 5)
                       .clamp(widget.demo.startTick, widget.demo.endTick);
                   widget.onJumpToTick(newTick);
                 }),
                 const SizedBox(width: 8),
-                // Time
                 Text(
                   '${_timeLabel(tick)} / ${_totalTimeLabel()}',
                   style: const TextStyle(
@@ -2256,7 +2353,6 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                   ),
                 ),
                 const Spacer(),
-                // Speed controls
                 for (final s in _speeds)
                   _speedChip(s),
               ],
@@ -2308,6 +2404,60 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
               fontFamily: 'monospace',
               color: active ? Colors.white : BiobaseColors.textSecondary,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _cs2LaunchBtn() {
+    if (widget.cs2Launching) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: BiobaseColors.accent.withAlpha(30),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: BiobaseColors.accent.withAlpha(60)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 10, height: 10,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5, color: BiobaseColors.accent,
+              ),
+            ),
+            SizedBox(width: 6),
+            Text('Launching...', style: TextStyle(fontSize: 10, color: BiobaseColors.accent)),
+          ],
+        ),
+      );
+    }
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onPlayInCS2,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: BiobaseColors.accent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.videogame_asset_rounded, size: 13, color: Colors.white),
+              SizedBox(width: 5),
+              Text(
+                'Play in CS2',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ],
           ),
         ),
       ),

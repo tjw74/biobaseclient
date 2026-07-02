@@ -334,7 +334,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
     if (mounted) {
       setState(() {
-        _connectStatus = 'Launching CS2 replay...';
+        _connectStatus = 'Configuring CS2 launch...';
         _replayDiagnostics = List.of(diagnostics);
       });
     }

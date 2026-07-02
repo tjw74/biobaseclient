@@ -124,19 +124,41 @@ class ReplayLaunchService {
     final diagnostics = <String>[
       demo.replayConfigInstalled
           ? 'Replay cfg installed at ${demo.replayConfigPath}'
-          : 'Replay cfg was not installed; using launch args only.',
+          : 'Replay cfg was not installed.',
       demo.autoexecPatched
-          ? 'Autoexec bootstrap is installed at ${demo.autoexecPath}'
+          ? 'Autoexec bootstrap installed at ${demo.autoexecPath}'
           : 'Autoexec bootstrap was not installed.',
     ];
 
     if (Platform.isWindows) {
-      await _closeRunningCs2(diagnostics);
-      await Future.delayed(const Duration(seconds: 5));
+      // Ensure -netconport 2121 is in Steam's saved Launch Options.
+      await ensureSteamLaunchOptions(diagnostics);
 
-      // Primary: steam://run URL — designed to pass launch options to games.
+      await _closeRunningCs2(diagnostics);
+      await Future.delayed(const Duration(seconds: 3));
+
+      // Launch CS2 through Steam. Saved Launch Options provide
+      // -netconport 2121 and +exec biobase_replay.
+      final steamExe = await findSteamExe();
+      if (steamExe != null) {
+        diagnostics.add('Launching CS2 via Steam -applaunch.');
+        try {
+          await Process.start(steamExe, ['-applaunch', '$cs2SteamAppId'],
+              mode: ProcessStartMode.detached);
+          _scheduleReplayBootstrapCleanup(demo, diagnostics);
+          return ReplayLaunchResult(
+            started: true,
+            method: 'steam-applaunch-saved-options',
+            diagnostics: diagnostics,
+          );
+        } catch (e) {
+          diagnostics.add('Steam -applaunch failed: $e');
+        }
+      }
+
+      // Fallback: steam://run URL.
       final steamUrl = buildSteamRunUrl(demo.consolePath);
-      diagnostics.add('Launching via steam://run URL: $steamUrl');
+      diagnostics.add('Fallback: steam://run URL.');
       try {
         await openSteamRunUrl(steamUrl);
         _scheduleReplayBootstrapCleanup(demo, diagnostics);
@@ -148,29 +170,11 @@ class ReplayLaunchService {
       } catch (e) {
         diagnostics.add('Steam URL launch failed: $e');
       }
-
-      // Fallback: steam -applaunch.
-      final steamExe = await findSteamExe();
-      if (steamExe != null) {
-        final args = buildSteamAppLaunchArgs(demo.consolePath);
-        diagnostics.add('Fallback steam -applaunch: ${formatLaunchCommand(args)}');
-        try {
-          await Process.start(steamExe, args, mode: ProcessStartMode.detached);
-          _scheduleReplayBootstrapCleanup(demo, diagnostics);
-          return ReplayLaunchResult(
-            started: true,
-            method: 'steam-applaunch',
-            diagnostics: diagnostics,
-          );
-        } catch (e) {
-          diagnostics.add('Steam -applaunch failed: $e');
-        }
-      }
     } else if (Platform.isMacOS) {
       final steamUrl = buildSteamRunUrl(demo.consolePath);
       try {
         await openSteamRunUrl(steamUrl);
-        diagnostics.add('Opened CS2 through Steam URL with replay cfg launch.');
+        diagnostics.add('Opened CS2 through Steam URL.');
         _scheduleReplayBootstrapCleanup(demo, diagnostics);
         return ReplayLaunchResult(
           started: true,
@@ -513,6 +517,91 @@ class ReplayLaunchService {
     } catch (e) {
       diagnostics.add('Could not check/close existing CS2: $e');
     }
+  }
+
+  /// One-time setup: ensures CS2's Steam Launch Options include -netconport
+  /// and +exec autoexec. Gracefully restarts Steam if a VDF patch is needed.
+  Future<bool> ensureSteamLaunchOptions(List<String> diagnostics) async {
+    if (!Platform.isWindows) return true;
+
+    final steamPath = await GsiService.findSteamPath();
+    if (steamPath == null) {
+      diagnostics.add('Steam path not found; cannot verify launch options.');
+      return false;
+    }
+
+    final userdata = Directory(p.join(steamPath, 'userdata'));
+    if (!userdata.existsSync()) {
+      diagnostics.add('Steam userdata not found.');
+      return false;
+    }
+
+    // Check if any VDF already has the right options.
+    var needsPatch = false;
+    for (final dir in userdata.listSync().whereType<Directory>()) {
+      final vdf = File(p.join(dir.path, 'config', 'localconfig.vdf'));
+      if (!vdf.existsSync()) continue;
+      try {
+        final content = await vdf.readAsString();
+        final patched = patchSteamAppLaunchOptionsContent(content);
+        if (patched != null && patched != content) {
+          needsPatch = true;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    if (!needsPatch) {
+      diagnostics.add('Steam CS2 Launch Options already configured.');
+      return true;
+    }
+
+    // Gracefully shut down Steam so we can patch VDF safely.
+    final steamExe = await findSteamExe();
+    if (steamExe == null) {
+      diagnostics.add('Steam exe not found; cannot patch launch options.');
+      return false;
+    }
+
+    diagnostics.add('Configuring CS2 launch options (one-time Steam restart)...');
+
+    // Kill CS2 first, then gracefully close Steam.
+    try { await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']); } catch (_) {}
+    await Process.run(steamExe, ['-shutdown']);
+    // Wait for Steam to save state and exit.
+    for (var i = 0; i < 20; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      final check = await Process.run('tasklist', ['/FI', 'IMAGENAME eq steam.exe', '/NH']);
+      if (!(check.stdout as String).contains('steam.exe')) break;
+    }
+    // Extra wait to ensure VDF is fully written.
+    await Future.delayed(const Duration(seconds: 2));
+
+    // Patch all localconfig.vdf files.
+    var patched = 0;
+    for (final dir in userdata.listSync().whereType<Directory>()) {
+      final vdf = File(p.join(dir.path, 'config', 'localconfig.vdf'));
+      if (!vdf.existsSync()) continue;
+      try {
+        final content = await vdf.readAsString();
+        final result = patchSteamAppLaunchOptionsContent(content);
+        if (result != null && result != content) {
+          await vdf.writeAsString(result);
+          patched++;
+        }
+      } catch (e) {
+        diagnostics.add('VDF patch error: $e');
+      }
+    }
+
+    diagnostics.add('Patched $patched Steam config(s). Restarting Steam...');
+
+    // Restart Steam.
+    await Process.start(steamExe, [], mode: ProcessStartMode.detached);
+    // Wait for Steam to start and be ready to launch games.
+    await Future.delayed(const Duration(seconds: 8));
+
+    return patched > 0;
   }
 
 }

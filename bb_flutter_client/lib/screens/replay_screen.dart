@@ -2,15 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import '../theme.dart';
 import '../services/server_service.dart';
 import '../services/moves_service.dart';
 import '../services/hltv_service.dart';
 import '../services/demo_parser.dart';
-import '../services/netcon_service.dart';
-import '../services/gsi_service.dart';
-import '../services/replay_launch_service.dart';
 import '../services/native_demo_service.dart';
 
 class ReplayScreen extends StatefulWidget {
@@ -24,9 +22,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
   final ServerService _server = ServerService();
   final MovesService _moves = MovesService();
   final HltvService _hltv = HltvService();
-  final NetconService _netcon = NetconService();
-  final GsiService _gsi = GsiService();
-  final ReplayLaunchService _replayLauncher = ReplayLaunchService();
   final NativeDemoService _nativeDemos = NativeDemoService();
 
   List<DemoFile>? _demos;
@@ -44,18 +39,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
   bool _nativeParsing = false;
   String? _nativeError;
 
-  // CS2 integration state
-  bool _cs2Connected = false;
-  bool _cs2Connecting = false;
-  bool _replayLaunched = false;
-  String _connectStatus = 'Waiting for connection';
-  GsiState? _gsiState;
-  StreamSubscription<GsiState>? _gsiSub;
-  StreamSubscription? _netconSub;
   int _currentTick = 0;
   Timer? _tickTimer;
-  String? _replayIssue;
-  List<String> _replayDiagnostics = const [];
 
   // Pro demos state
   bool _proExpanded = false;
@@ -75,19 +60,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
   void initState() {
     super.initState();
     _loadDemos();
-    _gsiSub = _gsi.stateStream.listen((state) {
-      if (mounted) setState(() => _gsiState = state);
-    });
   }
 
   @override
   void dispose() {
     _renameController.dispose();
-    _gsiSub?.cancel();
-    _netconSub?.cancel();
     _tickTimer?.cancel();
-    _netcon.dispose();
-    _gsi.dispose();
     _nativeDemos.dispose();
     super.dispose();
   }
@@ -95,19 +73,10 @@ class _ReplayScreenState extends State<ReplayScreen> {
   void _resetReplayState() {
     _tickTimer?.cancel();
     _tickTimer = null;
-    _netconSub?.cancel();
-    _netconSub = null;
-    _netcon.disconnect();
     _playbackPosition = 0;
     _playbackSpeed = 1.0;
     _playing = false;
-    _cs2Connected = false;
-    _cs2Connecting = false;
-    _replayLaunched = false;
     _currentTick = 0;
-    _connectStatus = 'Waiting for connection';
-    _replayIssue = null;
-    _replayDiagnostics = const [];
     _nativeDemo = null;
     _nativeLabels = const [];
     _nativeParsing = false;
@@ -250,8 +219,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _nativeError = null;
         _currentTick = native.startTick;
         _playbackPosition = 0;
-        _playing = false;
+        _playing = true;
       });
+      _startTickTracking();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -261,283 +231,35 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
   }
 
-  Future<void> _watchInCS2() async {
-    final sourcePath = _demoPath;
-    if (sourcePath == null) return;
-
-    _tickTimer?.cancel();
-    _netconSub?.cancel();
-    _netconSub = null;
-    _netcon.stopReconnect();
-
-    if (mounted) {
-      setState(() {
-        _cs2Connecting = true;
-        _cs2Connected = false;
-        _replayLaunched = false;
-        _playing = false;
-        _currentTick = 0;
-        _playbackPosition = 0;
-        _connectStatus = 'Preparing demo...';
-        _replayIssue = null;
-        _replayDiagnostics = const [];
-      });
-    }
-
-    ReplayDemoTarget target;
-    try {
-      target = await _replayLauncher.prepareDemo(sourcePath);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cs2Connecting = false;
-        _replayIssue = 'Could not prepare demo for CS2: $e';
-      });
-      return;
-    }
-
-    final diagnostics = <String>[
-      target.staged
-          ? 'Demo staged at ${target.stagedPath}'
-          : 'Using absolute demo path ${target.consolePath}',
-      'Replay command: ${ReplayLaunchService.buildPlaydemoCommand(target.consolePath)}',
-    ];
-
-    if (mounted) {
-      setState(() {
-        _connectStatus = 'Installing GSI config...';
-        _replayDiagnostics = diagnostics;
-      });
-    }
-
-    final gsiInstalled = await GsiService.installConfig();
-    final gsiStarted = await _gsi.start();
-    diagnostics.add(
-      gsiInstalled ? 'GSI config installed.' : 'GSI config path was not found.',
-    );
-    diagnostics.add(
-      gsiStarted ? 'GSI receiver listening.' : 'GSI receiver could not start.',
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _connectStatus = 'Checking CS2 control socket...';
-      _replayDiagnostics = List.of(diagnostics);
-    });
-
-    if (await _netcon.connect()) {
-      diagnostics.add('Netcon was already available.');
-      if (mounted) setState(() => _replayDiagnostics = List.of(diagnostics));
-      await _startDemoOverNetcon(target);
-      return;
-    }
-
-    if (mounted) {
-      setState(() {
-        _connectStatus = 'Configuring CS2 launch...';
-        _replayDiagnostics = List.of(diagnostics);
-      });
-    }
-
-    final launch = await _replayLauncher.launchForReplay(target);
-    diagnostics.addAll(launch.diagnostics);
-    if (!mounted) return;
-    setState(() {
-      _replayDiagnostics = List.of(diagnostics);
-      _connectStatus = launch.started
-          ? 'Waiting for CS2 control socket...'
-          : 'Could not launch CS2';
-    });
-
-    if (!launch.started) {
-      setState(() {
-        _cs2Connecting = false;
-        _replayIssue = diagnostics.isEmpty
-            ? 'CS2 could not be launched.'
-            : diagnostics.last;
-      });
-      return;
-    }
-
-    final connected = await _waitForNetcon(
-      timeout: const Duration(seconds: 120),
-    );
-    if (!mounted) return;
-    if (connected) {
-      diagnostics.add('Netcon connected after launch.');
-      setState(() => _replayDiagnostics = List.of(diagnostics));
-      await _startDemoOverNetcon(target);
-      return;
-    }
-
-    diagnostics.add('Netcon did not open after 120s.');
-
-    // Read CS2 console.log for debugging (written by -condebug).
-    final consoleTail = await _readCs2ConsoleLog();
-    if (consoleTail != null) {
-      diagnostics.add('--- CS2 console.log (last 30 lines) ---');
-      diagnostics.add(consoleTail);
-    } else {
-      diagnostics.add('CS2 console.log not found (is -condebug in Launch Options?).');
-    }
-
-    setState(() {
-      _cs2Connecting = false;
-      _cs2Connected = false;
-      _replayLaunched = true;
-      _playing = true;
-      _connectStatus = 'Replay launched in CS2';
-      _replayDiagnostics = List.of(diagnostics);
-      _replayIssue =
-          'CS2 did not open netcon port 2121. Add "-netconport 2121" to CS2 Launch Options in Steam → right-click CS2 → Properties → Launch Options.';
-    });
-    _startBackgroundNetconReconnect(target);
-  }
-
-  Future<void> _startDemoOverNetcon(ReplayDemoTarget target) async {
-    if (!mounted) return;
-    setState(() {
-      _cs2Connecting = true;
-      _connectStatus = 'Starting demo in CS2...';
-      _replayIssue = null;
-    });
-
-    final sent = await _netcon.playDemo(target.consolePath);
-    if (!sent) {
-      if (!mounted) return;
-      setState(() {
-        _cs2Connecting = false;
-        _cs2Connected = false;
-        _replayIssue =
-            'Connected to CS2, but the playdemo command could not be sent.';
-      });
-      _startBackgroundNetconReconnect(target);
-      return;
-    }
-
-    await Future.delayed(const Duration(milliseconds: 350));
-    await _netcon.resumeDemo();
-    await _netcon.setTimescale(_playbackSpeed);
-
-    if (!mounted) return;
-    setState(() {
-      _cs2Connected = true;
-      _cs2Connecting = false;
-      _replayLaunched = true;
-      _playing = true;
-      _connectStatus = 'Playing demo in CS2';
-    });
-    _startTickTracking();
-  }
-
-  Future<bool> _waitForNetcon({
-    Duration timeout = const Duration(seconds: 75),
-  }) async {
-    final started = DateTime.now();
-    var attempt = 0;
-    while (DateTime.now().difference(started) < timeout) {
-      attempt += 1;
-      if (await _netcon.connect()) return true;
-      if (!mounted) return false;
-      final elapsed = DateTime.now().difference(started).inSeconds;
-      setState(() {
-        _connectStatus = 'Waiting for CS2 control socket... ${elapsed}s';
-      });
-      await Future.delayed(Duration(seconds: attempt < 5 ? 2 : 3));
-    }
-    return false;
-  }
-
-  Future<String?> _readCs2ConsoleLog() async {
-    try {
-      final csgoDir = await GsiService.findCs2GameCsgoPath();
-      if (csgoDir == null) return null;
-      final logFile = File('$csgoDir${Platform.pathSeparator}console.log');
-      if (!await logFile.exists()) return null;
-      final lines = await logFile.readAsLines();
-      final tail = lines.length > 30 ? lines.sublist(lines.length - 30) : lines;
-      return tail.join('\n');
-    } catch (e) {
-      return 'Error reading console.log: $e';
-    }
-  }
-
-  void _startBackgroundNetconReconnect(ReplayDemoTarget target) {
-    _netconSub?.cancel();
-    _netconSub = Stream.periodic(const Duration(seconds: 3)).listen((_) async {
-      final connected = _netcon.connected || await _netcon.connect();
-      if (!connected || !mounted) return;
-      _netconSub?.cancel();
-      await _startDemoOverNetcon(target);
-    });
-  }
-
-  bool get _hasNativePlayback =>
-      _nativeDemo != null && _nativeDemo!.frames.isNotEmpty;
-
   void _startTickTracking() {
     _tickTimer?.cancel();
+    final native = _nativeDemo;
+    if (native == null || native.frames.isEmpty) return;
     _tickTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!_playing) return;
-      final native = _nativeDemo;
-      if (native != null && native.frames.isNotEmpty) {
-        if (!mounted) return;
-        setState(() {
-          _currentTick += (native.tickRateGuess * 0.2 * _playbackSpeed).round();
-          if (_currentTick > native.endTick) {
-            _currentTick = native.endTick;
-            _playing = false;
-            _tickTimer?.cancel();
-          }
-          _playbackPosition =
-              ((_currentTick - native.startTick) / native.tickSpan).clamp(
-                0.0,
-                1.0,
-              );
-        });
-        return;
-      }
-      if (_demoInfo == null) return;
-      final totalTicks = _demoInfo!.playbackTicks ?? 0;
-      if (totalTicks <= 0) return;
-      if (mounted) {
-        setState(() {
-          _currentTick += (64 * 0.2 * _playbackSpeed).round();
-          if (_currentTick > totalTicks) _currentTick = totalTicks;
-          _playbackPosition = _currentTick / totalTicks;
-        });
-      }
+      if (!_playing || !mounted) return;
+      setState(() {
+        _currentTick += (native.tickRateGuess * 0.2 * _playbackSpeed).round();
+        if (_currentTick > native.endTick) {
+          _currentTick = native.endTick;
+          _playing = false;
+          _tickTimer?.cancel();
+        }
+        _playbackPosition =
+            ((_currentTick - native.startTick) / native.tickSpan).clamp(0.0, 1.0);
+      });
     });
   }
 
-  Future<void> _togglePlayback() async {
-    if (_hasNativePlayback) {
-      if (_playing) {
-        _tickTimer?.cancel();
-      } else {
-        _startTickTracking();
-      }
-      if (mounted) setState(() => _playing = !_playing);
-      return;
-    }
-    if (!_cs2Connected) return;
+  void _togglePlayback() {
     if (_playing) {
-      await _netcon.pauseDemo();
       _tickTimer?.cancel();
     } else {
-      await _netcon.resumeDemo();
       _startTickTracking();
     }
     if (mounted) setState(() => _playing = !_playing);
   }
 
-  Future<void> _setSpeed(double speed) async {
-    if (_hasNativePlayback) {
-      if (mounted) setState(() => _playbackSpeed = speed);
-      return;
-    }
-    if (!_cs2Connected) return;
-    await _netcon.setTimescale(speed);
+  void _setSpeed(double speed) {
     if (mounted) setState(() => _playbackSpeed = speed);
   }
 
@@ -552,7 +274,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     });
   }
 
-  Future<void> _seekTo(double position) async {
+  void _seekTo(double position) {
     final normalized = position.clamp(0.0, 1.0);
     final native = _nativeDemo;
     if (native != null && native.frames.isNotEmpty) {
@@ -560,20 +282,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       if (mounted) _seekNativeTick(tick);
       return;
     }
-    if (!_cs2Connected || _demoInfo == null) {
-      if (mounted) setState(() => _playbackPosition = normalized);
-      return;
-    }
-    final totalTicks = _demoInfo!.playbackTicks ?? 0;
-    if (totalTicks <= 0) return;
-    final tick = (normalized * totalTicks).round();
-    await _netcon.gotoTick(tick);
-    if (mounted) {
-      setState(() {
-        _currentTick = tick;
-        _playbackPosition = normalized;
-      });
-    }
+    if (mounted) setState(() => _playbackPosition = normalized);
   }
 
   void _onMarkTap() {
@@ -660,11 +369,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   void _jumpToMove(Move move) {
-    if (_hasNativePlayback || _cs2Connected) {
-      _seekTo(move.startPosition);
-    } else {
-      setState(() => _playbackPosition = move.startPosition);
-    }
+    _seekTo(move.startPosition);
   }
 
   @override
@@ -686,18 +391,14 @@ class _ReplayScreenState extends State<ReplayScreen> {
             currentTick: _currentTick,
             onJumpToTick: _seekNativeTick,
             parsingDemo: _parsingDemo,
-            cs2Connected: _cs2Connected,
-            cs2Connecting: _cs2Connecting,
-            replayLaunched: _replayLaunched,
-            connectStatus: _connectStatus,
-            replayIssue: _replayIssue,
-            replayDiagnostics: _replayDiagnostics,
-            gsiState: _gsiState,
             playing: _playing,
+            playbackSpeed: _playbackSpeed,
             moves: _demoMoves,
             playbackPosition: _playbackPosition,
             moveStart: _moveStart,
-            onWatchInCS2: _demoPath != null && !_cs2Connecting ? _watchInCS2 : null,
+            onTogglePlayback: _togglePlayback,
+            onSeek: _seekTo,
+            onSetSpeed: _setSpeed,
           ),
         ),
       ],
@@ -1089,12 +790,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
               ),
               child: Slider(
                 value: _playbackPosition.clamp(0.0, 1.0),
-                onChanged: _demoPath != null
-                    ? (v) {
-                        setState(() => _playbackPosition = v);
-                        if (_cs2Connected) _seekTo(v);
-                      }
-                    : null,
+                onChanged: _demoPath != null ? (v) => _seekTo(v) : null,
               ),
             ),
             // Move range markers on the track
@@ -1852,18 +1548,14 @@ class _RenderArea extends StatelessWidget {
   final int currentTick;
   final ValueChanged<int> onJumpToTick;
   final bool parsingDemo;
-  final bool cs2Connected;
-  final bool cs2Connecting;
-  final bool replayLaunched;
-  final String connectStatus;
-  final String? replayIssue;
-  final List<String> replayDiagnostics;
-  final GsiState? gsiState;
   final bool playing;
+  final double playbackSpeed;
   final List<Move> moves;
   final double playbackPosition;
   final double? moveStart;
-  final VoidCallback? onWatchInCS2;
+  final VoidCallback onTogglePlayback;
+  final ValueChanged<double> onSeek;
+  final ValueChanged<double> onSetSpeed;
 
   const _RenderArea({
     required this.demoPath,
@@ -1876,18 +1568,14 @@ class _RenderArea extends StatelessWidget {
     required this.currentTick,
     required this.onJumpToTick,
     required this.parsingDemo,
-    required this.cs2Connected,
-    required this.cs2Connecting,
-    required this.replayLaunched,
-    required this.connectStatus,
-    required this.replayIssue,
-    required this.replayDiagnostics,
-    required this.gsiState,
     required this.playing,
+    required this.playbackSpeed,
     required this.moves,
     required this.playbackPosition,
+    required this.onTogglePlayback,
+    required this.onSeek,
+    required this.onSetSpeed,
     this.moveStart,
-    this.onWatchInCS2,
   });
 
   @override
@@ -1936,80 +1624,26 @@ class _RenderArea extends StatelessWidget {
     final hasNativePlayback =
         nativeDemo != null && nativeDemo!.frames.isNotEmpty;
 
+    if (hasNativePlayback) {
+      return _NativeDemoViewer(
+        demo: nativeDemo!,
+        labels: nativeLabels,
+        moves: moves,
+        currentTick: currentTick,
+        playing: playing,
+        playbackSpeed: playbackSpeed,
+        playbackPosition: playbackPosition,
+        moveStart: moveStart,
+        onJumpToTick: onJumpToTick,
+        onTogglePlayback: onTogglePlayback,
+        onSeek: onSeek,
+        onSetSpeed: onSetSpeed,
+      );
+    }
+
     return Stack(
       children: [
-        Positioned.fill(child: _loadedBody(info, hasNativePlayback)),
-        // Connection status badge
-        if (demoInfo != null || hasNativePlayback)
-          Positioned(top: 12, right: 12, child: _connectionBadge()),
-        // GSI round info
-        if (cs2Connected && gsiState != null && gsiState!.round > 0)
-          Positioned(
-            top: 12,
-            left: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: BiobaseColors.bg.withAlpha(200),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                'Round ${gsiState!.round}',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: BiobaseColors.textSecondary,
-                ),
-              ),
-            ),
-          ),
-        // Watch in CS2 button
-        if (onWatchInCS2 != null && !cs2Connected && !cs2Connecting && !replayLaunched && (hasNativePlayback || demoInfo != null))
-          Positioned(
-            bottom: 12,
-            right: 12,
-            child: _WatchButton(onTap: onWatchInCS2!),
-          ),
-        // CS2 connecting status
-        if (cs2Connecting)
-          Positioned(
-            bottom: 12,
-            right: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: BiobaseColors.bg.withAlpha(220),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: BiobaseColors.border),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.5,
-                      color: BiobaseColors.accent,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    connectStatus,
-                    style: const TextStyle(fontSize: 10, color: BiobaseColors.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        // Replay issue
-        if (replayIssue != null && !cs2Connecting)
-          Positioned(
-            bottom: 12,
-            right: 12,
-            left: hasNativePlayback ? null : 12,
-            child: _issueBox(replayIssue!),
-          ),
-        // Move marking indicator
+        Positioned.fill(child: _loadedBody(info, false)),
         if (moveStart != null)
           Positioned(
             bottom: 12,
@@ -2049,17 +1683,6 @@ class _RenderArea extends StatelessWidget {
   }
 
   Widget _loadedBody(DemoInfo? info, bool hasNativePlayback) {
-    if (hasNativePlayback) {
-      return _NativeDemoViewer(
-        demo: nativeDemo!,
-        labels: nativeLabels,
-        moves: moves,
-        currentTick: currentTick,
-        playing: playing,
-        playbackPosition: playbackPosition,
-        onJumpToTick: onJumpToTick,
-      );
-    }
     if (nativeParsing || parsingDemo) {
       return Center(
         child: Column(
@@ -2109,122 +1732,6 @@ class _RenderArea extends StatelessWidget {
       );
     }
     return Center(child: _demoInfoDisplay(info));
-  }
-
-  Widget _connectionBadge() {
-    if (nativeDemo != null && nativeDemo!.frames.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: BiobaseColors.liveDim,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: playing
-                    ? BiobaseColors.live
-                    : BiobaseColors.textTertiary,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              playing ? 'Native playing' : 'Native replay',
-              style: TextStyle(
-                fontSize: 10,
-                color: playing
-                    ? BiobaseColors.live
-                    : BiobaseColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    if (cs2Connected) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: BiobaseColors.liveDim,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 6,
-              height: 6,
-              decoration: const BoxDecoration(
-                color: BiobaseColors.live,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              playing ? 'Playing in CS2' : 'Paused',
-              style: const TextStyle(fontSize: 10, color: BiobaseColors.live),
-            ),
-          ],
-        ),
-      );
-    }
-    if (cs2Connecting) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: BiobaseColors.accentDim,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 10,
-              height: 10,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                color: BiobaseColors.accent,
-              ),
-            ),
-            SizedBox(width: 6),
-            Text(
-              'Connecting...',
-              style: TextStyle(fontSize: 10, color: BiobaseColors.accent),
-            ),
-          ],
-        ),
-      );
-    }
-    if (replayLaunched) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: BiobaseColors.accentDim,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.play_arrow_rounded,
-              size: 12,
-              color: BiobaseColors.accent,
-            ),
-            SizedBox(width: 6),
-            Text(
-              'Launched',
-              style: TextStyle(fontSize: 10, color: BiobaseColors.accent),
-            ),
-          ],
-        ),
-      );
-    }
-    return const SizedBox.shrink();
   }
 
   Widget _demoInfoDisplay(DemoInfo info) {
@@ -2281,14 +1788,6 @@ class _RenderArea extends StatelessWidget {
           if (nativeError != null) ...[
             const SizedBox(height: 12),
             _issueBox('Native parser unavailable: $nativeError'),
-          ],
-          if (replayIssue != null) ...[
-            const SizedBox(height: 12),
-            _issueBox(replayIssue!),
-          ],
-          if (replayDiagnostics.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _diagnosticsBox(),
           ],
           const SizedBox(height: 10),
           Text(
@@ -2367,110 +1866,6 @@ class _RenderArea extends StatelessWidget {
     return Container(width: 1, height: 28, color: BiobaseColors.border);
   }
 
-  // ignore: unused_element
-  Widget _launchingInfo() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: BiobaseColors.accent,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          connectStatus,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: BiobaseColors.textSecondary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ignore: unused_element
-  Widget _launchedInfo() {
-    return const Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.play_arrow_rounded,
-              size: 18,
-              color: BiobaseColors.accent,
-            ),
-            SizedBox(width: 8),
-            Text(
-              'Replay launched in CS2',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: BiobaseColors.accent,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 6),
-        Text(
-          'BioBase is waiting for controls to attach.',
-          style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
-        ),
-      ],
-    );
-  }
-
-  // ignore: unused_element
-  Widget _connectedInfo() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: playing
-                    ? BiobaseColors.live
-                    : BiobaseColors.textTertiary,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              playing ? 'Playing in CS2' : 'Paused',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: playing
-                    ? BiobaseColors.live
-                    : BiobaseColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-        if (gsiState != null && gsiState!.mapPhase.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(
-            gsiState!.mapPhase,
-            style: const TextStyle(
-              fontSize: 10,
-              color: BiobaseColors.textTertiary,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
   Widget _issueBox(String issue) {
     return Container(
       constraints: const BoxConstraints(maxWidth: 520),
@@ -2504,59 +1899,21 @@ class _RenderArea extends StatelessWidget {
     );
   }
 
-  Widget _diagnosticsBox() {
-    const maxDiagnosticLines = 10;
-    final lines = replayDiagnostics.length <= maxDiagnosticLines
-        ? replayDiagnostics
-        : replayDiagnostics.sublist(
-            replayDiagnostics.length - maxDiagnosticLines,
-          );
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 520),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: BiobaseColors.bg.withAlpha(130),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: BiobaseColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Replay diagnostics',
-            style: TextStyle(
-              fontSize: 9,
-              letterSpacing: 0.8,
-              color: BiobaseColors.textTertiary,
-            ),
-          ),
-          const SizedBox(height: 6),
-          for (final line in lines)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 3),
-              child: Text(
-                '• $line',
-                style: const TextStyle(
-                  fontSize: 9,
-                  height: 1.25,
-                  color: BiobaseColors.textTertiary,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
-class _NativeDemoViewer extends StatelessWidget {
+class _NativeDemoViewer extends StatefulWidget {
   final NativeDemo demo;
   final List<NativeDemoLabel> labels;
   final List<Move> moves;
   final int currentTick;
   final bool playing;
+  final double playbackSpeed;
   final double playbackPosition;
+  final double? moveStart;
   final ValueChanged<int> onJumpToTick;
+  final VoidCallback onTogglePlayback;
+  final ValueChanged<double> onSeek;
+  final ValueChanged<double> onSetSpeed;
 
   const _NativeDemoViewer({
     required this.demo,
@@ -2564,341 +1921,419 @@ class _NativeDemoViewer extends StatelessWidget {
     required this.moves,
     required this.currentTick,
     required this.playing,
+    required this.playbackSpeed,
     required this.playbackPosition,
     required this.onJumpToTick,
+    required this.onTogglePlayback,
+    required this.onSeek,
+    required this.onSetSpeed,
+    this.moveStart,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final tick = currentTick.clamp(demo.startTick, demo.endTick).toInt();
-    final progress = ((tick - demo.startTick) / demo.tickSpan).clamp(0.0, 1.0);
+  State<_NativeDemoViewer> createState() => _NativeDemoViewerState();
+}
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+class _NativeDemoViewerState extends State<_NativeDemoViewer> {
+  final bool _controlsVisible = true;
+  bool _hovering = false;
+  static const _speeds = [0.25, 0.5, 1.0, 2.0, 4.0];
+
+  String _timeLabel(int tick) {
+    final rate = widget.demo.tickRateGuess <= 0 ? 64 : widget.demo.tickRateGuess;
+    final elapsed = tick < widget.demo.startTick ? 0 : tick - widget.demo.startTick;
+    final totalSec = (elapsed / rate).floor();
+    final m = totalSec ~/ 60;
+    final s = totalSec % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  String _totalTimeLabel() {
+    final rate = widget.demo.tickRateGuess <= 0 ? 64 : widget.demo.tickRateGuess;
+    final totalSec = (widget.demo.tickSpan / rate).floor();
+    final m = totalSec ~/ 60;
+    final s = totalSec % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  List<NativeDemoEvent> _recentEvents() {
+    final tick = widget.currentTick;
+    final windowTicks = widget.demo.tickRateGuess * 8;
+    return widget.demo.events
+        .where((e) => e.tick <= tick && e.tick >= tick - windowTicks)
+        .toList()
+      ..sort((a, b) => b.tick.compareTo(a.tick));
+  }
+
+  int _currentRound() {
+    final tick = widget.currentTick;
+    var round = 0;
+    for (final e in widget.demo.events) {
+      if (e.tick > tick) break;
+      if (e.type == 'round_start') round++;
+    }
+    return round;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tick = widget.currentTick.clamp(widget.demo.startTick, widget.demo.endTick).toInt();
+    final progress = ((tick - widget.demo.startTick) / widget.demo.tickSpan).clamp(0.0, 1.0);
+    final recentEvents = _recentEvents();
+    final round = _currentRound();
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+            return KeyEventResult.ignored;
+          }
+          switch (event.logicalKey.keyLabel) {
+            case ' ':
+              widget.onTogglePlayback();
+              return KeyEventResult.handled;
+            case 'Arrow Left':
+              final newTick = (tick - widget.demo.tickRateGuess * 5)
+                  .clamp(widget.demo.startTick, widget.demo.endTick);
+              widget.onJumpToTick(newTick);
+              return KeyEventResult.handled;
+            case 'Arrow Right':
+              final newTick = (tick + widget.demo.tickRateGuess * 5)
+                  .clamp(widget.demo.startTick, widget.demo.endTick);
+              widget.onJumpToTick(newTick);
+              return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Stack(
+          children: [
+            // Map canvas — full area
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: CustomPaint(
+                  painter: _NativeDemoPainter(
+                    demo: widget.demo,
+                    currentTick: tick,
+                    moves: widget.moves,
+                    playbackPosition: widget.playbackPosition,
+                  ),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+
+            // Top-left: map + round
+            Positioned(
+              top: 10,
+              left: 14,
+              child: Row(
                 children: [
                   Text(
-                    demo.mapName.toUpperCase(),
+                    widget.demo.mapName.toUpperCase(),
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1.2,
                       color: BiobaseColors.text,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 8)],
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    'In-app tactical replay · ${demo.frames.length} frames · ${demo.tickRateGuess} tick',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: BiobaseColors.textTertiary,
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              _miniStat('Tick', '$tick'),
-              const SizedBox(width: 14),
-              _miniStat('Time', _timeLabel(tick)),
-              const SizedBox(width: 14),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: playing
-                      ? BiobaseColors.liveDim
-                      : BiobaseColors.surfaceRaised,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: BiobaseColors.border),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      playing ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                      size: 12,
-                      color: playing
-                          ? BiobaseColors.live
-                          : BiobaseColors.textSecondary,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      playing ? 'Playing' : 'Paused',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: playing
-                            ? BiobaseColors.live
-                            : BiobaseColors.textSecondary,
+                  if (round > 0) ...[
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: BiobaseColors.bg.withAlpha(180),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      child: Text(
+                        'R$round',
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'monospace',
+                          color: BiobaseColors.textSecondary,
+                        ),
                       ),
                     ),
                   ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              minHeight: 3,
-              value: progress.toDouble(),
-              backgroundColor: BiobaseColors.surfaceRaised,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                BiobaseColors.accent,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: CustomPaint(
-                      painter: _NativeDemoPainter(
-                        demo: demo,
-                        currentTick: tick,
-                        moves: moves,
-                        playbackPosition: playbackPosition,
-                      ),
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(width: 232, child: _labelsPanel()),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _miniStat(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 11,
-            fontFamily: 'monospace',
-            fontWeight: FontWeight.w600,
-            color: BiobaseColors.text,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 8,
-            color: BiobaseColors.textTertiary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _labelsPanel() {
-    final hasLabels = labels.isNotEmpty || moves.isNotEmpty;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: BiobaseColors.bg.withAlpha(130),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: BiobaseColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(
-                Icons.label_outline,
-                size: 13,
-                color: BiobaseColors.textTertiary,
-              ),
-              SizedBox(width: 6),
-              Text(
-                'Labels',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: BiobaseColors.text,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (!hasLabels)
-            const Expanded(
-              child: Center(
-                child: Text(
-                  'Mark moments from the left panel. Labels jump the replay to the saved tick.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 10,
-                    height: 1.35,
-                    color: BiobaseColors.textTertiary,
-                  ),
-                ),
-              ),
-            )
-          else
-            Expanded(
-              child: ListView(
-                children: [
-                  for (final label in labels)
-                    _jumpTile(
-                      title: label.title,
-                      subtitle:
-                          '${_timeLabel(label.startTick)} · ${label.startTick}',
-                      tags: label.tags,
-                      tick: label.startTick,
-                      color: BiobaseColors.accent,
-                    ),
-                  if (labels.isNotEmpty && moves.isNotEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 7),
-                      child: Divider(height: 1, color: BiobaseColors.border),
-                    ),
-                  for (final move in moves)
-                    _jumpTile(
-                      title: move.name,
-                      subtitle: _moveSubtitle(move),
-                      tags: const ['local'],
-                      tick: _moveTick(move),
-                      color: BiobaseColors.live,
-                    ),
                 ],
               ),
             ),
-        ],
-      ),
-    );
-  }
 
-  Widget _jumpTile({
-    required String title,
-    required String subtitle,
-    required List<String> tags,
-    required int tick,
-    required Color color,
-  }) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => onJumpToTick(tick),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 6),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: BiobaseColors.surfaceRaised.withAlpha(145),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: BiobaseColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: BiobaseColors.text,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 9,
-                  fontFamily: 'monospace',
-                  color: BiobaseColors.textTertiary,
-                ),
-              ),
-              if (tags.isNotEmpty) ...[
-                const SizedBox(height: 5),
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
+            // Top-right: event feed
+            if (recentEvents.isNotEmpty)
+              Positioned(
+                top: 10,
+                right: 14,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    for (final tag in tags.take(3))
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: color.withAlpha(22),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: color.withAlpha(50)),
-                        ),
-                        child: Text(
-                          tag,
-                          style: TextStyle(
-                            fontSize: 8,
-                            color: color.withAlpha(210),
+                    for (final e in recentEvents.take(4))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: BiobaseColors.bg.withAlpha(190),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            _eventLabel(e),
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontFamily: 'monospace',
+                              color: _eventColor(e),
+                            ),
                           ),
                         ),
                       ),
                   ],
                 ),
+              ),
+
+            // Move marking indicator
+            if (widget.moveStart != null)
+              Positioned(
+                top: 10,
+                left: 14,
+                right: 14,
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: BiobaseColors.warning.withAlpha(30),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: BiobaseColors.warning.withAlpha(60)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6, height: 6,
+                          decoration: const BoxDecoration(
+                            color: BiobaseColors.warning,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Marking move...',
+                          style: TextStyle(fontSize: 10, color: BiobaseColors.warning),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // Bottom controls bar
+            if (_controlsVisible || _hovering || !widget.playing)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _controlsBar(tick, progress),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _controlsBar(int tick, double progress) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            BiobaseColors.bg.withAlpha(220),
+            BiobaseColors.bg.withAlpha(240),
+          ],
+          stops: const [0.0, 0.4, 1.0],
+        ),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(8),
+          bottomRight: Radius.circular(8),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 24, 14, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Scrubber
+            SizedBox(
+              height: 16,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      SliderTheme(
+                        data: SliderThemeData(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          activeTrackColor: BiobaseColors.accent,
+                          inactiveTrackColor: BiobaseColors.surfaceRaised.withAlpha(180),
+                          thumbColor: BiobaseColors.accent,
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                        ),
+                        child: Slider(
+                          value: progress.toDouble(),
+                          onChanged: (v) => widget.onSeek(v),
+                        ),
+                      ),
+                      // Move range markers
+                      for (final move in widget.moves)
+                        Positioned(
+                          left: 12 + move.startPosition * (constraints.maxWidth - 24),
+                          top: 6,
+                          child: Container(
+                            width: (move.endPosition - move.startPosition) *
+                                (constraints.maxWidth - 24),
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: BiobaseColors.live.withAlpha(140),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      // Move start indicator
+                      if (widget.moveStart != null)
+                        Positioned(
+                          left: 12 + widget.moveStart! * (constraints.maxWidth - 24) - 1,
+                          top: 3,
+                          child: Container(
+                            width: 2,
+                            height: 10,
+                            color: BiobaseColors.warning,
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Controls row
+            Row(
+              children: [
+                // Play/Pause
+                _iconBtn(
+                  widget.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  widget.onTogglePlayback,
+                  size: 22,
+                ),
+                const SizedBox(width: 2),
+                // Skip back 5s
+                _iconBtn(Icons.replay_5_rounded, () {
+                  final newTick = (tick - widget.demo.tickRateGuess * 5)
+                      .clamp(widget.demo.startTick, widget.demo.endTick);
+                  widget.onJumpToTick(newTick);
+                }),
+                // Skip forward 5s
+                _iconBtn(Icons.forward_5_rounded, () {
+                  final newTick = (tick + widget.demo.tickRateGuess * 5)
+                      .clamp(widget.demo.startTick, widget.demo.endTick);
+                  widget.onJumpToTick(newTick);
+                }),
+                const SizedBox(width: 8),
+                // Time
+                Text(
+                  '${_timeLabel(tick)} / ${_totalTimeLabel()}',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    color: BiobaseColors.textSecondary,
+                  ),
+                ),
+                const Spacer(),
+                // Speed controls
+                for (final s in _speeds)
+                  _speedChip(s),
               ],
-            ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _iconBtn(IconData icon, VoidCallback onTap, {double size = 16}) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(icon, size: size, color: BiobaseColors.text),
+        ),
+      ),
+    );
+  }
+
+  Widget _speedChip(double speed) {
+    final active = widget.playbackSpeed == speed;
+    final label = speed == 0.25 ? '.25' :
+                  speed == 0.5 ? '.5' :
+                  speed == 4.0 ? '4' :
+                  speed.toStringAsFixed(speed.truncateToDouble() == speed ? 0 : 1);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => widget.onSetSpeed(speed),
+        child: Container(
+          margin: const EdgeInsets.only(left: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: active ? BiobaseColors.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(
+              color: active ? BiobaseColors.accent : BiobaseColors.border,
+            ),
+          ),
+          child: Text(
+            '${label}x',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+              fontFamily: 'monospace',
+              color: active ? Colors.white : BiobaseColors.textSecondary,
+            ),
           ),
         ),
       ),
     );
   }
 
-  String _timeLabel(int tick) {
-    final rate = demo.tickRateGuess <= 0 ? 64 : demo.tickRateGuess;
-    final elapsedTicks = tick < demo.startTick ? 0 : tick - demo.startTick;
-    final totalSeconds = (elapsedTicks / rate).floor();
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  String _eventLabel(NativeDemoEvent e) {
+    switch (e.type) {
+      case 'kill': return 'KILL';
+      case 'round_start': return 'ROUND START';
+      case 'round_end': return 'ROUND END';
+      case 'bomb_planted': return 'BOMB PLANTED';
+      case 'bomb_defused': return 'BOMB DEFUSED';
+      default: return e.type.toUpperCase().replaceAll('_', ' ');
+    }
   }
 
-  String _moveSubtitle(Move move) {
-    final start = _moveTick(move);
-    final end =
-        move.endTick ??
-        (demo.startTick +
-            (move.endPosition.clamp(0.0, 1.0) * demo.tickSpan).round());
-    return '${_timeLabel(start)} → ${_timeLabel(end)}';
-  }
-
-  int _moveTick(Move move) {
-    return move.startTick ??
-        (demo.startTick +
-            (move.startPosition.clamp(0.0, 1.0) * demo.tickSpan).round());
+  Color _eventColor(NativeDemoEvent e) {
+    switch (e.type) {
+      case 'kill': return BiobaseColors.error;
+      case 'round_start': return BiobaseColors.accent;
+      case 'round_end': return BiobaseColors.textSecondary;
+      case 'bomb_planted': return BiobaseColors.warning;
+      case 'bomb_defused': return BiobaseColors.live;
+      default: return BiobaseColors.textTertiary;
+    }
   }
 }
 
@@ -3267,58 +2702,3 @@ void _drawText(
   painter.paint(canvas, offset);
 }
 
-class _WatchButton extends StatefulWidget {
-  final VoidCallback onTap;
-  const _WatchButton({required this.onTap});
-
-  @override
-  State<_WatchButton> createState() => _WatchButtonState();
-}
-
-class _WatchButtonState extends State<_WatchButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-          decoration: BoxDecoration(
-            color: _hovered ? BiobaseColors.accent : BiobaseColors.accentDim,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: _hovered
-                  ? BiobaseColors.accent
-                  : BiobaseColors.accent.withAlpha(60),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.play_arrow_rounded,
-                size: 18,
-                color: _hovered ? Colors.white : BiobaseColors.accent,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Watch in CS2',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: _hovered ? Colors.white : BiobaseColors.accent,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

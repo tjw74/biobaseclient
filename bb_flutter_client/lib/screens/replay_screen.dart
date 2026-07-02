@@ -371,6 +371,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
 
     diagnostics.add('Netcon did not open after 120s.');
+
+    // Read CS2 console.log for debugging (written by -condebug).
+    final consoleTail = await _readCs2ConsoleLog();
+    if (consoleTail != null) {
+      diagnostics.add('--- CS2 console.log (last 30 lines) ---');
+      diagnostics.add(consoleTail);
+    } else {
+      diagnostics.add('CS2 console.log not found (is -condebug in Launch Options?).');
+    }
+
     setState(() {
       _cs2Connecting = false;
       _cs2Connected = false;
@@ -436,6 +446,20 @@ class _ReplayScreenState extends State<ReplayScreen> {
       await Future.delayed(Duration(seconds: attempt < 5 ? 2 : 3));
     }
     return false;
+  }
+
+  Future<String?> _readCs2ConsoleLog() async {
+    try {
+      final csgoDir = await GsiService.findCs2GameCsgoPath();
+      if (csgoDir == null) return null;
+      final logFile = File('$csgoDir${Platform.pathSeparator}console.log');
+      if (!await logFile.exists()) return null;
+      final lines = await logFile.readAsLines();
+      final tail = lines.length > 30 ? lines.sublist(lines.length - 30) : lines;
+      return tail.join('\n');
+    } catch (e) {
+      return 'Error reading console.log: $e';
+    }
   }
 
   void _startBackgroundNetconReconnect(ReplayDemoTarget target) {

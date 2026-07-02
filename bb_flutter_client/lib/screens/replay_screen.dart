@@ -360,7 +360,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
 
     final connected = await _waitForNetcon(
-      timeout: const Duration(seconds: 75),
+      timeout: const Duration(seconds: 120),
     );
     if (!mounted) return;
     if (connected) {
@@ -370,9 +370,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       return;
     }
 
-    diagnostics.add(
-      'Netcon did not open; CS2 was launched through the documented Steam -applaunch +exec cfg path.',
-    );
+    diagnostics.add('Netcon did not open after 120s.');
     setState(() {
       _cs2Connecting = false;
       _cs2Connected = false;
@@ -381,7 +379,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _connectStatus = 'Replay launched in CS2';
       _replayDiagnostics = List.of(diagnostics);
       _replayIssue =
-          'BioBase staged the replay cfg and launched CS2 with +exec biobase_replay, but CS2 did not open Netcon. If the demo is still not playing, CS2 did not execute the generated replay cfg on this launch.';
+          'CS2 did not open netcon port 2121. Add "-netconport 2121" to CS2 Launch Options in Steam → right-click CS2 → Properties → Launch Options.';
     });
     _startBackgroundNetconReconnect(target);
   }

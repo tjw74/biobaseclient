@@ -132,37 +132,28 @@ class ReplayLaunchService {
 
     if (Platform.isWindows) {
       await _closeRunningCs2(diagnostics);
+      await Future.delayed(const Duration(seconds: 5));
 
-      // Try launching cs2.exe directly — fastest, Steam just needs to be running.
-      final cs2Exe = await GsiService.findCs2Exe();
-      if (cs2Exe != null) {
-        final args = [
-          '-steam',
-          '-netconport', '$replayNetconPort',
-          '-condebug',
-          '+exec', replayExecConfigBase,
-        ];
-        diagnostics.add('Launching cs2.exe directly: $cs2Exe ${args.join(' ')}');
-        try {
-          await Process.start(cs2Exe, args, mode: ProcessStartMode.detached);
-          _scheduleReplayBootstrapCleanup(demo, diagnostics);
-          return ReplayLaunchResult(
-            started: true,
-            method: 'cs2-exe-direct',
-            diagnostics: diagnostics,
-          );
-        } catch (e) {
-          diagnostics.add('Direct cs2.exe launch failed: $e');
-        }
-      } else {
-        diagnostics.add('cs2.exe not found; falling back to Steam.');
+      // Primary: steam://run URL — designed to pass launch options to games.
+      final steamUrl = buildSteamRunUrl(demo.consolePath);
+      diagnostics.add('Launching via steam://run URL: $steamUrl');
+      try {
+        await openSteamRunUrl(steamUrl);
+        _scheduleReplayBootstrapCleanup(demo, diagnostics);
+        return ReplayLaunchResult(
+          started: true,
+          method: 'steam-url',
+          diagnostics: diagnostics,
+        );
+      } catch (e) {
+        diagnostics.add('Steam URL launch failed: $e');
       }
 
-      // Fallback: steam -applaunch (don't kill Steam, just ask it to launch CS2).
+      // Fallback: steam -applaunch.
       final steamExe = await findSteamExe();
       if (steamExe != null) {
         final args = buildSteamAppLaunchArgs(demo.consolePath);
-        diagnostics.add('Steam -applaunch fallback: ${formatLaunchCommand(args)}');
+        diagnostics.add('Fallback steam -applaunch: ${formatLaunchCommand(args)}');
         try {
           await Process.start(steamExe, args, mode: ProcessStartMode.detached);
           _scheduleReplayBootstrapCleanup(demo, diagnostics);
@@ -174,21 +165,6 @@ class ReplayLaunchService {
         } catch (e) {
           diagnostics.add('Steam -applaunch failed: $e');
         }
-      }
-
-      // Last resort: steam:// URL.
-      final steamUrl = buildSteamRunUrl(demo.consolePath);
-      diagnostics.add('Falling back to Steam URL launch.');
-      try {
-        await openSteamRunUrl(steamUrl);
-        _scheduleReplayBootstrapCleanup(demo, diagnostics);
-        return ReplayLaunchResult(
-          started: true,
-          method: 'steam-url',
-          diagnostics: diagnostics,
-        );
-      } catch (e) {
-        diagnostics.add('Steam URL launch failed: $e');
       }
     } else if (Platform.isMacOS) {
       final steamUrl = buildSteamRunUrl(demo.consolePath);
@@ -332,7 +308,7 @@ class ReplayLaunchService {
 
   static String buildSteamRunUrl(String consoleDemoPath) {
     final commandLine = buildSteamReplayCommandLine(consoleDemoPath);
-    final encoded = Uri.encodeComponent(commandLine).replaceAll('%2B', '+');
+    final encoded = Uri.encodeComponent(commandLine);
     return 'steam://run/$cs2SteamAppId//$encoded/';
   }
 

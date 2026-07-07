@@ -169,8 +169,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
       _netcon.startReconnect();
       _startCaptureHunt();
-      if (!mounted) return;
-      setState(() => _cs2Launching = false);
+      // _cs2Launching stays true until the CS2 window is captured (the
+      // launch pad shows progress) — cleared in _startCaptureHunt.
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -190,11 +190,22 @@ class _ReplayScreenState extends State<ReplayScreen> {
         attempts++;
         if (attempts > 90) {
           timer.cancel();
+          if (mounted) {
+            setState(() {
+              _cs2Launching = false;
+              _cs2LaunchError = 'CS2 window not found — is the game running?';
+            });
+          }
           return;
         }
         try {
           final ok = await _capture.start();
-          if (ok && mounted) setState(() => _cs2Live = true);
+          if (ok && mounted) {
+            setState(() {
+              _cs2Live = true;
+              _cs2Launching = false;
+            });
+          }
         } catch (_) {}
         return;
       }
@@ -2651,6 +2662,225 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
 
   bool get _live => widget.cs2Live && widget.captureTextureId != null;
 
+  /// Pre-render view: match overview + the one action that matters.
+  Widget _launchPad() {
+    final demo = widget.demo;
+    final rate = demo.tickRateGuess <= 0 ? 64 : demo.tickRateGuess;
+    final durationSec = (demo.tickSpan / rate).floor();
+    final rounds =
+        demo.events.where((e) => e.type == 'round_start').length;
+
+    var players = _playersNow();
+    if (players.isEmpty) {
+      for (final frame in demo.frames.take(80)) {
+        if (frame.players.isNotEmpty) {
+          players = frame.players
+              .map(_RenderedNativePlayer.fromState)
+              .toList();
+          break;
+        }
+      }
+    }
+    final t = players.where((p) => !_isCtTeam(p.team)).toList();
+    final ct = players.where((p) => _isCtTeam(p.team)).toList();
+
+    return Container(
+      color: BiobaseColors.bg,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                demo.mapName.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 2,
+                  color: BiobaseColors.text,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _padStat(
+                    '${durationSec ~/ 60}:${(durationSec % 60).toString().padLeft(2, '0')}',
+                    'Duration',
+                  ),
+                  _padDivider(),
+                  _padStat(rounds > 0 ? '$rounds' : '—', 'Rounds'),
+                  _padDivider(),
+                  _padStat('${players.length}', 'Players'),
+                ],
+              ),
+              if (t.isNotEmpty || ct.isNotEmpty) ...[
+                const SizedBox(height: 22),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _padRoster(t, alignEnd: false)),
+                    const SizedBox(width: 28),
+                    Expanded(child: _padRoster(ct, alignEnd: true)),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 26),
+              if (widget.cs2Launching)
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 13,
+                      height: 13,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: BiobaseColors.accent,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Starting CS2 render…',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: BiobaseColors.accent,
+                      ),
+                    ),
+                  ],
+                )
+              else if (widget.onPlayInCS2 != null)
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: widget.onPlayInCS2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: BiobaseColors.accent,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.play_arrow_rounded,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Play in CS2',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (widget.cs2LaunchError == null &&
+                  (widget.cs2Launching || widget.onPlayInCS2 != null)) ...[
+                const SizedBox(height: 10),
+                const Text(
+                  'The game render appears here',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: BiobaseColors.textTertiary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _padStat(String value, String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'monospace',
+              color: BiobaseColors.text,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 9,
+              color: BiobaseColors.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _padDivider() =>
+      Container(width: 1, height: 26, color: BiobaseColors.border);
+
+  Widget _padRoster(List<_RenderedNativePlayer> players,
+      {required bool alignEnd}) {
+    return Column(
+      crossAxisAlignment:
+          alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        for (final p in players)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!alignEnd) ...[
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: _teamColor(p.team),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  _shortName(p.name),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: BiobaseColors.textSecondary,
+                  ),
+                ),
+                if (alignEnd) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: _teamColor(p.team),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   List<_RenderedNativePlayer> _playersNow() {
     final tick = widget.currentTick
         .clamp(widget.demo.startTick, widget.demo.endTick)
@@ -2793,7 +3023,7 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
         },
         child: Stack(
           children: [
-            // Main layer: live CS2 render when capturing, tactical map otherwise
+            // Main layer: live CS2 render when capturing, launch pad otherwise
             if (_live)
               Positioned.fill(
                 child: ClipRRect(
@@ -2810,21 +3040,7 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                 ),
               )
             else
-              Positioned.fill(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CustomPaint(
-                    painter: _NativeDemoPainter(
-                      demo: widget.demo,
-                      currentTick: tick,
-                      moves: widget.moves,
-                      playbackPosition: widget.playbackPosition,
-                      selectedSteamId: widget.selectedSteamId,
-                    ),
-                    child: const SizedBox.expand(),
-                  ),
-                ),
-              ),
+              Positioned.fill(child: _launchPad()),
 
             // Live mode: player rail
             if (_live)
@@ -3320,205 +3536,6 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
   }
 }
 
-class _NativeDemoPainter extends CustomPainter {
-  final NativeDemo demo;
-  final int currentTick;
-  final List<Move> moves;
-  final double playbackPosition;
-  final String? selectedSteamId;
-
-  _NativeDemoPainter({
-    required this.demo,
-    required this.currentTick,
-    required this.moves,
-    required this.playbackPosition,
-    this.selectedSteamId,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0 || demo.frames.isEmpty) return;
-
-    final bgPaint = Paint()..color = BiobaseColors.bg;
-    canvas.drawRect(Offset.zero & size, bgPaint);
-
-    final bounds = _DemoBounds.fromFrames(demo.frames);
-    final plot = Rect.fromLTWH(18, 18, size.width - 36, size.height - 36);
-    final scale = math.min(
-      plot.width / bounds.width,
-      plot.height / bounds.height,
-    );
-    final scaledWidth = bounds.width * scale;
-    final scaledHeight = bounds.height * scale;
-    final origin = Offset(
-      plot.left + (plot.width - scaledWidth) / 2,
-      plot.top + (plot.height - scaledHeight) / 2,
-    );
-
-    Offset toScreen(double x, double y) {
-      return Offset(
-        origin.dx + (x - bounds.minX) * scale,
-        origin.dy + scaledHeight - (y - bounds.minY) * scale,
-      );
-    }
-
-    final borderPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = BiobaseColors.borderHover;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(plot, const Radius.circular(8)),
-      borderPaint,
-    );
-
-    final gridPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.6
-      ..color = BiobaseColors.borderSubtle;
-    for (var i = 1; i < 6; i++) {
-      final dx = plot.left + plot.width * i / 6;
-      final dy = plot.top + plot.height * i / 6;
-      canvas.drawLine(Offset(dx, plot.top), Offset(dx, plot.bottom), gridPaint);
-      canvas.drawLine(Offset(plot.left, dy), Offset(plot.right, dy), gridPaint);
-    }
-
-    _drawText(
-      canvas,
-      demo.mapName,
-      Offset(plot.left + 12, plot.top + 10),
-      const TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.1,
-        color: BiobaseColors.textSecondary,
-      ),
-    );
-
-    const dotRadius = 6.5;
-    final frameIndex = _nativeFrameIndexAt(demo.frames, currentTick);
-    final players = _nativePlayersAt(demo.frames, frameIndex, currentTick);
-    _drawPlayerTrails(canvas, toScreen, frameIndex, players);
-
-    for (final p in players) {
-      final pos = toScreen(p.x, p.y);
-      final teamColor = _teamColor(p.team);
-      final alive = p.isAlive ?? ((p.health ?? 100) > 0);
-      final dotPaint = Paint()
-        ..style = PaintingStyle.fill
-        ..color = alive ? teamColor : BiobaseColors.textTertiary.withAlpha(120);
-      final ringPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
-        ..color = Colors.black.withAlpha(130);
-      canvas.drawCircle(pos, dotRadius + 1, ringPaint);
-      canvas.drawCircle(pos, dotRadius, dotPaint);
-
-      if (p.steamid == selectedSteamId) {
-        final selPaint = Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = BiobaseColors.accent;
-        canvas.drawCircle(pos, dotRadius + 6, selPaint);
-      }
-
-      final hp = p.health ?? 100;
-      final healthPct = math.max(0.0, math.min(100.0, hp)) / 100.0;
-      final healthPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round
-        ..color = healthPct > 0.45 ? BiobaseColors.live : BiobaseColors.warning;
-      canvas.drawArc(
-        Rect.fromCircle(center: pos, radius: 10.5),
-        -math.pi / 2,
-        math.pi * 2 * healthPct,
-        false,
-        healthPaint,
-      );
-
-      if (p.yaw != null) {
-        final radians = (p.yaw! - 90) * math.pi / 180.0;
-        final end = pos + Offset(math.cos(radians), math.sin(radians)) * 14;
-        final aimPaint = Paint()
-          ..strokeWidth = 1.6
-          ..strokeCap = StrokeCap.round
-          ..color = teamColor.withAlpha(alive ? 220 : 110);
-        canvas.drawLine(pos, end, aimPaint);
-      }
-
-      _drawText(
-        canvas,
-        _shortName(p.name),
-        pos + const Offset(10, -16),
-        TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w600,
-          color: alive ? BiobaseColors.text : BiobaseColors.textTertiary,
-          shadows: const [Shadow(color: Colors.black, blurRadius: 5)],
-        ),
-        maxWidth: 84,
-      );
-    }
-
-    if (players.isEmpty) {
-      _drawText(
-        canvas,
-        'No player positions at this tick',
-        Offset(plot.center.dx - 86, plot.center.dy - 8),
-        const TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
-        maxWidth: 180,
-      );
-    }
-  }
-
-  void _drawPlayerTrails(
-    Canvas canvas,
-    Offset Function(double x, double y) toScreen,
-    int frameIndex,
-    List<_RenderedNativePlayer> currentPlayers,
-  ) {
-    if (frameIndex <= 0 || currentPlayers.isEmpty) return;
-    final currentIds = currentPlayers.map((p) => p.steamid).toSet();
-    final start = math.max(0, frameIndex - 18);
-    final trailPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-
-    for (final id in currentIds) {
-      final path = Path();
-      var started = false;
-      for (var i = start; i <= frameIndex; i++) {
-        NativePlayerState? player;
-        for (final candidate in demo.frames[i].players) {
-          if (candidate.steamid == id) {
-            player = candidate;
-            break;
-          }
-        }
-        if (player == null) continue;
-        final point = toScreen(player.x, player.y);
-        if (!started) {
-          path.moveTo(point.dx, point.dy);
-          started = true;
-        } else {
-          path.lineTo(point.dx, point.dy);
-        }
-      }
-      final team = currentPlayers.firstWhere((p) => p.steamid == id).team;
-      trailPaint.color = _teamColor(team).withAlpha(85);
-      canvas.drawPath(path, trailPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _NativeDemoPainter oldDelegate) {
-    return oldDelegate.demo != demo ||
-        oldDelegate.currentTick != currentTick ||
-        oldDelegate.moves != moves ||
-        oldDelegate.playbackPosition != playbackPosition ||
-        oldDelegate.selectedSteamId != selectedSteamId;
-  }
-}
 
 class _RenderedNativePlayer {
   final String steamid;
@@ -3555,52 +3572,6 @@ class _RenderedNativePlayer {
   }
 }
 
-class _DemoBounds {
-  final double minX;
-  final double maxX;
-  final double minY;
-  final double maxY;
-
-  const _DemoBounds({
-    required this.minX,
-    required this.maxX,
-    required this.minY,
-    required this.maxY,
-  });
-
-  double get width => math.max(1.0, maxX - minX);
-  double get height => math.max(1.0, maxY - minY);
-
-  static _DemoBounds fromFrames(List<NativeDemoFrame> frames) {
-    var minX = double.infinity;
-    var maxX = -double.infinity;
-    var minY = double.infinity;
-    var maxY = -double.infinity;
-    for (final frame in frames) {
-      for (final player in frame.players) {
-        minX = math.min(minX, player.x);
-        maxX = math.max(maxX, player.x);
-        minY = math.min(minY, player.y);
-        maxY = math.max(maxY, player.y);
-      }
-    }
-    if (!minX.isFinite || !maxX.isFinite || !minY.isFinite || !maxY.isFinite) {
-      return const _DemoBounds(
-        minX: -1000,
-        maxX: 1000,
-        minY: -1000,
-        maxY: 1000,
-      );
-    }
-    const padding = 350.0;
-    return _DemoBounds(
-      minX: minX - padding,
-      maxX: maxX + padding,
-      minY: minY - padding,
-      maxY: maxY + padding,
-    );
-  }
-}
 
 int _nativeFrameIndexAt(List<NativeDemoFrame> frames, int tick) {
   if (frames.length <= 1) return 0;
@@ -3686,19 +3657,4 @@ String _shortName(String name) {
   return '${trimmed.substring(0, 13)}…';
 }
 
-void _drawText(
-  Canvas canvas,
-  String text,
-  Offset offset,
-  TextStyle style, {
-  double maxWidth = 160,
-}) {
-  final painter = TextPainter(
-    text: TextSpan(text: text, style: style),
-    textDirection: TextDirection.ltr,
-    maxLines: 1,
-    ellipsis: '…',
-  )..layout(maxWidth: maxWidth);
-  painter.paint(canvas, offset);
-}
 

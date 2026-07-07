@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../services/demo_analytics.dart';
 import '../services/demo_session.dart';
+import '../services/radar_analytics.dart';
 
 import '../theme.dart';
 import '../widgets/mini_charts.dart';
+import '../widgets/radar_chart.dart';
 
 /// Performance Review: tick-level analysis of the demo loaded in Replay.
 /// One screen — summary strip, then expandable category sections. Every
@@ -21,8 +23,14 @@ class ReviewScreen extends StatefulWidget {
 class _ReviewScreenState extends State<ReviewScreen> {
   final DemoSession _session = DemoSession.instance;
   DemoAnalytics? _analytics;
+  RadarAnalytics? _radar;
   String? _analyzedDemoId;
   String? _steamid;
+
+  // Radar controls
+  RadarSide _radarSide = RadarSide.both;
+  String _radarCompare = 'none'; // none | team_avg | opp_avg | <steamid>
+  int? _radarAxis;
 
   @override
   void initState() {
@@ -47,6 +55,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
     if (demo == null) {
       setState(() {
         _analytics = null;
+        _radar = null;
         _analyzedDemoId = null;
         _steamid = null;
       });
@@ -57,6 +66,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       return;
     }
     final analytics = DemoAnalytics(demo);
+    final radar = RadarAnalytics(analytics);
     String? keepSelection = _steamid;
     if (keepSelection == null ||
         !analytics.players.any((p) => p.steamid == keepSelection)) {
@@ -66,8 +76,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
     setState(() {
       _analytics = analytics;
+      _radar = radar;
       _analyzedDemoId = demo.demoId;
       _steamid = keepSelection;
+      _radarCompare = 'none';
+      _radarAxis = null;
     });
   }
 
@@ -90,6 +103,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _header(analytics),
         const SizedBox(height: 8),
         _summaryStrip(stats),
+        const SizedBox(height: 8),
+        _radarSection(steamid),
         const SizedBox(height: 8),
         _combatSection(analytics, steamid),
         const SizedBox(height: 8),
@@ -328,6 +343,382 @@ class _ReviewScreenState extends State<ReviewScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // ── Role Performance Radar ──
+
+  RadarProfile? _comparisonProfile(RadarAnalytics radar, String steamid) {
+    switch (_radarCompare) {
+      case 'none':
+        return null;
+      case 'team_avg':
+        final ids = [...radar.teammatesOf(steamid), steamid];
+        return radar.averageProfile(ids, side: _radarSide, label: 'Team avg');
+      case 'opp_avg':
+        return radar.averageProfile(
+          radar.teammatesOf(steamid, opponents: true),
+          side: _radarSide,
+          label: 'Opponent avg',
+        );
+      default:
+        return radar.profileFor(
+          _radarCompare,
+          side: _radarSide,
+          label: _nameOf(_radarCompare),
+        );
+    }
+  }
+
+  String _nameOf(String steamid) {
+    final a = _analytics;
+    if (a == null) return steamid;
+    for (final p in a.players) {
+      if (p.steamid == steamid) return p.name;
+    }
+    return steamid;
+  }
+
+  Widget _radarSection(String steamid) {
+    final radar = _radar;
+    final analytics = _analytics;
+    if (radar == null || analytics == null) return const SizedBox.shrink();
+    final profile = radar.profileFor(
+      steamid,
+      side: _radarSide,
+      label: _nameOf(steamid),
+    );
+    final comparison = _comparisonProfile(radar, steamid);
+    final lowSample = profile.rounds < 30;
+    final axis = _radarAxis;
+
+    return _panel(
+      children: [
+        Row(
+          children: [
+            const Text(
+              'Role Radar',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: BiobaseColors.text,
+              ),
+            ),
+            const SizedBox(width: 10),
+            _sideToggle(),
+            const Spacer(),
+            _compareSelector(analytics, steamid),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 5,
+              child: Column(
+                children: [
+                  RadarChart(
+                    profile: profile,
+                    comparison: comparison,
+                    selectedAxis: axis,
+                    onAxisTap: (i) =>
+                        setState(() => _radarAxis = _radarAxis == i ? null : i),
+                    lowSample: lowSample,
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _legendSwatch(BiobaseColors.accent, profile.label),
+                      if (comparison != null) ...[
+                        const SizedBox(width: 14),
+                        _legendSwatch(
+                          BiobaseColors.warning,
+                          comparison.label,
+                          dashed: true,
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (lowSample)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        profile.rounds < 30
+                            ? 'Low sample — ${profile.rounds} rounds, directional only'
+                            : '',
+                        style: const TextStyle(
+                          fontSize: 9,
+                          color: BiobaseColors.warning,
+                        ),
+                      ),
+                    ),
+                  if (axis != null) _axisDetail(profile, comparison, axis),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(flex: 6, child: _radarTable(profile, comparison)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _sideToggle() {
+    Widget chip(RadarSide side, String label) {
+      final active = _radarSide == side;
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () => setState(() => _radarSide = side),
+          child: Container(
+            margin: const EdgeInsets.only(right: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: active ? BiobaseColors.accent : Colors.transparent,
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(
+                color: active ? BiobaseColors.accent : BiobaseColors.border,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                fontFamily: 'monospace',
+                color: active ? Colors.white : BiobaseColors.textSecondary,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        chip(RadarSide.both, 'BOTH'),
+        chip(RadarSide.t, 'T'),
+        chip(RadarSide.ct, 'CT'),
+      ],
+    );
+  }
+
+  Widget _compareSelector(DemoAnalytics analytics, String steamid) {
+    final items = <DropdownMenuItem<String>>[
+      const DropdownMenuItem(value: 'none', child: Text('No comparison')),
+      const DropdownMenuItem(value: 'team_avg', child: Text('Team average')),
+      const DropdownMenuItem(value: 'opp_avg', child: Text('Opponent average')),
+      for (final p in analytics.players)
+        if (p.steamid != steamid)
+          DropdownMenuItem(value: p.steamid, child: Text('vs ${p.name}')),
+    ];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: BiobaseColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: BiobaseColors.border),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: items.any((i) => i.value == _radarCompare)
+              ? _radarCompare
+              : 'none',
+          items: items,
+          isDense: true,
+          style: const TextStyle(fontSize: 10, color: BiobaseColors.text),
+          dropdownColor: BiobaseColors.surfaceRaised,
+          icon: const Icon(
+            Icons.expand_more,
+            size: 14,
+            color: BiobaseColors.textTertiary,
+          ),
+          onChanged: (v) => setState(() => _radarCompare = v ?? 'none'),
+        ),
+      ),
+    );
+  }
+
+  Widget _legendSwatch(Color color, String label, {bool dashed = false}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 14,
+          height: dashed ? 1.5 : 3,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9,
+            color: BiobaseColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _axisDetail(
+    RadarProfile profile,
+    RadarProfile? comparison,
+    int axis,
+  ) {
+    if (axis < 0 || axis >= profile.axes.length) {
+      return const SizedBox.shrink();
+    }
+    final v = profile.axes[axis];
+    final c = comparison != null && axis < comparison.axes.length
+        ? comparison.axes[axis]
+        : null;
+    final parts = <String>[
+      v.def.name,
+      '${_fmtRaw(v)}${v.def.unit.isEmpty ? '' : ' ${v.def.unit}'}',
+      'P${v.normalized.round()}',
+      if (c != null) 'vs ${_fmtRaw(c)}',
+      'n=${v.sample}',
+      if (v.stabilized) 'stabilized',
+      if (v.def.styleAxis) 'style axis',
+      if (v.def.lowerIsBetter) 'lower is better',
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Text(
+        parts.join('  ·  '),
+        style: const TextStyle(
+          fontSize: 9,
+          fontFamily: 'monospace',
+          color: BiobaseColors.textSecondary,
+        ),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  String _fmtRaw(RadarAxisValue v) => v.raw.toStringAsFixed(v.def.decimals);
+
+  Widget _radarTable(RadarProfile profile, RadarProfile? comparison) {
+    TextStyle cell({Color? color, FontWeight? weight}) => TextStyle(
+      fontSize: 9,
+      fontFamily: 'monospace',
+      fontWeight: weight ?? FontWeight.w400,
+      color: color ?? BiobaseColors.textSecondary,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              flex: 4,
+              child: Text('METRIC', style: cell(color: BiobaseColors.textTertiary)),
+            ),
+            Expanded(
+              flex: 2,
+              child: Text(
+                'RAW',
+                textAlign: TextAlign.right,
+                style: cell(color: BiobaseColors.textTertiary),
+              ),
+            ),
+            if (comparison != null)
+              Expanded(
+                flex: 2,
+                child: Text(
+                  'COMP',
+                  textAlign: TextAlign.right,
+                  style: cell(color: BiobaseColors.textTertiary),
+                ),
+              ),
+            Expanded(
+              flex: 2,
+              child: Text(
+                'PCTL',
+                textAlign: TextAlign.right,
+                style: cell(color: BiobaseColors.textTertiary),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        for (var i = 0; i < profile.axes.length; i++)
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () =>
+                  setState(() => _radarAxis = _radarAxis == i ? null : i),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 3),
+                decoration: BoxDecoration(
+                  color: _radarAxis == i
+                      ? BiobaseColors.accentDim
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: Text(
+                        profile.axes[i].def.name,
+                        style: cell(
+                          color: _radarAxis == i
+                              ? BiobaseColors.accent
+                              : BiobaseColors.text,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        _fmtRaw(profile.axes[i]),
+                        textAlign: TextAlign.right,
+                        style: cell(weight: FontWeight.w600),
+                      ),
+                    ),
+                    if (comparison != null)
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          i < comparison.axes.length
+                              ? _fmtRaw(comparison.axes[i])
+                              : '—',
+                          textAlign: TextAlign.right,
+                          style: cell(color: BiobaseColors.warning),
+                        ),
+                      ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        'P${profile.axes[i].normalized.round()}',
+                        textAlign: TextAlign.right,
+                        style: cell(
+                          color: profile.axes[i].normalized >= 50
+                              ? BiobaseColors.live
+                              : BiobaseColors.warning,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 6),
+        const Text(
+          'Percentiles vs static pro reference (v1). Style axes describe role, not quality.',
+          style: TextStyle(fontSize: 8, color: BiobaseColors.textTertiary),
+        ),
+      ],
     );
   }
 

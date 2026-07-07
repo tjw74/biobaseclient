@@ -114,6 +114,9 @@ class MoveLibraryService {
               if (e.headshot != null) 'headshot': e.headshot,
               if (e.dmgHealth != null) 'dmg_health': e.dmgHealth,
               if (e.hitgroup != null) 'hitgroup': e.hitgroup,
+              if (e.assisterSteamid != null)
+                'assister_steamid': e.assisterSteamid,
+              if (e.assistedFlash != null) 'assistedflash': e.assistedFlash,
             },
           },
         )

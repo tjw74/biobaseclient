@@ -84,6 +84,8 @@ class NativeDemoEvent {
   final bool? headshot;
   final int? dmgHealth;
   final String? hitgroup;
+  final String? assisterSteamid;
+  final bool? assistedFlash;
 
   const NativeDemoEvent({
     required this.tick,
@@ -96,6 +98,8 @@ class NativeDemoEvent {
     this.headshot,
     this.dmgHealth,
     this.hitgroup,
+    this.assisterSteamid,
+    this.assistedFlash,
   });
 
   factory NativeDemoEvent.fromJson(Map<String, dynamic> json) {
@@ -113,6 +117,10 @@ class NativeDemoEvent {
         headshot: data['headshot'] is bool ? data['headshot'] as bool : null,
         dmgHealth: (data['dmg_health'] as num?)?.round(),
         hitgroup: s(data['hitgroup']),
+        assisterSteamid: s(data['assister_steamid']),
+        assistedFlash: data['assistedflash'] is bool
+            ? data['assistedflash'] as bool
+            : null,
       );
     }
     return NativeDemoEvent(

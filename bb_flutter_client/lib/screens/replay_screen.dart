@@ -14,8 +14,6 @@ import '../services/replay_launch_service.dart';
 import '../services/native_demo_service.dart';
 import '../services/netcon_service.dart';
 import '../services/capture_service.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart'
-    show RTCVideoRenderer, RTCVideoView, RTCVideoViewObjectFit;
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -554,7 +552,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
             cs2Launching: _cs2Launching,
             cs2LaunchError: _cs2LaunchError,
             cs2Live: _cs2Live,
-            captureRenderer: _capture.active ? _capture.renderer : null,
+            captureTextureId: _capture.textureId,
+            captureAspect: _capture.aspectRatio,
             selectedSteamId: _selectedSteamId,
             onSelectPlayer: _selectPlayer,
           ),
@@ -1718,7 +1717,8 @@ class _RenderArea extends StatelessWidget {
   final bool cs2Launching;
   final String? cs2LaunchError;
   final bool cs2Live;
-  final RTCVideoRenderer? captureRenderer;
+  final int? captureTextureId;
+  final double captureAspect;
   final String? selectedSteamId;
   final void Function(String steamid, String name)? onSelectPlayer;
 
@@ -1745,7 +1745,8 @@ class _RenderArea extends StatelessWidget {
     this.cs2Launching = false,
     this.cs2LaunchError,
     this.cs2Live = false,
-    this.captureRenderer,
+    this.captureTextureId,
+    this.captureAspect = 16 / 9,
     this.selectedSteamId,
     this.onSelectPlayer,
   });
@@ -1814,7 +1815,8 @@ class _RenderArea extends StatelessWidget {
         cs2Launching: cs2Launching,
         cs2LaunchError: cs2LaunchError,
         cs2Live: cs2Live,
-        captureRenderer: captureRenderer,
+        captureTextureId: captureTextureId,
+        captureAspect: captureAspect,
         selectedSteamId: selectedSteamId,
         onSelectPlayer: onSelectPlayer,
       );
@@ -2097,7 +2099,8 @@ class _NativeDemoViewer extends StatefulWidget {
   final bool cs2Launching;
   final String? cs2LaunchError;
   final bool cs2Live;
-  final RTCVideoRenderer? captureRenderer;
+  final int? captureTextureId;
+  final double captureAspect;
   final String? selectedSteamId;
   final void Function(String steamid, String name)? onSelectPlayer;
 
@@ -2118,7 +2121,8 @@ class _NativeDemoViewer extends StatefulWidget {
     this.cs2Launching = false,
     this.cs2LaunchError,
     this.cs2Live = false,
-    this.captureRenderer,
+    this.captureTextureId,
+    this.captureAspect = 16 / 9,
     this.selectedSteamId,
     this.onSelectPlayer,
   });
@@ -2168,7 +2172,7 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
     return round;
   }
 
-  bool get _live => widget.cs2Live && widget.captureRenderer != null;
+  bool get _live => widget.cs2Live && widget.captureTextureId != null;
 
   List<_RenderedNativePlayer> _playersNow() {
     final tick = widget.currentTick
@@ -2418,10 +2422,11 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
                     color: Colors.black,
-                    child: RTCVideoView(
-                      widget.captureRenderer!,
-                      objectFit:
-                          RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: widget.captureAspect,
+                        child: Texture(textureId: widget.captureTextureId!),
+                      ),
                     ),
                   ),
                 ),

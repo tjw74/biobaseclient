@@ -1,0 +1,18 @@
+name: cs2_capture
+description: Captures the CS2 game window via Windows Graphics Capture into a Flutter texture.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      windows:
+        pluginClass: Cs2CapturePlugin

@@ -15,18 +15,21 @@ import 'services/session_stats_service.dart';
 import 'screens/live_screen.dart';
 import 'screens/shadow_screen.dart';
 import 'screens/replay_screen.dart';
+import 'screens/review_screen.dart';
+import 'services/demo_session.dart';
 import 'screens/overlay_hud.dart';
 import 'screens/server_screen.dart';
 import 'services/update_service.dart' show UpdateService, currentVersion;
 import 'services/overlay_service.dart';
 
-enum Section { live, shadow, replay, server }
+enum Section { live, shadow, replay, review, server }
 
 enum _UpdatePhase { idle, checking, downloading, done, current }
 
 const _navItems = [
   (Section.live, 'Live', Icons.show_chart),
   (Section.replay, 'Replay', Icons.replay),
+  (Section.review, 'Review', Icons.query_stats),
   (Section.shadow, 'Shadow', Icons.people_outline),
   (Section.server, 'Server', Icons.dns_outlined),
 ];
@@ -60,6 +63,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    DemoSession.instance.addListener(_onDemoSession);
     _init();
   }
 
@@ -188,6 +192,13 @@ class _AppShellState extends State<AppShell> {
     setState(() => _section = s);
   }
 
+  void _onDemoSession() {
+    if (DemoSession.instance.pendingSeekTick != null &&
+        _section != Section.replay) {
+      _navigateTo(Section.replay);
+    }
+  }
+
   Future<void> _toggleOverlay() async {
     if (_overlayMode) {
       await _exitOverlay();
@@ -204,6 +215,7 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    DemoSession.instance.removeListener(_onDemoSession);
     _statusSub?.cancel();
     _movementSub?.cancel();
     _overlay.dispose();
@@ -309,21 +321,23 @@ class _AppShellState extends State<AppShell> {
   Widget _buildContent() {
     final frame = _liveFrame;
     final live = _movementStatus?.ok ?? false;
-    return switch (_section) {
-      Section.live => LiveScreen(
-        frame: frame,
-        live: live,
-        history: _movementHistory,
-        sessionStats: _sessionStats.stats,
-      ),
-      Section.shadow => ShadowScreen(
-        api: _api,
-        mapName: _serverStatus?.map ?? '',
-        live: live,
-      ),
-      Section.replay => const ReplayScreen(),
-      Section.server => const ServerScreen(),
-    };
+    // IndexedStack keeps every screen alive — the CS2 capture session and
+    // parsed demo survive tab switches (Review <-> Replay).
+    return IndexedStack(
+      index: Section.values.indexOf(_section),
+      children: [
+        LiveScreen(
+          frame: frame,
+          live: live,
+          history: _movementHistory,
+          sessionStats: _sessionStats.stats,
+        ),
+        ShadowScreen(api: _api, mapName: _serverStatus?.map ?? '', live: live),
+        const ReplayScreen(),
+        ReviewScreen(onOpenReplay: () => _navigateTo(Section.replay)),
+        const ServerScreen(),
+      ],
+    );
   }
 }
 

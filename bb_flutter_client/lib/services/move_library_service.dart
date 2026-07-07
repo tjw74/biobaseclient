@@ -100,7 +100,23 @@ class MoveLibraryService {
 
     final events = demo.events
         .where((e) => e.tick >= lo && e.tick <= hi)
-        .map((e) => {'tick': e.tick, 'type': e.type})
+        .map(
+          (e) => {
+            'tick': e.tick,
+            'type': e.type,
+            'data': {
+              if (e.attackerSteamid != null)
+                'attacker_steamid': e.attackerSteamid,
+              if (e.attackerName != null) 'attacker_name': e.attackerName,
+              if (e.victimSteamid != null) 'user_steamid': e.victimSteamid,
+              if (e.victimName != null) 'user_name': e.victimName,
+              if (e.weapon != null) 'weapon': e.weapon,
+              if (e.headshot != null) 'headshot': e.headshot,
+              if (e.dmgHealth != null) 'dmg_health': e.dmgHealth,
+              if (e.hitgroup != null) 'hitgroup': e.hitgroup,
+            },
+          },
+        )
         .toList();
 
     final playerNames = <String>{};

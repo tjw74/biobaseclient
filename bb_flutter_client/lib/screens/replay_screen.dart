@@ -15,6 +15,7 @@ import '../services/native_demo_service.dart';
 import '../services/netcon_service.dart';
 import '../services/capture_service.dart';
 import '../services/move_library_service.dart';
+import '../services/demo_session.dart';
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -83,10 +84,19 @@ class _ReplayScreenState extends State<ReplayScreen> {
     super.initState();
     _loadDemos();
     _libraryClips = _library.list();
+    DemoSession.instance.addListener(_onSessionSignal);
+  }
+
+  void _onSessionSignal() {
+    final tick = DemoSession.instance.pendingSeekTick;
+    if (tick == null || _nativeDemo == null || !mounted) return;
+    DemoSession.instance.consumeSeek();
+    _seekNativeTick(tick);
   }
 
   @override
   void dispose() {
+    DemoSession.instance.removeListener(_onSessionSignal);
     _renameController.dispose();
     _tickTimer?.cancel();
     _seekDebounce?.cancel();
@@ -382,6 +392,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _playbackPosition = 0;
         _playing = true;
       });
+      DemoSession.instance.setDemo(
+        parsed: native,
+        name: _demoName ?? path,
+        path: path,
+      );
       _startTickTracking();
     } catch (e) {
       if (!mounted) return;
@@ -522,6 +537,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _currentTick = demo.startTick;
       _playing = true;
     });
+    DemoSession.instance.setDemo(
+      parsed: demo,
+      name: clip.name,
+      path: clip.filePath,
+    );
     _startTickTracking();
   }
 

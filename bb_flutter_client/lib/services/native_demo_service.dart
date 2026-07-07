@@ -74,9 +74,47 @@ class NativeDemoEvent {
   final int tick;
   final String type;
 
-  const NativeDemoEvent({required this.tick, required this.type});
+  // Attribution payload (present on player_death / player_hurt / weapon_fire;
+  // the parser stores the raw demoparser2 event row under `data`).
+  final String? attackerSteamid;
+  final String? attackerName;
+  final String? victimSteamid;
+  final String? victimName;
+  final String? weapon;
+  final bool? headshot;
+  final int? dmgHealth;
+  final String? hitgroup;
+
+  const NativeDemoEvent({
+    required this.tick,
+    required this.type,
+    this.attackerSteamid,
+    this.attackerName,
+    this.victimSteamid,
+    this.victimName,
+    this.weapon,
+    this.headshot,
+    this.dmgHealth,
+    this.hitgroup,
+  });
 
   factory NativeDemoEvent.fromJson(Map<String, dynamic> json) {
+    final data = json['data'];
+    String? s(Object? v) => v == null ? null : '$v';
+    if (data is Map) {
+      return NativeDemoEvent(
+        tick: (json['tick'] as num?)?.round() ?? 0,
+        type: '${json['type'] ?? 'event'}',
+        attackerSteamid: s(data['attacker_steamid']),
+        attackerName: s(data['attacker_name']),
+        victimSteamid: s(data['user_steamid']),
+        victimName: s(data['user_name']),
+        weapon: s(data['weapon']),
+        headshot: data['headshot'] is bool ? data['headshot'] as bool : null,
+        dmgHealth: (data['dmg_health'] as num?)?.round(),
+        hitgroup: s(data['hitgroup']),
+      );
+    }
     return NativeDemoEvent(
       tick: (json['tick'] as num?)?.round() ?? 0,
       type: '${json['type'] ?? 'event'}',

@@ -14,6 +14,7 @@ import '../services/replay_launch_service.dart';
 import '../services/native_demo_service.dart';
 import '../services/netcon_service.dart';
 import '../services/capture_service.dart';
+import '../services/move_library_service.dart';
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -71,10 +72,17 @@ class _ReplayScreenState extends State<ReplayScreen> {
   String? _editingMoveId;
   final TextEditingController _renameController = TextEditingController();
 
+  // Move library (self-contained saved moves)
+  final MoveLibraryService _library = MoveLibraryService();
+  List<MoveClip> _libraryClips = const [];
+  bool _isMoveReplay = false;
+  bool _showDemoBrowser = false;
+
   @override
   void initState() {
     super.initState();
     _loadDemos();
+    _libraryClips = _library.list();
   }
 
   @override
@@ -112,6 +120,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _cs2Launching = false;
     _cs2LaunchError = null;
     _selectedSteamId = null;
+    _isMoveReplay = false;
+    _showDemoBrowser = false;
     _endCs2Session();
   }
 
@@ -464,6 +474,19 @@ class _ReplayScreenState extends State<ReplayScreen> {
         startTick: startTick,
         endTick: endTick,
       );
+      // Capture the demo data between the ticks into the local move library.
+      if (native != null && startTick != null && endTick != null) {
+        try {
+          _library.saveClip(
+            demo: native,
+            demoName: _demoName!,
+            name: move.name,
+            startTick: startTick,
+            endTick: endTick,
+          );
+          _libraryClips = _library.list();
+        } catch (_) {}
+      }
       setState(() {
         _moveStart = null;
         _demoMoves = _moves.movesForDemo(_demoName!);
@@ -472,6 +495,28 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _saveNativeLabel(move, startTick, endTick);
       }
     }
+  }
+
+  void _playMoveClip(MoveClip clip) {
+    final demo = _library.loadClipDemo(clip);
+    if (demo == null || demo.frames.isEmpty) return;
+    setState(() {
+      _demoPath = clip.filePath;
+      _demoName = clip.name;
+      _resetReplayState();
+      _isMoveReplay = true;
+      _moveStart = null;
+      _demoMoves = const [];
+      _nativeDemo = demo;
+      _currentTick = demo.startTick;
+      _playing = true;
+    });
+    _startTickTracking();
+  }
+
+  void _deleteClip(MoveClip clip) {
+    _library.delete(clip);
+    setState(() => _libraryClips = _library.list());
   }
 
   void _cancelMark() {
@@ -551,7 +596,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
             onTogglePlayback: _togglePlayback,
             onSeek: _seekTo,
             onSetSpeed: _setSpeed,
-            onPlayInCS2: _demoPath != null && !_cs2Launching ? _playInCS2 : null,
+            onPlayInCS2: _demoPath != null && !_cs2Launching && !_isMoveReplay
+                ? _playInCS2
+                : null,
             cs2Launching: _cs2Launching,
             cs2LaunchError: _cs2LaunchError,
             cs2Live: _cs2Live,
@@ -559,6 +606,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
             captureAspect: _capture.aspectRatio,
             selectedSteamId: _selectedSteamId,
             onSelectPlayer: _selectPlayer,
+            onMark: _nativeDemo != null ? _onMarkTap : null,
+            marking: _moveStart != null,
           ),
         ),
       ],
@@ -566,21 +615,710 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   Widget _buildLeft() {
+    final dashboard =
+        _demoPath != null && _nativeDemo != null && !_showDemoBrowser;
+    if (dashboard) {
+      return ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          _buildDashboardHeader(),
+          const SizedBox(height: 8),
+          _buildRoundPanel(),
+          const SizedBox(height: 8),
+          _buildTeamsPanel(),
+          if (_selectedSteamId != null) ...[
+            const SizedBox(height: 8),
+            _buildPlayerCard(),
+          ],
+          const SizedBox(height: 8),
+          _buildMovesSection(),
+          const SizedBox(height: 8),
+          _buildLiveEvents(),
+        ],
+      );
+    }
     return ListView(
       padding: EdgeInsets.zero,
       children: [
+        if (_demoPath != null && _nativeDemo != null) ...[
+          _buildBackToDashboard(),
+          const SizedBox(height: 8),
+        ],
         _buildDemoList(),
         const SizedBox(height: 8),
         _buildHltvPanel(),
         const SizedBox(height: 8),
-        _buildPlayback(),
-        const SizedBox(height: 8),
-        _buildMovesSection(),
-        const SizedBox(height: 8),
-        _buildStats(),
-        const SizedBox(height: 8),
-        _buildEvents(),
+        _buildMoveLibraryPanel(),
+        if (_demoPath != null && _nativeDemo == null) ...[
+          const SizedBox(height: 8),
+          _buildMovesSection(),
+        ],
       ],
+    );
+  }
+
+  // ── Playback dashboard ──
+
+  List<_RenderedNativePlayer> _dashPlayers() {
+    final native = _nativeDemo;
+    if (native == null || native.frames.isEmpty) return const [];
+    final tick = _currentTick
+        .clamp(native.startTick, native.endTick)
+        .toInt();
+    final idx = _nativeFrameIndexAt(native.frames, tick);
+    return _nativePlayersAt(native.frames, idx, tick);
+  }
+
+  int _dashRound() {
+    final native = _nativeDemo;
+    if (native == null) return 0;
+    var round = 0;
+    for (final e in native.events) {
+      if (e.tick > _currentTick) break;
+      if (e.type == 'round_start') round++;
+    }
+    return round;
+  }
+
+  int _dashRoundStartTick() {
+    final native = _nativeDemo;
+    if (native == null) return 0;
+    var start = native.startTick;
+    for (final e in native.events) {
+      if (e.tick > _currentTick) break;
+      if (e.type == 'round_start') start = e.tick;
+    }
+    return start;
+  }
+
+  int _dashDeaths(String steamid) {
+    final native = _nativeDemo;
+    if (native == null) return 0;
+    var deaths = 0;
+    bool? wasAlive;
+    for (final frame in native.frames) {
+      if (frame.tick > _currentTick) break;
+      for (final p in frame.players) {
+        if (p.steamid != steamid) continue;
+        final alive = p.isAlive ?? ((p.health ?? 100) > 0);
+        if (wasAlive == true && !alive) deaths++;
+        wasAlive = alive;
+        break;
+      }
+    }
+    return deaths;
+  }
+
+  /// Current movement speed in units/s from the two frames around the tick.
+  double _dashSpeed(String steamid) {
+    final native = _nativeDemo;
+    if (native == null || native.frames.length < 2) return 0;
+    final tick = _currentTick
+        .clamp(native.startTick, native.endTick)
+        .toInt();
+    final idx = _nativeFrameIndexAt(native.frames, tick);
+    if (idx == 0) return 0;
+    final a = native.frames[idx - 1];
+    final b = native.frames[idx];
+    final dt = b.timeSec - a.timeSec;
+    if (dt <= 0) return 0;
+    NativePlayerState? pa, pb;
+    for (final p in a.players) {
+      if (p.steamid == steamid) pa = p;
+    }
+    for (final p in b.players) {
+      if (p.steamid == steamid) pb = p;
+    }
+    if (pa == null || pb == null) return 0;
+    final dx = pb.x - pa.x;
+    final dy = pb.y - pa.y;
+    return math.sqrt(dx * dx + dy * dy) / dt;
+  }
+
+  /// Distance travelled this round, in units.
+  double _dashRoundDistance(String steamid) {
+    final native = _nativeDemo;
+    if (native == null) return 0;
+    final roundStart = _dashRoundStartTick();
+    double distance = 0;
+    double? lastX, lastY;
+    for (final frame in native.frames) {
+      if (frame.tick < roundStart) continue;
+      if (frame.tick > _currentTick) break;
+      for (final p in frame.players) {
+        if (p.steamid != steamid) continue;
+        if (lastX != null && lastY != null) {
+          final dx = p.x - lastX;
+          final dy = p.y - lastY;
+          distance += math.sqrt(dx * dx + dy * dy);
+        }
+        lastX = p.x;
+        lastY = p.y;
+        break;
+      }
+    }
+    return distance;
+  }
+
+  Widget _panel({required List<Widget> children, Color? borderColor}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: BiobaseColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor ?? BiobaseColors.border),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
+    );
+  }
+
+  Widget _panelTitle(String title, {Widget? trailing}) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: BiobaseColors.text,
+          ),
+        ),
+        const Spacer(),
+        if (trailing != null) trailing,
+      ],
+    );
+  }
+
+  Widget _buildDashboardHeader() {
+    return _panel(
+      children: [
+        Row(
+          children: [
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => setState(() => _showDemoBrowser = true),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.chevron_left,
+                      size: 16,
+                      color: BiobaseColors.textSecondary,
+                    ),
+                    Text(
+                      'Demos',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: BiobaseColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Spacer(),
+            if (_isMoveReplay)
+              const Text(
+                'MOVE REPLAY',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                  color: BiobaseColors.accent,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _demoName ?? '',
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: BiobaseColors.text,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBackToDashboard() {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => setState(() => _showDemoBrowser = false),
+        child: _panel(
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.chevron_left, size: 16, color: BiobaseColors.accent),
+                Text(
+                  'Back to playback',
+                  style: TextStyle(fontSize: 11, color: BiobaseColors.accent),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoundPanel() {
+    final native = _nativeDemo;
+    if (native == null) return const SizedBox.shrink();
+    final round = _dashRound();
+    final rate = native.tickRateGuess <= 0 ? 64 : native.tickRateGuess;
+    final inRoundSec =
+        ((_currentTick - _dashRoundStartTick()) / rate).floor().clamp(0, 599);
+    final players = _dashPlayers();
+    var tAlive = 0, ctAlive = 0;
+    for (final p in players) {
+      final alive = p.isAlive ?? ((p.health ?? 100) > 0);
+      if (!alive) continue;
+      if (_isCtTeam(p.team)) {
+        ctAlive++;
+      } else {
+        tAlive++;
+      }
+    }
+    return _panel(
+      children: [
+        Row(
+          children: [
+            Text(
+              round > 0 ? 'ROUND $round' : 'WARMUP',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: BiobaseColors.text,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '${inRoundSec ~/ 60}:${(inRoundSec % 60).toString().padLeft(2, '0')}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: BiobaseColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Text(
+              '$tAlive',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+                color: _teamColor('T'),
+              ),
+            ),
+            const Text(
+              ' v ',
+              style: TextStyle(
+                fontSize: 10,
+                color: BiobaseColors.textTertiary,
+              ),
+            ),
+            Text(
+              '$ctAlive',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+                color: _teamColor('CT'),
+              ),
+            ),
+            const Spacer(),
+            Text(
+              _nativeDemo?.mapName ?? '',
+              style: const TextStyle(
+                fontSize: 10,
+                fontFamily: 'monospace',
+                color: BiobaseColors.textTertiary,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTeamsPanel() {
+    final players = _dashPlayers();
+    if (players.isEmpty) {
+      return _panel(
+        children: const [
+          Text(
+            'No player data at this tick',
+            style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+          ),
+        ],
+      );
+    }
+    final t = players.where((p) => !_isCtTeam(p.team)).toList();
+    final ct = players.where((p) => _isCtTeam(p.team)).toList();
+    return _panel(
+      children: [
+        _panelTitle('Players'),
+        const SizedBox(height: 8),
+        for (final p in t) _dashPlayerRow(p),
+        if (t.isNotEmpty && ct.isNotEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: BiobaseColors.border,
+            ),
+          ),
+        for (final p in ct) _dashPlayerRow(p),
+      ],
+    );
+  }
+
+  Widget _dashPlayerRow(_RenderedNativePlayer p) {
+    final selected = p.steamid == _selectedSteamId;
+    final alive = p.isAlive ?? ((p.health ?? 100) > 0);
+    final hp = (p.health ?? 100).clamp(0, 100).round();
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _selectPlayer(p.steamid, p.name),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          decoration: BoxDecoration(
+            color: selected ? BiobaseColors.accentDim : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: alive
+                      ? _teamColor(p.team)
+                      : BiobaseColors.textTertiary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  p.name,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: alive
+                        ? (selected ? BiobaseColors.accent : BiobaseColors.text)
+                        : BiobaseColors.textTertiary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(
+                width: 46,
+                height: 3,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: alive ? hp / 100 : 0,
+                    backgroundColor: BiobaseColors.surfaceRaised,
+                    color: hp > 45 ? BiobaseColors.live : BiobaseColors.warning,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 26,
+                child: Text(
+                  alive ? '$hp' : '✕',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    color: alive
+                        ? (hp > 45 ? BiobaseColors.live : BiobaseColors.warning)
+                        : BiobaseColors.error,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayerCard() {
+    final steamid = _selectedSteamId;
+    if (steamid == null) return const SizedBox.shrink();
+    _RenderedNativePlayer? player;
+    for (final p in _dashPlayers()) {
+      if (p.steamid == steamid) player = p;
+    }
+    if (player == null) return const SizedBox.shrink();
+    final alive = player.isAlive ?? ((player.health ?? 100) > 0);
+    final hp = (player.health ?? 100).clamp(0, 100).round();
+    final speed = _dashSpeed(steamid);
+    final distance = _dashRoundDistance(steamid);
+    final deaths = _dashDeaths(steamid);
+    return _panel(
+      borderColor: BiobaseColors.accent.withAlpha(90),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                player.name,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: BiobaseColors.text,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Text(
+              _isCtTeam(player.team) ? 'CT' : 'T',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: _teamColor(player.team),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _dashStat(
+              alive ? '$hp' : 'DEAD',
+              'HP',
+              color: alive
+                  ? (hp > 45 ? BiobaseColors.live : BiobaseColors.warning)
+                  : BiobaseColors.error,
+            ),
+            _dashStat('${speed.round()}', 'u/s'),
+            _dashStat('$deaths', 'Deaths'),
+            _dashStat(
+              distance >= 1000
+                  ? '${(distance / 1000).toStringAsFixed(1)}k'
+                  : '${distance.round()}',
+              'Dist rnd',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _dashStat(String value, String label, {Color? color}) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'monospace',
+              color: color ?? BiobaseColors.text,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 8,
+              color: BiobaseColors.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveEvents() {
+    final native = _nativeDemo;
+    if (native == null) return const SizedBox.shrink();
+    final events = native.events
+        .where((e) => e.tick <= _currentTick)
+        .toList()
+        .reversed
+        .take(8)
+        .toList();
+    final rate = native.tickRateGuess <= 0 ? 64 : native.tickRateGuess;
+    return _panel(
+      children: [
+        _panelTitle('Events'),
+        const SizedBox(height: 8),
+        if (events.isEmpty)
+          const Text(
+            'No events yet',
+            style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
+          )
+        else
+          for (final e in events)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 38,
+                    child: Text(
+                      _tickTimeLabel(e.tick, native.startTick, rate),
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    e.type.toUpperCase().replaceAll('_', ' '),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      color: _dashEventColor(e.type),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+      ],
+    );
+  }
+
+  String _tickTimeLabel(int tick, int startTick, int rate) {
+    final sec = ((tick - startTick) / rate).floor();
+    return '${sec ~/ 60}:${(sec % 60).toString().padLeft(2, '0')}';
+  }
+
+  Color _dashEventColor(String type) {
+    switch (type) {
+      case 'kill':
+      case 'player_death':
+        return BiobaseColors.error;
+      case 'round_start':
+        return BiobaseColors.accent;
+      case 'bomb_planted':
+        return BiobaseColors.warning;
+      case 'bomb_defused':
+        return BiobaseColors.live;
+      default:
+        return BiobaseColors.textSecondary;
+    }
+  }
+
+  // ── Move library ──
+
+  Widget _buildMoveLibraryPanel() {
+    return _panel(
+      children: [
+        _panelTitle(
+          'Move Library',
+          trailing: _libraryClips.isNotEmpty
+              ? Text(
+                  '${_libraryClips.length}',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: BiobaseColors.textTertiary,
+                  ),
+                )
+              : null,
+        ),
+        const SizedBox(height: 8),
+        if (_libraryClips.isEmpty)
+          const Text(
+            'Mark a move during playback to save it here',
+            style: TextStyle(fontSize: 10, color: BiobaseColors.textTertiary),
+          )
+        else
+          for (final clip in _libraryClips) _clipRow(clip),
+      ],
+    );
+  }
+
+  Widget _clipRow(MoveClip clip) {
+    final selected = _isMoveReplay && _demoPath == clip.filePath;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _playMoveClip(clip),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          decoration: BoxDecoration(
+            color: selected ? BiobaseColors.accentDim : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.play_circle_outline,
+                size: 12,
+                color: selected
+                    ? BiobaseColors.accent
+                    : BiobaseColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      clip.name,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: selected
+                            ? BiobaseColors.accent
+                            : BiobaseColors.text,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '${clip.mapName} · ${clip.durationSec.toStringAsFixed(1)}s',
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () => _deleteClip(clip),
+                  child: const Padding(
+                    padding: EdgeInsets.all(3),
+                    child: Icon(
+                      Icons.close,
+                      size: 11,
+                      color: BiobaseColors.textTertiary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -862,130 +1600,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
     );
   }
 
-  // ── Playback ──
-
-  Widget _buildPlayback() {
-    return Container(
-      decoration: BoxDecoration(
-        color: BiobaseColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: BiobaseColors.border),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Playback',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: BiobaseColors.text,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _buildTimeline(),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(
-                _formatTime(_playbackPosition),
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  color: BiobaseColors.textTertiary,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                _demoInfo?.durationDisplay ?? _formatTime(1.0),
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  color: BiobaseColors.textTertiary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _controlBtn(Icons.skip_previous, () => _seekTo(0)),
-              const SizedBox(width: 4),
-              _controlBtn(
-                _playing ? Icons.pause : Icons.play_arrow,
-                _togglePlayback,
-                primary: true,
-              ),
-              const SizedBox(width: 4),
-              _controlBtn(Icons.skip_next, () => _seekTo(1)),
-              const Spacer(),
-              ...([0.25, 0.5, 1.0, 2.0].map(
-                (s) => Padding(
-                  padding: const EdgeInsets.only(left: 2),
-                  child: _speedBtn(s, _playbackSpeed == s, () => _setSpeed(s)),
-                ),
-              )),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTimeline() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            SliderTheme(
-              data: SliderThemeData(
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                activeTrackColor: BiobaseColors.accent,
-                inactiveTrackColor: BiobaseColors.surfaceRaised,
-                thumbColor: BiobaseColors.accent,
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
-              ),
-              child: Slider(
-                value: _playbackPosition.clamp(0.0, 1.0),
-                onChanged: _demoPath != null ? (v) => _seekTo(v) : null,
-              ),
-            ),
-            // Move range markers on the track
-            for (final move in _demoMoves)
-              Positioned(
-                left: 12 + move.startPosition * (constraints.maxWidth - 24),
-                top: 6,
-                child: Container(
-                  width:
-                      (move.endPosition - move.startPosition) *
-                      (constraints.maxWidth - 24),
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: BiobaseColors.live.withAlpha(140),
-                    borderRadius: BorderRadius.circular(1),
-                  ),
-                ),
-              ),
-            // Active mark-start indicator
-            if (_moveStart != null)
-              Positioned(
-                left: 12 + _moveStart! * (constraints.maxWidth - 24) - 1,
-                top: 2,
-                child: Container(
-                  width: 2,
-                  height: 11,
-                  color: BiobaseColors.warning,
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
   // ── Moves ──
 
   Widget _buildMovesSection() {
@@ -1101,157 +1715,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     );
   }
 
-  // ── Stats ──
-
-  Widget _buildStats() {
-    return Container(
-      decoration: BoxDecoration(
-        color: BiobaseColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: BiobaseColors.border),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Round Stats',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: BiobaseColors.text,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _statRow('Kills', '—'),
-          _statRow('Deaths', '—'),
-          _statRow('Assists', '—'),
-          _statRow('ADR', '—'),
-          _statRow('HLTV Rating', '—'),
-          _statRow('HS %', '—'),
-          _statRow('Flash Assists', '—'),
-          _statRow('Utility Damage', '—'),
-        ],
-      ),
-    );
-  }
-
-  // ── Events ──
-
-  Widget _buildEvents() {
-    return Container(
-      decoration: BoxDecoration(
-        color: BiobaseColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: BiobaseColors.border),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Events',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: BiobaseColors.text,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (_demoPath == null)
-            const Text(
-              'Select a demo to see events',
-              style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
-            )
-          else
-            const Text(
-              'Demo parsing in progress',
-              style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
-            ),
-        ],
-      ),
-    );
-  }
-
   // ── Shared helpers ──
-
-  Widget _controlBtn(
-    IconData icon,
-    VoidCallback onTap, {
-    bool primary = false,
-  }) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: _demoPath != null ? onTap : null,
-        child: Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: primary ? BiobaseColors.accent : BiobaseColors.surfaceRaised,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: _demoPath != null
-                ? Colors.white
-                : BiobaseColors.textTertiary,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _speedBtn(double s, bool active, VoidCallback onTap) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          decoration: BoxDecoration(
-            color: active ? BiobaseColors.accentDim : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            '${s}x',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: active ? BiobaseColors.accent : BiobaseColors.textTertiary,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  static Widget _statRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              color: BiobaseColors.textTertiary,
-            ),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: BiobaseColors.text,
-              fontFamily: 'monospace',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   String _formatTime(double t) {
     final totalSecs = _demoInfo?.playbackTime ?? 45 * 60;
@@ -1724,6 +2188,8 @@ class _RenderArea extends StatelessWidget {
   final double captureAspect;
   final String? selectedSteamId;
   final void Function(String steamid, String name)? onSelectPlayer;
+  final VoidCallback? onMark;
+  final bool marking;
 
   const _RenderArea({
     required this.demoPath,
@@ -1752,6 +2218,8 @@ class _RenderArea extends StatelessWidget {
     this.captureAspect = 16 / 9,
     this.selectedSteamId,
     this.onSelectPlayer,
+    this.onMark,
+    this.marking = false,
   });
 
   @override
@@ -1822,6 +2290,8 @@ class _RenderArea extends StatelessWidget {
         captureAspect: captureAspect,
         selectedSteamId: selectedSteamId,
         onSelectPlayer: onSelectPlayer,
+        onMark: onMark,
+        marking: marking,
       );
     }
 
@@ -2106,6 +2576,8 @@ class _NativeDemoViewer extends StatefulWidget {
   final double captureAspect;
   final String? selectedSteamId;
   final void Function(String steamid, String name)? onSelectPlayer;
+  final VoidCallback? onMark;
+  final bool marking;
 
   const _NativeDemoViewer({
     required this.demo,
@@ -2128,6 +2600,8 @@ class _NativeDemoViewer extends StatefulWidget {
     this.captureAspect = 16 / 9,
     this.selectedSteamId,
     this.onSelectPlayer,
+    this.onMark,
+    this.marking = false,
   });
 
   @override
@@ -2185,32 +2659,12 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
     return _nativePlayersAt(widget.demo.frames, idx, tick);
   }
 
-  int _deathsUpTo(String steamid) {
-    final tick = widget.currentTick;
-    var deaths = 0;
-    bool? wasAlive;
-    for (final frame in widget.demo.frames) {
-      if (frame.tick > tick) break;
-      for (final p in frame.players) {
-        if (p.steamid != steamid) continue;
-        final alive = p.isAlive ?? ((p.health ?? 100) > 0);
-        if (wasAlive == true && !alive) deaths++;
-        wasAlive = alive;
-        break;
-      }
-    }
-    return deaths;
-  }
 
   Widget _playerRail() {
     final players = _playersNow();
     if (players.isEmpty) return const SizedBox.shrink();
     final ct = players.where((p) => _isCtTeam(p.team)).toList();
     final t = players.where((p) => !_isCtTeam(p.team)).toList();
-    _RenderedNativePlayer? selected;
-    for (final p in players) {
-      if (p.steamid == widget.selectedSteamId) selected = p;
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2236,10 +2690,6 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
             ),
           ],
         ),
-        if (selected != null) ...[
-          const SizedBox(height: 6),
-          _selectedStats(selected),
-        ],
       ],
     );
   }
@@ -2303,85 +2753,6 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
     );
   }
 
-  Widget _selectedStats(_RenderedNativePlayer p) {
-    final alive = p.isAlive ?? ((p.health ?? 100) > 0);
-    final hp = (p.health ?? 100).clamp(0, 100).round();
-    final deaths = _deathsUpTo(p.steamid);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: BiobaseColors.bg.withAlpha(225),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: BiobaseColors.accent.withAlpha(90)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            p.name,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: BiobaseColors.text,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            _isCtTeam(p.team) ? 'CT' : 'T',
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
-              color: _teamColor(p.team),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 60,
-            height: 4,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: LinearProgressIndicator(
-                value: hp / 100,
-                backgroundColor: BiobaseColors.surfaceRaised,
-                color: hp > 45 ? BiobaseColors.live : BiobaseColors.warning,
-              ),
-            ),
-          ),
-          const SizedBox(width: 5),
-          Text(
-            alive ? '$hp HP' : 'DEAD',
-            style: TextStyle(
-              fontSize: 9,
-              fontFamily: 'monospace',
-              color: alive
-                  ? (hp > 45 ? BiobaseColors.live : BiobaseColors.warning)
-                  : BiobaseColors.error,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            'Deaths $deaths',
-            style: const TextStyle(
-              fontSize: 9,
-              fontFamily: 'monospace',
-              color: BiobaseColors.textSecondary,
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Icon(
-            Icons.visibility_outlined,
-            size: 10,
-            color: BiobaseColors.textTertiary,
-          ),
-          const SizedBox(width: 3),
-          const Text(
-            'POV in CS2',
-            style: TextStyle(fontSize: 9, color: BiobaseColors.textTertiary),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -2412,6 +2783,10 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
               final newTick = (tick + widget.demo.tickRateGuess * 5)
                   .clamp(widget.demo.startTick, widget.demo.endTick);
               widget.onJumpToTick(newTick);
+              return KeyEventResult.handled;
+            case 'M':
+            case 'm':
+              widget.onMark?.call();
               return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
@@ -2451,33 +2826,7 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                 ),
               ),
 
-            // Live mode: tactical minimap bottom-right
-            if (_live)
-              Positioned(
-                right: 12,
-                bottom: 72,
-                width: 280,
-                height: 200,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: Opacity(
-                    opacity: 0.92,
-                    child: CustomPaint(
-                      painter: _NativeDemoPainter(
-                        demo: widget.demo,
-                        currentTick: tick,
-                        moves: widget.moves,
-                        playbackPosition: widget.playbackPosition,
-                        selectedSteamId: widget.selectedSteamId,
-                        minimap: true,
-                      ),
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                ),
-              ),
-
-            // Live mode: player rail + selected stats
+            // Live mode: player rail
             if (_live)
               Positioned(
                 top: 34,
@@ -2718,6 +3067,12 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                     padding: const EdgeInsets.only(right: 10),
                     child: _cs2LaunchBtn(),
                   ),
+                // Mark move button (M)
+                if (widget.onMark != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: _markBtn(),
+                  ),
                 // Play/Pause
                 _iconBtn(
                   widget.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -2796,6 +3151,60 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
               fontFamily: 'monospace',
               color: active ? Colors.white : BiobaseColors.textSecondary,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _markBtn() {
+    final marking = widget.marking;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onMark,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: marking
+                ? BiobaseColors.warning.withAlpha(30)
+                : BiobaseColors.surfaceRaised,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: marking ? BiobaseColors.warning : BiobaseColors.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                marking ? Icons.stop_rounded : Icons.flag_outlined,
+                size: 12,
+                color: marking
+                    ? BiobaseColors.warning
+                    : BiobaseColors.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                marking ? 'End move' : 'Mark move',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: marking ? FontWeight.w600 : FontWeight.w400,
+                  color: marking
+                      ? BiobaseColors.warning
+                      : BiobaseColors.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                'M',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontFamily: 'monospace',
+                  color: BiobaseColors.textTertiary,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -2917,7 +3326,6 @@ class _NativeDemoPainter extends CustomPainter {
   final List<Move> moves;
   final double playbackPosition;
   final String? selectedSteamId;
-  final bool minimap;
 
   _NativeDemoPainter({
     required this.demo,
@@ -2925,7 +3333,6 @@ class _NativeDemoPainter extends CustomPainter {
     required this.moves,
     required this.playbackPosition,
     this.selectedSteamId,
-    this.minimap = false,
   });
 
   @override
@@ -2935,14 +3342,8 @@ class _NativeDemoPainter extends CustomPainter {
     final bgPaint = Paint()..color = BiobaseColors.bg;
     canvas.drawRect(Offset.zero & size, bgPaint);
 
-    final inset = minimap ? 8.0 : 18.0;
     final bounds = _DemoBounds.fromFrames(demo.frames);
-    final plot = Rect.fromLTWH(
-      inset,
-      inset,
-      size.width - inset * 2,
-      size.height - inset * 2,
-    );
+    final plot = Rect.fromLTWH(18, 18, size.width - 36, size.height - 36);
     final scale = math.min(
       plot.width / bounds.width,
       plot.height / bounds.height,
@@ -2981,24 +3382,22 @@ class _NativeDemoPainter extends CustomPainter {
       canvas.drawLine(Offset(plot.left, dy), Offset(plot.right, dy), gridPaint);
     }
 
-    if (!minimap) {
-      _drawText(
-        canvas,
-        demo.mapName,
-        Offset(plot.left + 12, plot.top + 10),
-        const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1.1,
-          color: BiobaseColors.textSecondary,
-        ),
-      );
-    }
+    _drawText(
+      canvas,
+      demo.mapName,
+      Offset(plot.left + 12, plot.top + 10),
+      const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.1,
+        color: BiobaseColors.textSecondary,
+      ),
+    );
 
-    final dotRadius = minimap ? 3.5 : 6.5;
+    const dotRadius = 6.5;
     final frameIndex = _nativeFrameIndexAt(demo.frames, currentTick);
     final players = _nativePlayersAt(demo.frames, frameIndex, currentTick);
-    if (!minimap) _drawPlayerTrails(canvas, toScreen, frameIndex, players);
+    _drawPlayerTrails(canvas, toScreen, frameIndex, players);
 
     for (final p in players) {
       final pos = toScreen(p.x, p.y);
@@ -3017,57 +3416,48 @@ class _NativeDemoPainter extends CustomPainter {
       if (p.steamid == selectedSteamId) {
         final selPaint = Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = minimap ? 1.4 : 2
+          ..strokeWidth = 2
           ..color = BiobaseColors.accent;
-        canvas.drawCircle(pos, dotRadius + (minimap ? 3 : 6), selPaint);
+        canvas.drawCircle(pos, dotRadius + 6, selPaint);
       }
 
-      if (!minimap) {
-        final hp = p.health ?? 100;
-        final healthPct = math.max(0.0, math.min(100.0, hp)) / 100.0;
-        final healthPaint = Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..strokeCap = StrokeCap.round
-          ..color = healthPct > 0.45
-              ? BiobaseColors.live
-              : BiobaseColors.warning;
-        canvas.drawArc(
-          Rect.fromCircle(center: pos, radius: 10.5),
-          -math.pi / 2,
-          math.pi * 2 * healthPct,
-          false,
-          healthPaint,
-        );
-      }
+      final hp = p.health ?? 100;
+      final healthPct = math.max(0.0, math.min(100.0, hp)) / 100.0;
+      final healthPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..color = healthPct > 0.45 ? BiobaseColors.live : BiobaseColors.warning;
+      canvas.drawArc(
+        Rect.fromCircle(center: pos, radius: 10.5),
+        -math.pi / 2,
+        math.pi * 2 * healthPct,
+        false,
+        healthPaint,
+      );
 
       if (p.yaw != null) {
         final radians = (p.yaw! - 90) * math.pi / 180.0;
-        final end =
-            pos +
-            Offset(math.cos(radians), math.sin(radians)) *
-                (minimap ? 7.0 : 14.0);
+        final end = pos + Offset(math.cos(radians), math.sin(radians)) * 14;
         final aimPaint = Paint()
-          ..strokeWidth = minimap ? 1.0 : 1.6
+          ..strokeWidth = 1.6
           ..strokeCap = StrokeCap.round
           ..color = teamColor.withAlpha(alive ? 220 : 110);
         canvas.drawLine(pos, end, aimPaint);
       }
 
-      if (!minimap) {
-        _drawText(
-          canvas,
-          _shortName(p.name),
-          pos + const Offset(10, -16),
-          TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w600,
-            color: alive ? BiobaseColors.text : BiobaseColors.textTertiary,
-            shadows: const [Shadow(color: Colors.black, blurRadius: 5)],
-          ),
-          maxWidth: 84,
-        );
-      }
+      _drawText(
+        canvas,
+        _shortName(p.name),
+        pos + const Offset(10, -16),
+        TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: alive ? BiobaseColors.text : BiobaseColors.textTertiary,
+          shadows: const [Shadow(color: Colors.black, blurRadius: 5)],
+        ),
+        maxWidth: 84,
+      );
     }
 
     if (players.isEmpty) {
@@ -3126,8 +3516,7 @@ class _NativeDemoPainter extends CustomPainter {
         oldDelegate.currentTick != currentTick ||
         oldDelegate.moves != moves ||
         oldDelegate.playbackPosition != playbackPosition ||
-        oldDelegate.selectedSteamId != selectedSteamId ||
-        oldDelegate.minimap != minimap;
+        oldDelegate.selectedSteamId != selectedSteamId;
   }
 }
 

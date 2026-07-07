@@ -17,7 +17,11 @@ add_library(${PLUGIN_NAME} SHARED
 
 apply_standard_settings(${PLUGIN_NAME})
 
+# C++/WinRT requires C++20 on current MSVC (<experimental/coroutine> was
+# removed; the C++20 <coroutine> path is the supported one).
 set_target_properties(${PLUGIN_NAME} PROPERTIES
+  CXX_STANDARD 20
+  CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 

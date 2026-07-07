@@ -25,5 +25,8 @@ class CaptureService {
     await Cs2Capture.stop();
   }
 
+  /// Un-minimizes the game window if needed so frames keep flowing.
+  Future<void> ensureVisible() => Cs2Capture.ensureVisible();
+
   Future<void> dispose() => stop();
 }

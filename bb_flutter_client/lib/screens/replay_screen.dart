@@ -176,24 +176,27 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _captureRetry?.cancel();
     var attempts = 0;
     _captureRetry = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      attempts++;
-      if (attempts > 90) {
-        timer.cancel();
-        return;
-      }
       if (!_cs2Live) {
+        attempts++;
+        if (attempts > 90) {
+          timer.cancel();
+          return;
+        }
         try {
           final ok = await _capture.start();
           if (ok && mounted) setState(() => _cs2Live = true);
         } catch (_) {}
+        return;
       }
-      if (_cs2Live && !_netconSynced && _netcon.connected) {
+      if (!_netconSynced && _netcon.connected) {
         // First contact: snap CS2 to the app clock. Every later control
         // action keeps the two locked.
         _netconSynced = true;
         await _syncCs2ToTick(_currentTick, resume: _playing);
       }
-      if (_cs2Live && _netconSynced) timer.cancel();
+      // A minimized CS2 stops rendering and blanks the capture — keep it
+      // restored (never focused) for as long as the session is live.
+      await _capture.ensureVisible();
     });
   }
 

@@ -54,4 +54,13 @@ class Cs2Capture {
       await _channel.invokeMethod('stop');
     } catch (_) {}
   }
+
+  /// Restores the captured window if it got minimized (a minimized window
+  /// stops rendering, which blanks the capture). Never steals focus.
+  static Future<void> ensureVisible() async {
+    if (!Platform.isWindows) return;
+    try {
+      await _channel.invokeMethod('ensureVisible');
+    } catch (_) {}
+  }
 }

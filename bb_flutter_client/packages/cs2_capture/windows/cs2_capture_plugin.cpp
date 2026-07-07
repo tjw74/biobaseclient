@@ -107,6 +107,8 @@ class Cs2CapturePlugin : public flutter::Plugin {
   GraphicsCaptureSession session_{nullptr};
   winrt::event_token frame_arrived_token_{};
 
+  HWND target_hwnd_ = nullptr;
+
   // Shared texture handed to Flutter
   std::mutex texture_mutex_;
   winrt::com_ptr<ID3D11Texture2D> shared_texture_;
@@ -169,6 +171,16 @@ void Cs2CapturePlugin::HandleMethodCall(
     result->Success();
     return;
   }
+  if (call.method_name() == "ensureVisible") {
+    // Windows stops rendering minimized windows, which blanks any capture
+    // API. Restore the game window without stealing focus so frames keep
+    // flowing while BioBase stays in front.
+    if (target_hwnd_ && IsWindow(target_hwnd_) && IsIconic(target_hwnd_)) {
+      ShowWindow(target_hwnd_, SW_SHOWNOACTIVATE);
+    }
+    result->Success();
+    return;
+  }
   result->NotImplemented();
 }
 
@@ -183,6 +195,11 @@ bool Cs2CapturePlugin::StartCapture(const std::string& title_contains,
   if (!target) {
     *error = "window not found";
     return false;
+  }
+  target_hwnd_ = target;
+  if (IsIconic(target)) {
+    // A minimized window can't be captured; restore it behind our window.
+    ShowWindow(target, SW_SHOWNOACTIVATE);
   }
   // Never capture our own window.
   if (registrar_->GetView() &&

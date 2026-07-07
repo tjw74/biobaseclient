@@ -241,7 +241,6 @@ class ReplayLaunchService {
       buildPlaydemoCommand(consoleDemoPath),
       'demo_timescale 1',
       'demo_resume',
-      'demoui',
       '',
     ].join('\r\n');
   }
@@ -284,6 +283,8 @@ class ReplayLaunchService {
   static String buildSteamReplayCommandLine(String _) {
     return [
       '-novid',
+      '-windowed',
+      '-noborder',
       '-console',
       '-condebug',
       '-netconport',
@@ -297,6 +298,8 @@ class ReplayLaunchService {
     '-applaunch',
     '$cs2SteamAppId',
     '-novid',
+    '-windowed',
+    '-noborder',
     '-console',
     '-condebug',
     '-netconport',

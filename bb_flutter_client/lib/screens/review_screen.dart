@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/demo_analytics.dart';
 import '../services/demo_session.dart';
 import '../services/radar_analytics.dart';
+import '../services/career_service.dart';
 
 import '../theme.dart';
 import '../widgets/mini_charts.dart';
@@ -113,6 +114,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _mechanicsSection(analytics, steamid, stats),
         const SizedBox(height: 8),
         _consistencySection(analytics, steamid),
+        const SizedBox(height: 8),
+        _careerSection(steamid),
       ],
     );
   }
@@ -718,6 +721,95 @@ class _ReviewScreenState extends State<ReviewScreen> {
           'Percentiles vs static pro reference (v1). Style axes describe role, not quality.',
           style: TextStyle(fontSize: 8, color: BiobaseColors.textTertiary),
         ),
+      ],
+    );
+  }
+
+  // ── Career (cross-demo) ──
+
+  Widget _careerSection(String steamid) {
+    final entries = CareerService.instance.forPlayer(steamid);
+    if (entries.length < 2) return const SizedBox.shrink();
+    final ratings = [
+      for (var i = 0; i < entries.length; i++)
+        ChartPoint(
+          x: (i + 1).toDouble(),
+          y: entries[i].metrics['rating'] ?? 0,
+          tick: 0,
+        ),
+    ];
+    final recent = entries.reversed.take(8).toList();
+    return _panel(
+      children: [
+        _sectionTitle(
+          'Career',
+          hint: '${entries.length} analyzed demos on this machine',
+        ),
+        const Text(
+          'BB Rating per demo (oldest → newest)',
+          style: TextStyle(fontSize: 9, color: BiobaseColors.textTertiary),
+        ),
+        const SizedBox(height: 4),
+        MiniLineChart(points: ratings, height: 64),
+        const SizedBox(height: 10),
+        for (final e in recent)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 5,
+                  child: Text(
+                    e.demoName,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: BiobaseColors.text,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    e.mapName,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      color: BiobaseColors.textTertiary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                SizedBox(
+                  width: 52,
+                  child: Text(
+                    'ADR ${(e.metrics['adr'] ?? 0).toStringAsFixed(0)}',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      color: BiobaseColors.textSecondary,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 46,
+                  child: Text(
+                    (e.metrics['rating'] ?? 0).toStringAsFixed(2),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w600,
+                      color: (e.metrics['rating'] ?? 0) >= 1.0
+                          ? BiobaseColors.live
+                          : BiobaseColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

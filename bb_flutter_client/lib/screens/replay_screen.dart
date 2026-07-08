@@ -17,6 +17,7 @@ import '../services/capture_service.dart';
 import '../services/move_library_service.dart';
 import '../services/demo_session.dart';
 import '../services/cs2_plugin_service.dart';
+import '../services/career_service.dart';
 import '../services/actions_file_service.dart';
 import '../widgets/range_scrubber.dart';
 
@@ -533,6 +534,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
         name: _demoName ?? path,
         path: path,
       );
+      CareerService.instance.record(demo: native, demoName: _demoName ?? path);
       _startTickTracking();
     } catch (e) {
       if (!mounted) return;

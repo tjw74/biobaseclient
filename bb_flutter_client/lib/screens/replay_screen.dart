@@ -16,6 +16,7 @@ import '../services/netcon_service.dart';
 import '../services/capture_service.dart';
 import '../services/move_library_service.dart';
 import '../services/demo_session.dart';
+import '../widgets/range_scrubber.dart';
 
 class ReplayScreen extends StatefulWidget {
   const ReplayScreen({super.key});
@@ -67,8 +68,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
   bool _netconSynced = false;
   String? _selectedSteamId;
 
-  // Move marking state
-  double? _moveStart;
+  // Move marking state — dual-handle range on the timeline
+  bool _rangeMode = false;
+  int? _rangeStart;
+  int? _rangeEnd;
+  int _rangeActiveHandle = 1; // 0 = left grip, 1 = right grip
   List<Move> _demoMoves = [];
   String? _editingMoveId;
   final TextEditingController _renameController = TextEditingController();
@@ -318,7 +322,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _demoPath = demo.localPath;
       _demoName = demo.filename;
       _resetReplayState();
-      _moveStart = null;
+      _cancelRangeFields();
       _demoMoves = _moves.movesForDemo(demo.filename);
     });
     _parseDemo(demo.localPath!);
@@ -334,7 +338,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
           _demoPath = path;
           _demoName = demo.name;
           _resetReplayState();
-          _moveStart = null;
+          _cancelRangeFields();
           _demoMoves = _moves.movesForDemo(demo.name);
         }
       });
@@ -354,7 +358,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _demoPath = file.path;
         _demoName = result.files.single.name;
         _resetReplayState();
-        _moveStart = null;
+        _cancelRangeFields();
         _demoMoves = _moves.movesForDemo(result.files.single.name);
       });
       _parseDemo(file.path);
@@ -473,54 +477,98 @@ class _ReplayScreenState extends State<ReplayScreen> {
     if (mounted) setState(() => _playbackPosition = normalized);
   }
 
+  void _cancelRangeFields() {
+    _rangeMode = false;
+    _rangeStart = null;
+    _rangeEnd = null;
+    _rangeActiveHandle = 1;
+  }
+
+  /// Arm the range selector around the current playhead, or save when armed.
   void _onMarkTap() {
-    if (_moveStart == null) {
-      setState(() => _moveStart = _playbackPosition);
+    if (_rangeMode) {
+      _saveRange();
     } else {
-      final start = _moveStart!;
-      final end = _playbackPosition;
-      if ((end - start).abs() < 0.001) {
-        setState(() => _moveStart = null);
-        return;
-      }
-      final s = start < end ? start : end;
-      final e = start < end ? end : start;
-      final native = _nativeDemo;
-      final totalTicks = native?.tickSpan ?? _demoInfo?.playbackTicks;
-      final startTick = totalTicks != null
-          ? ((native?.startTick ?? 0) + s * totalTicks).round()
-          : null;
-      final endTick = totalTicks != null
-          ? ((native?.startTick ?? 0) + e * totalTicks).round()
-          : null;
-      final move = _moves.addMove(
+      _armRange();
+    }
+  }
+
+  void _armRange() {
+    final native = _nativeDemo;
+    if (native == null) return;
+    final rate = native.tickRateGuess <= 0 ? 64 : native.tickRateGuess;
+    final fiveSec = rate * 5;
+    var start = _currentTick.clamp(native.startTick, native.endTick);
+    var end = start + fiveSec;
+    if (end > native.endTick) {
+      end = native.endTick;
+      start = (end - fiveSec).clamp(native.startTick, end - 1);
+    }
+    setState(() {
+      _rangeMode = true;
+      _rangeStart = start;
+      _rangeEnd = end;
+      _rangeActiveHandle = 1;
+    });
+  }
+
+  void _updateRange(int start, int end, int handle) {
+    final native = _nativeDemo;
+    if (native == null) return;
+    setState(() {
+      _rangeStart = start;
+      _rangeEnd = end;
+      _rangeActiveHandle = handle;
+    });
+    // Follow the dragged grip so the render shows the exact frame.
+    _seekNativeTick(handle == 0 ? start : end);
+  }
+
+  void _nudgeRange(int dTicks) {
+    final a = _rangeStart, b = _rangeEnd;
+    final native = _nativeDemo;
+    if (!_rangeMode || a == null || b == null || native == null) return;
+    if (_rangeActiveHandle == 0) {
+      final tick = (a + dTicks).clamp(native.startTick, b - 1);
+      _updateRange(tick, b, 0);
+    } else {
+      final tick = (b + dTicks).clamp(a + 1, native.endTick);
+      _updateRange(a, tick, 1);
+    }
+  }
+
+  void _saveRange() {
+    final native = _nativeDemo;
+    final a = _rangeStart, b = _rangeEnd;
+    if (native == null || a == null || b == null || _demoName == null) {
+      setState(_cancelRangeFields);
+      return;
+    }
+    final startTick = a < b ? a : b;
+    final endTick = a < b ? b : a;
+    final span = native.tickSpan;
+    final move = _moves.addMove(
+      demoName: _demoName!,
+      startPosition: ((startTick - native.startTick) / span).clamp(0.0, 1.0),
+      endPosition: ((endTick - native.startTick) / span).clamp(0.0, 1.0),
+      startTick: startTick,
+      endTick: endTick,
+    );
+    try {
+      _library.saveClip(
+        demo: native,
         demoName: _demoName!,
-        startPosition: s,
-        endPosition: e,
+        name: move.name,
         startTick: startTick,
         endTick: endTick,
       );
-      // Capture the demo data between the ticks into the local move library.
-      if (native != null && startTick != null && endTick != null) {
-        try {
-          _library.saveClip(
-            demo: native,
-            demoName: _demoName!,
-            name: move.name,
-            startTick: startTick,
-            endTick: endTick,
-          );
-          _libraryClips = _library.list();
-        } catch (_) {}
-      }
-      setState(() {
-        _moveStart = null;
-        _demoMoves = _moves.movesForDemo(_demoName!);
-      });
-      if (native != null && startTick != null && endTick != null) {
-        _saveNativeLabel(move, startTick, endTick);
-      }
-    }
+      _libraryClips = _library.list();
+    } catch (_) {}
+    setState(() {
+      _cancelRangeFields();
+      _demoMoves = _moves.movesForDemo(_demoName!);
+    });
+    _saveNativeLabel(move, startTick, endTick);
   }
 
   void _playMoveClip(MoveClip clip) {
@@ -531,7 +579,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       _demoName = clip.name;
       _resetReplayState();
       _isMoveReplay = true;
-      _moveStart = null;
+      _cancelRangeFields();
       _demoMoves = const [];
       _nativeDemo = demo;
       _currentTick = demo.startTick;
@@ -551,7 +599,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   void _cancelMark() {
-    setState(() => _moveStart = null);
+    setState(_cancelRangeFields);
   }
 
   void _deleteMove(String id) {
@@ -623,7 +671,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
             playbackSpeed: _playbackSpeed,
             moves: _demoMoves,
             playbackPosition: _playbackPosition,
-            moveStart: _moveStart,
+            rangeMode: _rangeMode,
+            rangeStart: _rangeStart,
+            rangeEnd: _rangeEnd,
+            onRangeChanged: _updateRange,
+            onNudgeRange: _nudgeRange,
+            onCancelMark: _cancelMark,
             onTogglePlayback: _togglePlayback,
             onSeek: _seekTo,
             onSetSpeed: _setSpeed,
@@ -638,7 +691,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
             selectedSteamId: _selectedSteamId,
             onSelectPlayer: _selectPlayer,
             onMark: _nativeDemo != null ? _onMarkTap : null,
-            marking: _moveStart != null,
+            marking: _rangeMode,
           ),
         ),
       ],
@@ -1635,7 +1688,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
   Widget _buildMovesSection() {
     final hasDemo = _demoPath != null;
-    final marking = _moveStart != null;
+    final marking = _rangeMode;
 
     return Container(
       decoration: BoxDecoration(
@@ -1682,7 +1735,15 @@ class _ReplayScreenState extends State<ReplayScreen> {
                   child: _MarkButton(
                     marking: marking,
                     onTap: _onMarkTap,
-                    startTime: marking ? _formatTime(_moveStart!) : null,
+                    startTime: marking && _rangeStart != null && _nativeDemo != null
+                        ? _tickTimeLabel(
+                            _rangeStart!,
+                            _nativeDemo!.startTick,
+                            _nativeDemo!.tickRateGuess <= 0
+                                ? 64
+                                : _nativeDemo!.tickRateGuess,
+                          )
+                        : null,
                   ),
                 ),
                 if (marking) ...[
@@ -2207,7 +2268,12 @@ class _RenderArea extends StatelessWidget {
   final double playbackSpeed;
   final List<Move> moves;
   final double playbackPosition;
-  final double? moveStart;
+  final bool rangeMode;
+  final int? rangeStart;
+  final int? rangeEnd;
+  final void Function(int start, int end, int handle)? onRangeChanged;
+  final ValueChanged<int>? onNudgeRange;
+  final VoidCallback? onCancelMark;
   final VoidCallback onTogglePlayback;
   final ValueChanged<double> onSeek;
   final ValueChanged<double> onSetSpeed;
@@ -2240,7 +2306,12 @@ class _RenderArea extends StatelessWidget {
     required this.onTogglePlayback,
     required this.onSeek,
     required this.onSetSpeed,
-    this.moveStart,
+    this.rangeMode = false,
+    this.rangeStart,
+    this.rangeEnd,
+    this.onRangeChanged,
+    this.onNudgeRange,
+    this.onCancelMark,
     this.onPlayInCS2,
     this.cs2Launching = false,
     this.cs2LaunchError,
@@ -2308,7 +2379,12 @@ class _RenderArea extends StatelessWidget {
         playing: playing,
         playbackSpeed: playbackSpeed,
         playbackPosition: playbackPosition,
-        moveStart: moveStart,
+        rangeMode: rangeMode,
+        rangeStart: rangeStart,
+        rangeEnd: rangeEnd,
+        onRangeChanged: onRangeChanged,
+        onNudgeRange: onNudgeRange,
+        onCancelMark: onCancelMark,
         onJumpToTick: onJumpToTick,
         onTogglePlayback: onTogglePlayback,
         onSeek: onSeek,
@@ -2329,40 +2405,6 @@ class _RenderArea extends StatelessWidget {
     return Stack(
       children: [
         Positioned.fill(child: _loadedBody(info, false)),
-        if (moveStart != null)
-          Positioned(
-            bottom: 12,
-            left: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: BiobaseColors.warning.withAlpha(30),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: BiobaseColors.warning.withAlpha(60)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: const BoxDecoration(
-                      color: BiobaseColors.warning,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'Marking move...',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: BiobaseColors.warning,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -2594,7 +2636,12 @@ class _NativeDemoViewer extends StatefulWidget {
   final bool playing;
   final double playbackSpeed;
   final double playbackPosition;
-  final double? moveStart;
+  final bool rangeMode;
+  final int? rangeStart;
+  final int? rangeEnd;
+  final void Function(int start, int end, int handle)? onRangeChanged;
+  final ValueChanged<int>? onNudgeRange;
+  final VoidCallback? onCancelMark;
   final ValueChanged<int> onJumpToTick;
   final VoidCallback onTogglePlayback;
   final ValueChanged<double> onSeek;
@@ -2622,7 +2669,12 @@ class _NativeDemoViewer extends StatefulWidget {
     required this.onTogglePlayback,
     required this.onSeek,
     required this.onSetSpeed,
-    this.moveStart,
+    this.rangeMode = false,
+    this.rangeStart,
+    this.rangeEnd,
+    this.onRangeChanged,
+    this.onNudgeRange,
+    this.onCancelMark,
     this.onPlayInCS2,
     this.cs2Launching = false,
     this.cs2LaunchError,
@@ -3025,11 +3077,27 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
               widget.onTogglePlayback();
               return KeyEventResult.handled;
             case 'Arrow Left':
+              if (widget.rangeMode) {
+                widget.onNudgeRange?.call(
+                  HardwareKeyboard.instance.isShiftPressed
+                      ? -(widget.demo.tickRateGuess ~/ 2)
+                      : -1,
+                );
+                return KeyEventResult.handled;
+              }
               final newTick = (tick - widget.demo.tickRateGuess * 5)
                   .clamp(widget.demo.startTick, widget.demo.endTick);
               widget.onJumpToTick(newTick);
               return KeyEventResult.handled;
             case 'Arrow Right':
+              if (widget.rangeMode) {
+                widget.onNudgeRange?.call(
+                  HardwareKeyboard.instance.isShiftPressed
+                      ? widget.demo.tickRateGuess ~/ 2
+                      : 1,
+                );
+                return KeyEventResult.handled;
+              }
               final newTick = (tick + widget.demo.tickRateGuess * 5)
                   .clamp(widget.demo.startTick, widget.demo.endTick);
               widget.onJumpToTick(newTick);
@@ -3038,6 +3106,18 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
             case 'm':
               widget.onMark?.call();
               return KeyEventResult.handled;
+            case 'Escape':
+              if (widget.rangeMode) {
+                widget.onCancelMark?.call();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            case 'Enter':
+              if (widget.rangeMode) {
+                widget.onMark?.call();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
           }
           return KeyEventResult.ignored;
         },
@@ -3167,41 +3247,6 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                 ),
               ),
 
-            // Move marking indicator
-            if (widget.moveStart != null)
-              Positioned(
-                top: 10,
-                left: 14,
-                right: 14,
-                child: Align(
-                  alignment: Alignment.center,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: BiobaseColors.warning.withAlpha(30),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: BiobaseColors.warning.withAlpha(60)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6, height: 6,
-                          decoration: const BoxDecoration(
-                            color: BiobaseColors.warning,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Marking move...',
-                          style: TextStyle(fontSize: 10, color: BiobaseColors.warning),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
 
             // Bottom controls bar
             if (_controlsVisible || _hovering || !widget.playing)
@@ -3240,58 +3285,21 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Scrubber
-            SizedBox(
-              height: 16,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      SliderTheme(
-                        data: SliderThemeData(
-                          trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                          activeTrackColor: BiobaseColors.accent,
-                          inactiveTrackColor: BiobaseColors.surfaceRaised.withAlpha(180),
-                          thumbColor: BiobaseColors.accent,
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                        ),
-                        child: Slider(
-                          value: progress.toDouble(),
-                          onChanged: (v) => widget.onSeek(v),
-                        ),
-                      ),
-                      // Move range markers
-                      for (final move in widget.moves)
-                        Positioned(
-                          left: 12 + move.startPosition * (constraints.maxWidth - 24),
-                          top: 6,
-                          child: Container(
-                            width: (move.endPosition - move.startPosition) *
-                                (constraints.maxWidth - 24),
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: BiobaseColors.live.withAlpha(140),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ),
-                      // Move start indicator
-                      if (widget.moveStart != null)
-                        Positioned(
-                          left: 12 + widget.moveStart! * (constraints.maxWidth - 24) - 1,
-                          top: 3,
-                          child: Container(
-                            width: 2,
-                            height: 10,
-                            color: BiobaseColors.warning,
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
+            // Scrubber — dual-handle range selector while marking
+            RangeScrubber(
+              progress: progress.toDouble(),
+              demoStartTick: widget.demo.startTick,
+              demoEndTick: widget.demo.endTick,
+              tickRate: widget.demo.tickRateGuess,
+              moveRanges: [
+                for (final move in widget.moves)
+                  (move.startPosition, move.endPosition),
+              ],
+              onSeek: widget.onSeek,
+              rangeMode: widget.rangeMode,
+              rangeStart: widget.rangeStart,
+              rangeEnd: widget.rangeEnd,
+              onRangeChanged: widget.onRangeChanged,
             ),
             const SizedBox(height: 4),
             // Controls row
@@ -3304,11 +3312,23 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
                     child: _cs2LaunchBtn(),
                   ),
                 // Mark move button (M)
-                if (widget.onMark != null)
+                if (widget.onMark != null) ...[
                   Padding(
-                    padding: const EdgeInsets.only(right: 10),
+                    padding: EdgeInsets.only(
+                      right: widget.marking ? 4 : 10,
+                    ),
                     child: _markBtn(),
                   ),
+                  if (widget.marking)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: _iconBtn(
+                        Icons.close_rounded,
+                        () => widget.onCancelMark?.call(),
+                        size: 14,
+                      ),
+                    ),
+                ],
                 // Play/Pause
                 _iconBtn(
                   widget.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -3414,7 +3434,7 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                marking ? Icons.stop_rounded : Icons.flag_outlined,
+                marking ? Icons.check_rounded : Icons.flag_outlined,
                 size: 12,
                 color: marking
                     ? BiobaseColors.warning
@@ -3422,7 +3442,7 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
               ),
               const SizedBox(width: 5),
               Text(
-                marking ? 'End move' : 'Mark move',
+                marking ? 'Save move' : 'Mark move',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: marking ? FontWeight.w600 : FontWeight.w400,

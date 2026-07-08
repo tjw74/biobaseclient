@@ -172,12 +172,31 @@ class Cs2PluginService {
       final pluginDir = Directory(p.join(csgo, 'csdm'));
       if (pluginDir.existsSync()) pluginDir.deleteSync(recursive: true);
       final gameInfo = File(p.join(csgo, 'gameinfo.gi'));
+      if (!gameInfo.existsSync()) return;
       final backup = File('${gameInfo.path}.backup');
       if (backup.existsSync()) {
         gameInfo.writeAsStringSync(backup.readAsStringSync());
         backup.deleteSync();
+        return;
+      }
+      // No backup — strip the patched load line directly so CS2 doesn't try
+      // to load a now-missing (and version-mismatched) plugin.
+      final content = gameInfo.readAsStringSync();
+      if (content.contains('Game\tcsgo/csdm')) {
+        gameInfo.writeAsStringSync(
+          content.replaceFirst('Game\tcsgo/csdm\n\t\t\tGame\tcsgo', 'Game\tcsgo'),
+        );
       }
     } catch (_) {}
+  }
+
+  /// True once the plugin registration has been removed from gameinfo.gi.
+  Future<bool> get isClean async {
+    final csgo = await _csgoDir();
+    if (csgo == null) return true;
+    final gameInfo = File(p.join(csgo, 'gameinfo.gi'));
+    if (!gameInfo.existsSync()) return true;
+    return !gameInfo.readAsStringSync().contains('Game\tcsgo/csdm');
   }
 
   Future<void> dispose() async {

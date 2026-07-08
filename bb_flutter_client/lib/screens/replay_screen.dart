@@ -115,7 +115,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _loadDemos();
     _libraryClips = _library.list();
     DemoSession.instance.addListener(_onSessionSignal);
-    // In-game plugin control channel: lets us play demos in a running CS2.
+    // The in-game plugin crashes CS2 when its DLL doesn't match the current
+    // build (CopyNewEntity fatal error). Until we ship a version-matched
+    // plugin, keep it uninstalled and use cfg + netcon playback (the path
+    // that worked in v0.13–v0.17). The WS server still listens so a future
+    // matched plugin can connect.
+    _plugin.uninstall();
     _plugin.startServer();
     _pluginSub = _plugin.onConnectionChanged.listen((connected) async {
       if (connected) await _resolvePendingDemo();
@@ -207,7 +212,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
       // Plain playback must not inherit a stale watch sequence.
       await ActionsFileService.deleteFor(staged);
       await GsiService.installConfig();
-      await _plugin.ensureInstalled();
 
       if (_plugin.gameConnected) {
         // CS2 is already running with the plugin — instant playback.
@@ -217,11 +221,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
           return;
         }
       }
-      // Cold launch: start the demo over a control channel after CS2 is up,
-      // because the -insecure dialog kills the launch-cfg playdemo.
-      _pendingPlayDemo = staged;
-      _pendingPlayDemoConsole = target.consolePath;
-      _coldLaunchAt = DateTime.now();
+      // No -insecure dialog now, so the launch cfg's playdemo starts the
+      // demo directly (the path that worked in v0.13–v0.17). netcon handles
+      // control/sync once CS2 is up.
       await _launchCs2Cold();
       _beginCs2Session(alreadyRunning: false);
     } catch (e) {
@@ -295,7 +297,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
       final staged = target.stagedPath ?? target.sourcePath;
       await writeActions(staged);
       await GsiService.installConfig();
-      await _plugin.ensureInstalled();
       if (_plugin.gameConnected) {
         final ok = await _plugin.playDemo(staged);
         if (ok) {
@@ -303,9 +304,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
           return;
         }
       }
-      _pendingPlayDemo = staged;
-      _pendingPlayDemoConsole = target.consolePath;
-      _coldLaunchAt = DateTime.now();
+      // Without the plugin the actions file can't execute, so this degrades
+      // to plain playback (demo plays from the cfg). Kept for when a
+      // version-matched plugin is re-enabled.
       await _launchCs2Cold();
       _beginCs2Session(alreadyRunning: false);
     } catch (e) {
@@ -913,7 +914,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
         sequenceName: safeName,
         focusPlayerName: focusName,
       );
-      await _plugin.ensureInstalled();
       var playing = false;
       if (_plugin.gameConnected) {
         playing = await _plugin.playDemo(staged);

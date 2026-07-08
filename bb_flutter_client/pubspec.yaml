@@ -28,3 +28,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.png
+    - assets/cs2_plugin/server.dll
+    - assets/cs2_plugin/LICENSE-cs-demo-manager

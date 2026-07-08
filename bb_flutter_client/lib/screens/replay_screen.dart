@@ -16,6 +16,8 @@ import '../services/netcon_service.dart';
 import '../services/capture_service.dart';
 import '../services/move_library_service.dart';
 import '../services/demo_session.dart';
+import '../services/cs2_plugin_service.dart';
+import '../services/actions_file_service.dart';
 import '../widgets/range_scrubber.dart';
 
 class ReplayScreen extends StatefulWidget {
@@ -61,6 +63,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
   // CS2 live session state
   final NetconService _netcon = NetconService();
   final CaptureService _capture = CaptureService();
+  final Cs2PluginService _plugin = Cs2PluginService.instance;
+  StreamSubscription? _pluginSub;
   bool _cs2Launching = false;
   String? _cs2LaunchError;
   bool _cs2Live = false;
@@ -89,6 +93,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _loadDemos();
     _libraryClips = _library.list();
     DemoSession.instance.addListener(_onSessionSignal);
+    // In-game plugin control channel: lets us play demos in a running CS2.
+    _plugin.startServer();
+    _pluginSub = _plugin.onConnectionChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _onSessionSignal() {
@@ -101,6 +110,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   @override
   void dispose() {
     DemoSession.instance.removeListener(_onSessionSignal);
+    _pluginSub?.cancel();
     _renameController.dispose();
     _tickTimer?.cancel();
     _seekDebounce?.cancel();
@@ -143,48 +153,29 @@ class _ReplayScreenState extends State<ReplayScreen> {
     final path = _demoPath;
     if (path == null) return;
 
-    _endCs2Session();
     setState(() {
       _cs2Launching = true;
       _cs2LaunchError = null;
     });
 
     try {
-      await _launcher.prepareDemo(path);
+      final target = await _launcher.prepareDemo(path);
+      final staged = target.stagedPath ?? target.sourcePath;
+      // Plain playback must not inherit a stale watch sequence.
+      await ActionsFileService.deleteFor(staged);
       await GsiService.installConfig();
+      await _plugin.ensureInstalled();
 
-      // Close CS2 if running — Steam ignores launch args for already-running games
-      if (Platform.isWindows) {
-        try {
-          final check = await Process.run(
-            'tasklist', ['/FI', 'IMAGENAME eq cs2.exe', '/NH'],
-          );
-          if ((check.stdout as String).contains('cs2.exe')) {
-            await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
-            await Future.delayed(const Duration(seconds: 3));
-          }
-        } catch (_) {}
-      }
-
-      final args = ReplayLaunchService.buildSteamAppLaunchArgs('');
-      var launched = false;
-      if (Platform.isWindows) {
-        final steamExe = await ReplayLaunchService.findSteamExe();
-        if (steamExe != null) {
-          await Process.start(steamExe, args, mode: ProcessStartMode.detached);
-          launched = true;
+      if (_plugin.gameConnected) {
+        // CS2 is already running with the plugin — instant playback.
+        final ok = await _plugin.playDemo(staged);
+        if (ok) {
+          _beginCs2Session(alreadyRunning: true);
+          return;
         }
       }
-      if (!launched) {
-        await ReplayLaunchService.openSteamRunUrl(
-          ReplayLaunchService.buildSteamRunUrl(''),
-        );
-      }
-
-      _netcon.startReconnect();
-      _startCaptureHunt();
-      // _cs2Launching stays true until the CS2 window is captured (the
-      // launch pad shows progress) — cleared in _startCaptureHunt.
+      await _launchCs2Cold();
+      _beginCs2Session(alreadyRunning: false);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -192,6 +183,147 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _cs2LaunchError = '$e';
       });
     }
+  }
+
+  /// Kill any pluginless CS2 and launch fresh via Steam with our args
+  /// (-insecure loads the plugin; +exec starts the staged demo).
+  Future<void> _launchCs2Cold() async {
+    if (Platform.isWindows) {
+      try {
+        final check = await Process.run(
+          'tasklist', ['/FI', 'IMAGENAME eq cs2.exe', '/NH'],
+        );
+        if ((check.stdout as String).contains('cs2.exe')) {
+          await Process.run('taskkill', ['/F', '/IM', 'cs2.exe']);
+          await Future.delayed(const Duration(seconds: 3));
+        }
+      } catch (_) {}
+    }
+
+    final args = ReplayLaunchService.buildSteamAppLaunchArgs('');
+    var launched = false;
+    if (Platform.isWindows) {
+      final steamExe = await ReplayLaunchService.findSteamExe();
+      if (steamExe != null) {
+        await Process.start(steamExe, args, mode: ProcessStartMode.detached);
+        launched = true;
+      }
+    }
+    if (!launched) {
+      await ReplayLaunchService.openSteamRunUrl(
+        ReplayLaunchService.buildSteamRunUrl(''),
+      );
+    }
+  }
+
+  void _beginCs2Session({required bool alreadyRunning}) {
+    _netcon.startReconnect();
+    if (alreadyRunning && _cs2Live) {
+      // Capture already rolling — just re-sync the clock.
+      _netconSynced = false;
+      if (mounted) setState(() => _cs2Launching = false);
+      _startCaptureHunt();
+      return;
+    }
+    _startCaptureHunt();
+    // _cs2Launching clears when the capture goes live (launch pad shows
+    // progress) — see _startCaptureHunt.
+  }
+
+  /// Stages the current demo, writes a watch-sequence actions file, and
+  /// plays it in CS2 (instant when the plugin is connected).
+  Future<void> _playSequence(
+    Future<String> Function(String stagedPath) writeActions,
+  ) async {
+    final path = _demoPath;
+    final native = _nativeDemo;
+    if (path == null || native == null || _isMoveReplay) return;
+    setState(() {
+      _cs2Launching = true;
+      _cs2LaunchError = null;
+    });
+    try {
+      final target = await _launcher.prepareDemo(path);
+      final staged = target.stagedPath ?? target.sourcePath;
+      await writeActions(staged);
+      await GsiService.installConfig();
+      await _plugin.ensureInstalled();
+      if (_plugin.gameConnected) {
+        final ok = await _plugin.playDemo(staged);
+        if (ok) {
+          _beginCs2Session(alreadyRunning: true);
+          return;
+        }
+      }
+      await _launchCs2Cold();
+      _beginCs2Session(alreadyRunning: false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cs2Launching = false;
+        _cs2LaunchError = '$e';
+      });
+    }
+  }
+
+  Future<void> _playMoveInCs2(Move move) async {
+    final native = _nativeDemo;
+    if (native == null || move.startTick == null || move.endTick == null) {
+      return;
+    }
+    String? focusName;
+    if (_selectedSteamId != null) focusName = _nameOfSteamid(_selectedSteamId!);
+    await _playSequence(
+      (staged) => ActionsFileService.writeMoveJump(
+        stagedDemoPath: staged,
+        demo: native,
+        startTick: move.startTick!,
+        endTick: move.endTick!,
+        focusPlayerName: focusName,
+      ),
+    );
+  }
+
+  List<int> _reelTicks(String steamid, {required bool deaths}) {
+    final native = _nativeDemo;
+    if (native == null) return const [];
+    return [
+      for (final e in native.events)
+        if (e.type == 'player_death' &&
+            e.attackerSteamid != null &&
+            e.victimSteamid != null &&
+            e.attackerSteamid != e.victimSteamid &&
+            e.weapon != 'world' &&
+            (deaths ? e.victimSteamid == steamid : e.attackerSteamid == steamid))
+          e.tick,
+    ];
+  }
+
+  Future<void> _playReel(String steamid, String name,
+      {required bool deaths}) async {
+    final native = _nativeDemo;
+    if (native == null) return;
+    final ticks = _reelTicks(steamid, deaths: deaths);
+    if (ticks.isEmpty) return;
+    await _playSequence(
+      (staged) => ActionsFileService.writeReel(
+        stagedDemoPath: staged,
+        demo: native,
+        momentTicks: ticks,
+        playerName: name,
+      ),
+    );
+  }
+
+  String _nameOfSteamid(String steamid) {
+    final native = _nativeDemo;
+    if (native == null) return steamid;
+    for (final frame in native.frames) {
+      for (final p in frame.players) {
+        if (p.steamid == steamid && p.name.isNotEmpty) return p.name;
+      }
+    }
+    return steamid;
   }
 
   /// Polls for the CS2 window until it can be captured, then aligns CS2
@@ -1153,6 +1285,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       if (p.steamid == steamid) player = p;
     }
     if (player == null) return const SizedBox.shrink();
+    final playerName = player.name;
     final alive = player.isAlive ?? ((player.health ?? 100) > 0);
     final hp = (player.health ?? 100).clamp(0, 100).round();
     final speed = _dashSpeed(steamid);
@@ -1204,7 +1337,74 @@ class _ReplayScreenState extends State<ReplayScreen> {
             ),
           ],
         ),
+        if (!_isMoveReplay) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _reelButton(
+                'Kills reel',
+                Icons.local_fire_department_outlined,
+                _reelTicks(steamid, deaths: false).isNotEmpty
+                    ? () => _playReel(steamid, playerName, deaths: false)
+                    : null,
+              ),
+              const SizedBox(width: 6),
+              _reelButton(
+                'Deaths reel',
+                Icons.close_outlined,
+                _reelTicks(steamid, deaths: true).isNotEmpty
+                    ? () => _playReel(steamid, playerName, deaths: true)
+                    : null,
+              ),
+            ],
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _reelButton(String label, IconData icon, VoidCallback? onTap) {
+    final enabled = onTap != null;
+    return Expanded(
+      child: MouseRegion(
+        cursor: enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            decoration: BoxDecoration(
+              color: BiobaseColors.surfaceRaised,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: BiobaseColors.border),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 11,
+                  color: enabled
+                      ? BiobaseColors.accent
+                      : BiobaseColors.textTertiary,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: enabled
+                        ? BiobaseColors.text
+                        : BiobaseColors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1800,6 +2000,10 @@ class _ReplayScreenState extends State<ReplayScreen> {
                 onRename: () => _startRename(m),
                 onCommitRename: () => _commitRename(m.id),
                 onDelete: () => _deleteMove(m.id),
+                onPlayCs2:
+                    !_isMoveReplay && m.startTick != null && m.endTick != null
+                    ? () => _playMoveInCs2(m)
+                    : null,
               ),
             )),
         ],
@@ -1911,6 +2115,7 @@ class _MoveRow extends StatefulWidget {
   final VoidCallback onRename;
   final VoidCallback onCommitRename;
   final VoidCallback onDelete;
+  final VoidCallback? onPlayCs2;
 
   const _MoveRow({
     required this.move,
@@ -1921,6 +2126,7 @@ class _MoveRow extends StatefulWidget {
     required this.onRename,
     required this.onCommitRename,
     required this.onDelete,
+    this.onPlayCs2,
   });
 
   @override
@@ -2005,6 +2211,20 @@ class _MoveRowState extends State<_MoveRow> {
                 ),
               ),
               if (_hovered && !widget.editing) ...[
+                if (widget.onPlayCs2 != null) ...[
+                  GestureDetector(
+                    onTap: widget.onPlayCs2,
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.videogame_asset_outlined,
+                        size: 11,
+                        color: BiobaseColors.accent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 GestureDetector(
                   onTap: widget.onRename,
                   child: const Padding(

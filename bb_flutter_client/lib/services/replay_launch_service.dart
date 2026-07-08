@@ -283,6 +283,7 @@ class ReplayLaunchService {
   static String buildSteamReplayCommandLine(String _) {
     return [
       '-novid',
+      '-insecure',
       '-windowed',
       '-noborder',
       '-console',
@@ -298,6 +299,7 @@ class ReplayLaunchService {
     '-applaunch',
     '$cs2SteamAppId',
     '-novid',
+    '-insecure',
     '-windowed',
     '-noborder',
     '-console',

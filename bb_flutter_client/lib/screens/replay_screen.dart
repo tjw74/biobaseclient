@@ -80,6 +80,13 @@ class _ReplayScreenState extends State<ReplayScreen> {
   final CaptureService _capture = CaptureService();
   final Cs2PluginService _plugin = Cs2PluginService.instance;
   StreamSubscription? _pluginSub;
+  // Demo to start once a control channel is live (the -insecure dialog kills
+  // the launch-cfg playdemo, so we re-issue it over plugin WS / netcon).
+  // Plugin takes the absolute path; netcon takes the console-relative path.
+  String? _pendingPlayDemo;
+  String? _pendingPlayDemoConsole;
+  DateTime? _coldLaunchAt;
+  int _netconPlayAttempts = 0;
   bool _cs2Launching = false;
   String? _cs2LaunchError;
   bool _cs2Live = false;
@@ -110,9 +117,26 @@ class _ReplayScreenState extends State<ReplayScreen> {
     DemoSession.instance.addListener(_onSessionSignal);
     // In-game plugin control channel: lets us play demos in a running CS2.
     _plugin.startServer();
-    _pluginSub = _plugin.onConnectionChanged.listen((_) {
+    _pluginSub = _plugin.onConnectionChanged.listen((connected) async {
+      if (connected) await _resolvePendingDemo();
       if (mounted) setState(() {});
     });
+  }
+
+  /// Starts the pending demo through whichever control channel is alive.
+  /// The plugin WebSocket is preferred (acknowledged, survives the -insecure
+  /// dialog); netcon is the fallback when the plugin can't load.
+  Future<void> _resolvePendingDemo() async {
+    final staged = _pendingPlayDemo;
+    if (staged == null) return;
+    if (_plugin.gameConnected) {
+      final ok = await _plugin.playDemo(staged);
+      if (ok) {
+        _pendingPlayDemo = null;
+        _pendingPlayDemoConsole = null;
+        _netconSynced = false;
+      }
+    }
   }
 
   void _onSessionSignal() {
@@ -143,6 +167,10 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _capture.stop();
     _cs2Live = false;
     _netconSynced = false;
+    _pendingPlayDemo = null;
+    _pendingPlayDemoConsole = null;
+    _coldLaunchAt = null;
+    _netconPlayAttempts = 0;
   }
 
   void _resetReplayState() {
@@ -189,6 +217,11 @@ class _ReplayScreenState extends State<ReplayScreen> {
           return;
         }
       }
+      // Cold launch: start the demo over a control channel after CS2 is up,
+      // because the -insecure dialog kills the launch-cfg playdemo.
+      _pendingPlayDemo = staged;
+      _pendingPlayDemoConsole = target.consolePath;
+      _coldLaunchAt = DateTime.now();
       await _launchCs2Cold();
       _beginCs2Session(alreadyRunning: false);
     } catch (e) {
@@ -270,6 +303,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
           return;
         }
       }
+      _pendingPlayDemo = staged;
+      _pendingPlayDemoConsole = target.consolePath;
+      _coldLaunchAt = DateTime.now();
       await _launchCs2Cold();
       _beginCs2Session(alreadyRunning: false);
     } catch (e) {
@@ -370,6 +406,33 @@ class _ReplayScreenState extends State<ReplayScreen> {
         } catch (_) {}
         return;
       }
+      // Start the demo once a channel is live. Plugin first (via its
+      // connection listener); netcon is the fallback when the plugin can't
+      // load, fired once after the -insecure dialog would be dismissed so we
+      // don't restart the demo repeatedly.
+      if (_pendingPlayDemo != null) {
+        if (_plugin.gameConnected) {
+          await _resolvePendingDemo();
+        } else if (_netcon.connected && _coldLaunchAt != null) {
+          // Fire a few times, 6s apart, so a slow -insecure dialog dismissal
+          // still catches without spamming demo restarts.
+          final elapsed = DateTime.now().difference(_coldLaunchAt!).inSeconds;
+          final due = 11 + _netconPlayAttempts * 6;
+          if (elapsed >= due) {
+            await _netcon.playDemo(
+              _pendingPlayDemoConsole ?? _pendingPlayDemo!,
+            );
+            _netconPlayAttempts++;
+            _netconSynced = false;
+            if (_netconPlayAttempts >= 3) {
+              _pendingPlayDemo = null;
+              _pendingPlayDemoConsole = null;
+            }
+          }
+        }
+        return; // wait for the demo to actually start before syncing
+      }
+
       if (!_netconSynced && _netcon.connected) {
         // First contact: snap CS2 to the app clock. Every later control
         // action keeps the two locked.

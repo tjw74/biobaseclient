@@ -18,6 +18,8 @@ import '../services/move_library_service.dart';
 import '../services/demo_session.dart';
 import '../services/cs2_plugin_service.dart';
 import '../services/career_service.dart';
+import '../services/boiler_service.dart';
+import '../services/video_export_service.dart';
 import '../services/actions_file_service.dart';
 import '../widgets/range_scrubber.dart';
 
@@ -52,6 +54,18 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
   int _currentTick = 0;
   Timer? _tickTimer;
+
+  // My matchmaking matches (Steam GC via boiler)
+  bool _mmExpanded = false;
+  List<MmMatch> _mmMatches = [];
+  final Map<String, String> _mmLocalPaths = {};
+  bool _mmLoading = false;
+  String? _mmMessage;
+  String? _mmDownloadingId;
+  double _mmProgress = 0;
+
+  // Move video export
+  String? _exportStatus;
 
   // Pro demos state
   bool _proExpanded = false;
@@ -736,6 +750,127 @@ class _ReplayScreenState extends State<ReplayScreen> {
     setState(_cancelRangeFields);
   }
 
+  // ── My matchmaking matches ──
+
+  Future<void> _fetchMmMatches() async {
+    setState(() {
+      _mmLoading = true;
+      _mmMessage = null;
+    });
+    try {
+      final matches = await BoilerService.instance.fetchMatches();
+      if (!mounted) return;
+      setState(() {
+        _mmMatches = matches;
+        _mmLoading = false;
+        _mmMessage = matches.isEmpty ? 'No recent matches' : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mmLoading = false;
+        _mmMessage = '$e'.replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _downloadMmDemo(MmMatch match) async {
+    setState(() {
+      _mmDownloadingId = match.matchId;
+      _mmProgress = 0;
+      _mmMessage = null;
+    });
+    try {
+      final path = await BoilerService.instance.downloadDemo(
+        match,
+        onProgress: (v) {
+          if (mounted) setState(() => _mmProgress = v);
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _mmLocalPaths[match.matchId] = path;
+        _mmDownloadingId = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mmDownloadingId = null;
+        _mmMessage = '$e'.replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  void _selectMmDemo(MmMatch match) {
+    final path = _mmLocalPaths[match.matchId];
+    if (path == null) {
+      _downloadMmDemo(match);
+      return;
+    }
+    setState(() {
+      _demoPath = path;
+      _demoName = match.fileName;
+      _resetReplayState();
+      _demoMoves = _moves.movesForDemo(match.fileName);
+    });
+    _parseDemo(path);
+  }
+
+  // ── Move video export ──
+
+  Future<void> _exportMoveVideo(Move move) async {
+    final native = _nativeDemo;
+    final path = _demoPath;
+    if (native == null ||
+        path == null ||
+        move.startTick == null ||
+        move.endTick == null ||
+        VideoExportService.instance.exporting) {
+      return;
+    }
+    VideoExportService.instance.exporting = true;
+    void status(String s) {
+      if (mounted) setState(() => _exportStatus = s);
+    }
+
+    status('Preparing recording…');
+    try {
+      final target = await _launcher.prepareDemo(path);
+      final staged = target.stagedPath ?? target.sourcePath;
+      final safeName = move.name.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      String? focusName;
+      if (_selectedSteamId != null) {
+        focusName = _nameOfSteamid(_selectedSteamId!);
+      }
+      await VideoExportService.instance.writeRecordingActions(
+        stagedDemoPath: staged,
+        demo: native,
+        startTick: move.startTick!,
+        endTick: move.endTick!,
+        sequenceName: safeName,
+        focusPlayerName: focusName,
+      );
+      await _plugin.ensureInstalled();
+      var playing = false;
+      if (_plugin.gameConnected) {
+        playing = await _plugin.playDemo(staged);
+      }
+      if (!playing) {
+        await _launchCs2Cold();
+      }
+      status('Recording in CS2 — do not close the game…');
+      final out = await VideoExportService.instance.collectAndEncode(
+        outputName: safeName,
+        onStatus: status,
+      );
+      status('Exported: $out');
+    } catch (e) {
+      status('Export failed: $e'.replaceFirst('Exception: ', ''));
+    } finally {
+      VideoExportService.instance.exporting = false;
+    }
+  }
+
   void _deleteMove(String id) {
     _moves.deleteMove(id);
     setState(() => _demoMoves = _moves.movesForDemo(_demoName!));
@@ -863,6 +998,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
           const SizedBox(height: 8),
         ],
         _buildDemoList(),
+        const SizedBox(height: 8),
+        _buildMmPanel(),
         const SizedBox(height: 8),
         _buildHltvPanel(),
         const SizedBox(height: 8),
@@ -1508,6 +1645,179 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
   }
 
+  // ── My matches (Steam matchmaking) ──
+
+  Widget _buildMmPanel() {
+    return _panel(
+      children: [
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => setState(() => _mmExpanded = !_mmExpanded),
+            child: Row(
+              children: [
+                const Text(
+                  'My Matches',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: BiobaseColors.text,
+                  ),
+                ),
+                const Spacer(),
+                if (_mmMatches.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Text(
+                      '${_mmMatches.length}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: BiobaseColors.textTertiary,
+                      ),
+                    ),
+                  ),
+                Icon(
+                  _mmExpanded ? Icons.expand_less : Icons.expand_more,
+                  size: 16,
+                  color: BiobaseColors.textTertiary,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_mmExpanded) ...[
+          const SizedBox(height: 10),
+          if (_mmLoading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: BiobaseColors.textTertiary,
+                  ),
+                ),
+              ),
+            )
+          else ...[
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: _fetchMmMatches,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: BoxDecoration(
+                    color: BiobaseColors.surfaceRaised,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: BiobaseColors.border),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.cloud_download_outlined,
+                        size: 12,
+                        color: BiobaseColors.accent,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Fetch from Steam',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: BiobaseColors.text,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Steam must be running · closes CS2 briefly',
+              style: TextStyle(fontSize: 8, color: BiobaseColors.textTertiary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          if (_mmMessage != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _mmMessage!,
+              style: const TextStyle(
+                fontSize: 9,
+                color: BiobaseColors.warning,
+              ),
+            ),
+          ],
+          if (_mmMatches.isNotEmpty) const SizedBox(height: 8),
+          for (final m in _mmMatches.take(20)) _mmRow(m),
+        ],
+      ],
+    );
+  }
+
+  Widget _mmRow(MmMatch m) {
+    final local = _mmLocalPaths.containsKey(m.matchId);
+    final downloading = _mmDownloadingId == m.matchId;
+    final selected = local && _demoPath == _mmLocalPaths[m.matchId];
+    final date = m.playedAt;
+    final label = date != null
+        ? '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}'
+        : 'Match ${m.matchId.substring(0, 8)}…';
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: downloading ? null : () => _selectMmDemo(m),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: selected ? BiobaseColors.accentDim : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                local ? Icons.play_circle_outline : Icons.download_outlined,
+                size: 12,
+                color: selected
+                    ? BiobaseColors.accent
+                    : local
+                    ? BiobaseColors.textSecondary
+                    : BiobaseColors.textTertiary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected ? BiobaseColors.accent : BiobaseColors.text,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (downloading)
+                Text(
+                  '${(_mmProgress * 100).toInt()}%',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    color: BiobaseColors.accent,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── Move library ──
 
   Widget _buildMoveLibraryPanel() {
@@ -2006,8 +2316,22 @@ class _ReplayScreenState extends State<ReplayScreen> {
                     !_isMoveReplay && m.startTick != null && m.endTick != null
                     ? () => _playMoveInCs2(m)
                     : null,
+                onExport:
+                    !_isMoveReplay && m.startTick != null && m.endTick != null
+                    ? () => _exportMoveVideo(m)
+                    : null,
               ),
             )),
+          if (_exportStatus != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _exportStatus!,
+              style: const TextStyle(
+                fontSize: 9,
+                color: BiobaseColors.textSecondary,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2118,6 +2442,7 @@ class _MoveRow extends StatefulWidget {
   final VoidCallback onCommitRename;
   final VoidCallback onDelete;
   final VoidCallback? onPlayCs2;
+  final VoidCallback? onExport;
 
   const _MoveRow({
     required this.move,
@@ -2129,6 +2454,7 @@ class _MoveRow extends StatefulWidget {
     required this.onCommitRename,
     required this.onDelete,
     this.onPlayCs2,
+    this.onExport,
   });
 
   @override
@@ -2222,6 +2548,20 @@ class _MoveRowState extends State<_MoveRow> {
                         Icons.videogame_asset_outlined,
                         size: 11,
                         color: BiobaseColors.accent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                if (widget.onExport != null) ...[
+                  GestureDetector(
+                    onTap: widget.onExport,
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.movie_outlined,
+                        size: 11,
+                        color: BiobaseColors.textSecondary,
                       ),
                     ),
                   ),

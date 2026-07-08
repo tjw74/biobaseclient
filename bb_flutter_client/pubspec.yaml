@@ -30,3 +30,7 @@ flutter:
     - assets/logo.png
     - assets/cs2_plugin/server.dll
     - assets/cs2_plugin/LICENSE-cs-demo-manager
+    - assets/boiler/boiler-writter.exe
+    - assets/boiler/steam_api64.dll
+    - assets/boiler/steam_appid.txt
+    - assets/boiler/LICENSE-boiler-writter

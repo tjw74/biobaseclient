@@ -32,3 +32,6 @@ release/
 *.tsbuildinfo
 .vite/
 .hermes/archive/
+
+# Embedded personal wiki (not part of the app)
+obsidian-wiki/

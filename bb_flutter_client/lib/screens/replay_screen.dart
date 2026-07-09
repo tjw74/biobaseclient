@@ -79,14 +79,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
   final NetconService _netcon = NetconService();
   final CaptureService _capture = CaptureService();
   final Cs2PluginService _plugin = Cs2PluginService.instance;
-  StreamSubscription? _pluginSub;
-  // Demo to start once a control channel is live (the -insecure dialog kills
-  // the launch-cfg playdemo, so we re-issue it over plugin WS / netcon).
-  // Plugin takes the absolute path; netcon takes the console-relative path.
-  String? _pendingPlayDemo;
-  String? _pendingPlayDemoConsole;
-  DateTime? _coldLaunchAt;
-  int _netconPlayAttempts = 0;
   bool _cs2Launching = false;
   String? _cs2LaunchError;
   bool _cs2Live = false;
@@ -115,35 +107,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _loadDemos();
     _libraryClips = _library.list();
     DemoSession.instance.addListener(_onSessionSignal);
-    // The in-game plugin crashes CS2 when its DLL doesn't match the current
-    // build (CopyNewEntity fatal error). Until we ship a version-matched
-    // plugin, keep it uninstalled and use cfg + netcon playback (the path
-    // that worked in v0.13–v0.17). The WS server still listens so a future
-    // matched plugin can connect.
+    // The in-game plugin is version-locked to CS2. A mismatched DLL either
+    // crashes the game (CopyNewEntity) or corrupts demo message parsing
+    // (Failed to parse message). Fully disable it: never run the WS server,
+    // never route playback through it, and strip it from gameinfo.gi so CS2
+    // won't load it at all. Playback uses the proven cfg playdemo + netcon +
+    // window-capture path (what worked in v0.13–v0.17).
     _plugin.uninstall();
-    _plugin.startServer();
-    _pluginSub = _plugin.onConnectionChanged.listen((connected) async {
-      if (connected) await _resolvePendingDemo();
-      if (mounted) setState(() {});
-    });
   }
 
   /// Starts the pending demo through whichever control channel is alive.
-  /// The plugin WebSocket is preferred (acknowledged, survives the -insecure
-  /// dialog); netcon is the fallback when the plugin can't load.
-  Future<void> _resolvePendingDemo() async {
-    final staged = _pendingPlayDemo;
-    if (staged == null) return;
-    if (_plugin.gameConnected) {
-      final ok = await _plugin.playDemo(staged);
-      if (ok) {
-        _pendingPlayDemo = null;
-        _pendingPlayDemoConsole = null;
-        _netconSynced = false;
-      }
-    }
-  }
-
   void _onSessionSignal() {
     final tick = DemoSession.instance.pendingSeekTick;
     if (tick == null || _nativeDemo == null || !mounted) return;
@@ -154,7 +127,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
   @override
   void dispose() {
     DemoSession.instance.removeListener(_onSessionSignal);
-    _pluginSub?.cancel();
     _renameController.dispose();
     _tickTimer?.cancel();
     _seekDebounce?.cancel();
@@ -172,10 +144,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _capture.stop();
     _cs2Live = false;
     _netconSynced = false;
-    _pendingPlayDemo = null;
-    _pendingPlayDemoConsole = null;
-    _coldLaunchAt = null;
-    _netconPlayAttempts = 0;
   }
 
   void _resetReplayState() {
@@ -212,18 +180,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
       // Plain playback must not inherit a stale watch sequence.
       await ActionsFileService.deleteFor(staged);
       await GsiService.installConfig();
-
-      if (_plugin.gameConnected) {
-        // CS2 is already running with the plugin — instant playback.
-        final ok = await _plugin.playDemo(staged);
-        if (ok) {
-          _beginCs2Session(alreadyRunning: true);
-          return;
-        }
-      }
-      // No -insecure dialog now, so the launch cfg's playdemo starts the
-      // demo directly (the path that worked in v0.13–v0.17). netcon handles
-      // control/sync once CS2 is up.
+      // The launch cfg's playdemo starts the demo directly (the path that
+      // worked in v0.13–v0.17). netcon handles control/sync once CS2 is up.
       await _launchCs2Cold();
       _beginCs2Session(alreadyRunning: false);
     } catch (e) {
@@ -235,9 +193,13 @@ class _ReplayScreenState extends State<ReplayScreen> {
     }
   }
 
-  /// Kill any pluginless CS2 and launch fresh via Steam with our args
-  /// (-insecure loads the plugin; +exec starts the staged demo).
+  /// Kill any running CS2 and launch fresh via Steam. Guarantees the plugin
+  /// is stripped from gameinfo.gi first so the relaunched CS2 never loads the
+  /// version-mismatched DLL (which corrupts demo parsing).
   Future<void> _launchCs2Cold() async {
+    // Ensure gameinfo.gi is clean BEFORE relaunch — awaited, unlike the
+    // best-effort call in initState.
+    await _plugin.uninstall();
     if (Platform.isWindows) {
       try {
         final check = await Process.run(
@@ -297,13 +259,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
       final staged = target.stagedPath ?? target.sourcePath;
       await writeActions(staged);
       await GsiService.installConfig();
-      if (_plugin.gameConnected) {
-        final ok = await _plugin.playDemo(staged);
-        if (ok) {
-          _beginCs2Session(alreadyRunning: true);
-          return;
-        }
-      }
       // Without the plugin the actions file can't execute, so this degrades
       // to plain playback (demo plays from the cfg). Kept for when a
       // version-matched plugin is re-enabled.
@@ -407,33 +362,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
         } catch (_) {}
         return;
       }
-      // Start the demo once a channel is live. Plugin first (via its
-      // connection listener); netcon is the fallback when the plugin can't
-      // load, fired once after the -insecure dialog would be dismissed so we
-      // don't restart the demo repeatedly.
-      if (_pendingPlayDemo != null) {
-        if (_plugin.gameConnected) {
-          await _resolvePendingDemo();
-        } else if (_netcon.connected && _coldLaunchAt != null) {
-          // Fire a few times, 6s apart, so a slow -insecure dialog dismissal
-          // still catches without spamming demo restarts.
-          final elapsed = DateTime.now().difference(_coldLaunchAt!).inSeconds;
-          final due = 11 + _netconPlayAttempts * 6;
-          if (elapsed >= due) {
-            await _netcon.playDemo(
-              _pendingPlayDemoConsole ?? _pendingPlayDemo!,
-            );
-            _netconPlayAttempts++;
-            _netconSynced = false;
-            if (_netconPlayAttempts >= 3) {
-              _pendingPlayDemo = null;
-              _pendingPlayDemoConsole = null;
-            }
-          }
-        }
-        return; // wait for the demo to actually start before syncing
-      }
-
       if (!_netconSynced && _netcon.connected) {
         // First contact: snap CS2 to the app clock. Every later control
         // action keeps the two locked.
@@ -914,13 +842,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
         sequenceName: safeName,
         focusPlayerName: focusName,
       );
-      var playing = false;
-      if (_plugin.gameConnected) {
-        playing = await _plugin.playDemo(staged);
-      }
-      if (!playing) {
-        await _launchCs2Cold();
-      }
+      await _launchCs2Cold();
       status('Recording in CS2 — do not close the game…');
       final out = await VideoExportService.instance.collectAndEncode(
         outputName: safeName,

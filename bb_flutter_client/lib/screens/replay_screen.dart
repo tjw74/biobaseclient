@@ -85,6 +85,10 @@ class _ReplayScreenState extends State<ReplayScreen> {
   Timer? _captureRetry;
   bool _netconSynced = false;
   String? _selectedSteamId;
+  // Console-relative demo path, so we can re-issue playdemo to reload CS2's
+  // demo after it plays to the end (CS2 unloads it and disconnects).
+  String? _cs2ConsolePath;
+  bool _cs2DemoEnded = false;
 
   // Move marking state — dual-handle range on the timeline
   bool _rangeMode = false;
@@ -144,6 +148,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
     _capture.stop();
     _cs2Live = false;
     _netconSynced = false;
+    _cs2ConsolePath = null;
+    _cs2DemoEnded = false;
   }
 
   void _resetReplayState() {
@@ -177,6 +183,8 @@ class _ReplayScreenState extends State<ReplayScreen> {
     try {
       final target = await _launcher.prepareDemo(path);
       final staged = target.stagedPath ?? target.sourcePath;
+      _cs2ConsolePath = target.consolePath;
+      _cs2DemoEnded = false;
       // Plain playback must not inherit a stale watch sequence.
       await ActionsFileService.deleteFor(staged);
       await GsiService.installConfig();
@@ -379,6 +387,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
     if (native == null) return;
     // Parser ticks are demo-file ticks, which is what demo_goto expects.
     final target = tick.clamp(native.startTick, native.endTick);
+
+    // If the demo played to the end, CS2 unloaded it — reload before seeking
+    // so scrubbing back works. playdemo runs even from the disconnect dialog.
+    if (_cs2DemoEnded && _cs2ConsolePath != null) {
+      _cs2DemoEnded = false;
+      await _netcon.playDemo(_cs2ConsolePath!);
+      // Give CS2 time to load the demo before positioning.
+      await Future.delayed(const Duration(milliseconds: 1600));
+    }
+
     await _netcon.gotoTick(target);
     await _netcon.setTimescale(_playbackSpeed);
     if (resume) {
@@ -563,6 +581,9 @@ class _ReplayScreenState extends State<ReplayScreen> {
           _currentTick = native.endTick;
           _playing = false;
           _tickTimer?.cancel();
+          // CS2 unloads the demo and disconnects at the end — mark it so the
+          // next seek/play reloads it.
+          _cs2DemoEnded = true;
         }
         _playbackPosition =
             ((_currentTick - native.startTick) / native.tickSpan).clamp(0.0, 1.0);
@@ -571,14 +592,27 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   void _togglePlayback() {
+    final native = _nativeDemo;
     if (_playing) {
       _tickTimer?.cancel();
       if (_netcon.connected) _netcon.pauseDemo();
+      if (mounted) setState(() => _playing = false);
     } else {
+      // Pressing play at the very end restarts from the top.
+      if (native != null && _currentTick >= native.endTick) {
+        _currentTick = native.startTick;
+        _playbackPosition = 0;
+      }
+      if (mounted) setState(() => _playing = true);
       _startTickTracking();
-      if (_netcon.connected) _netcon.resumeDemo();
+      if (_netcon.connected) {
+        if (_cs2DemoEnded) {
+          _syncCs2ToTick(_currentTick, resume: true);
+        } else {
+          _netcon.resumeDemo();
+        }
+      }
     }
-    if (mounted) setState(() => _playing = !_playing);
   }
 
   void _setSpeed(double speed) {

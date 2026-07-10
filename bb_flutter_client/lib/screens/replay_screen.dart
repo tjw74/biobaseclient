@@ -89,6 +89,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   // demo after it plays to the end (CS2 unloads it and disconnects).
   String? _cs2ConsolePath;
   bool _cs2DemoEnded = false;
+  StreamSubscription? _netconOutputSub;
 
   // Move marking state — dual-handle range on the timeline
   bool _rangeMode = false;
@@ -118,6 +119,27 @@ class _ReplayScreenState extends State<ReplayScreen> {
     // won't load it at all. Playback uses the proven cfg playdemo + netcon +
     // window-capture path (what worked in v0.13–v0.17).
     _plugin.uninstall();
+    // Watch CS2's console (over netcon) for the demo-incompatibility
+    // disconnect, so we report it honestly instead of faking live playback.
+    _netconOutputSub = _netcon.output.listen(_onNetconOutput);
+  }
+
+  void _onNetconOutput(String data) {
+    final lower = data.toLowerCase();
+    final incompatible =
+        lower.contains('failed to parse message') ||
+        lower.contains('unknown message') ||
+        (lower.contains('disconnect') && lower.contains('demo'));
+    if (incompatible && _cs2Live && mounted) {
+      _tickTimer?.cancel();
+      setState(() {
+        _playing = false;
+        _cs2LaunchError =
+            'This demo is from an older CS2 build (CS2 updated since it was '
+            'recorded), so the game can\'t play it. Use one of your own demos '
+            '(My Matches) or a freshly recorded match.';
+      });
+    }
   }
 
   /// Starts the pending demo through whichever control channel is alive.
@@ -131,6 +153,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   @override
   void dispose() {
     DemoSession.instance.removeListener(_onSessionSignal);
+    _netconOutputSub?.cancel();
     _renameController.dispose();
     _tickTimer?.cancel();
     _seekDebounce?.cancel();

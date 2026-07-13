@@ -2242,17 +2242,12 @@ class _ReplayScreenState extends State<ReplayScreen> {
 
   Widget _buildMovesSection() {
     final hasDemo = _demoPath != null;
-    final marking = _rangeMode;
 
     return Container(
       decoration: BoxDecoration(
         color: BiobaseColors.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: marking
-              ? BiobaseColors.warning.withAlpha(60)
-              : BiobaseColors.border,
-        ),
+        border: Border.all(color: BiobaseColors.border),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -2281,66 +2276,16 @@ class _ReplayScreenState extends State<ReplayScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Mark button
-          if (hasDemo) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: _MarkButton(
-                    marking: marking,
-                    onTap: _onMarkTap,
-                    startTime: marking && _rangeStart != null && _nativeDemo != null
-                        ? _tickTimeLabel(
-                            _rangeStart!,
-                            _nativeDemo!.startTick,
-                            _nativeDemo!.tickRateGuess <= 0
-                                ? 64
-                                : _nativeDemo!.tickRateGuess,
-                          )
-                        : null,
-                  ),
-                ),
-                if (marking) ...[
-                  const SizedBox(width: 6),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: _cancelMark,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: BiobaseColors.surfaceRaised,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: BiobaseColors.border),
-                        ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: BiobaseColors.textTertiary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 10),
-          ],
-
-          // Moves list
+          // Moves list — marking happens on the timeline (Mark move button on
+          // the player controls), so this panel is just the saved moves.
           if (!hasDemo)
             const Text(
               'Load a demo to mark moves',
               style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
             )
-          else if (_demoMoves.isEmpty && !marking)
+          else if (_demoMoves.isEmpty)
             const Text(
-              'No moves marked yet',
+              'Press "Mark move" on the player to mark one',
               style: TextStyle(fontSize: 11, color: BiobaseColors.textTertiary),
             )
           else
@@ -2387,88 +2332,6 @@ class _ReplayScreenState extends State<ReplayScreen> {
     final mins = elapsed ~/ 60;
     final secs = elapsed % 60;
     return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-  }
-}
-
-// ── Mark button ──
-
-class _MarkButton extends StatefulWidget {
-  final bool marking;
-  final VoidCallback onTap;
-  final String? startTime;
-
-  const _MarkButton({
-    required this.marking,
-    required this.onTap,
-    this.startTime,
-  });
-
-  @override
-  State<_MarkButton> createState() => _MarkButtonState();
-}
-
-class _MarkButtonState extends State<_MarkButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final marking = widget.marking;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: marking
-                ? (_hovered
-                      ? BiobaseColors.warning
-                      : BiobaseColors.warning.withAlpha(200))
-                : (_hovered
-                      ? BiobaseColors.accentDim
-                      : BiobaseColors.surfaceRaised),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: marking ? BiobaseColors.warning : BiobaseColors.border,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                marking ? Icons.flag : Icons.flag_outlined,
-                size: 12,
-                color: marking ? BiobaseColors.bg : BiobaseColors.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                marking ? 'Mark End' : 'Mark Start',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: marking
-                      ? BiobaseColors.bg
-                      : BiobaseColors.textSecondary,
-                ),
-              ),
-              if (marking && widget.startTime != null) ...[
-                const SizedBox(width: 8),
-                Text(
-                  'from ${widget.startTime}',
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: BiobaseColors.bg.withAlpha(180),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -3905,6 +3768,28 @@ class _NativeDemoViewerState extends State<_NativeDemoViewer> {
               rangeEnd: widget.rangeEnd,
               onRangeChanged: widget.onRangeChanged,
             ),
+            if (widget.marking)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.drag_indicator,
+                      size: 12,
+                      color: BiobaseColors.warning,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Drag the two handles to the move\'s start and end, then Save move',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: BiobaseColors.warning.withAlpha(230),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 4),
             // Controls row
             Row(

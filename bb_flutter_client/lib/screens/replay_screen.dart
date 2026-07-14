@@ -125,21 +125,64 @@ class _ReplayScreenState extends State<ReplayScreen> {
   }
 
   void _onNetconOutput(String data) {
+    if (_looksIncompatible(data)) _reportIncompatibleDemo();
+  }
+
+  bool _looksIncompatible(String data) {
     final lower = data.toLowerCase();
-    final incompatible =
-        lower.contains('failed to parse message') ||
-        lower.contains('unknown message') ||
-        (lower.contains('disconnect') && lower.contains('demo'));
-    if (incompatible && _cs2Live && mounted) {
-      _tickTimer?.cancel();
-      setState(() {
-        _playing = false;
-        _cs2LaunchError =
-            'This demo is from an older CS2 build (CS2 updated since it was '
-            'recorded), so the game can\'t play it. Use one of your own demos '
-            '(My Matches) or a freshly recorded match.';
-      });
-    }
+    return lower.contains('failed to parse message') ||
+        lower.contains('incompatible with this game version') ||
+        lower.contains('unknown message');
+  }
+
+  void _reportIncompatibleDemo() {
+    if (!mounted || _cs2LaunchError != null) return;
+    _tickTimer?.cancel();
+    setState(() {
+      _playing = false;
+      _cs2LaunchError =
+          'This demo was recorded on an older CS2 build — the game can\'t '
+          'play it after CS2 updated. Use a demo recorded on the current '
+          'build: play on your BioBase server, or My Matches.';
+    });
+  }
+
+  // CS2 writes its console to game/csgo/console.log (-condebug). The
+  // disconnect reason lands there reliably, unlike netcon output.
+  String? _consoleLogPath;
+  int _consoleLogOffset = 0;
+
+  Future<void> _armConsoleLogWatch() async {
+    try {
+      final csgo = await GsiService.findCs2GameCsgoPath();
+      if (csgo == null) return;
+      final path = '$csgo${Platform.pathSeparator}console.log';
+      _consoleLogPath = path;
+      final file = File(path);
+      _consoleLogOffset = file.existsSync() ? file.lengthSync() : 0;
+    } catch (_) {}
+  }
+
+  Future<void> _checkConsoleLog() async {
+    final path = _consoleLogPath;
+    if (path == null) return;
+    try {
+      final file = File(path);
+      if (!file.existsSync()) return;
+      final length = file.lengthSync();
+      if (length < _consoleLogOffset) _consoleLogOffset = 0; // truncated
+      if (length == _consoleLogOffset) return;
+      final raf = file.openSync();
+      try {
+        raf.setPositionSync(_consoleLogOffset);
+        final bytes = raf.readSync(length - _consoleLogOffset);
+        _consoleLogOffset = length;
+        final text = String.fromCharCodes(bytes);
+        if (_looksIncompatible(text)) _reportIncompatibleDemo();
+      } finally {
+        raf.closeSync();
+      }
+    } catch (_) {}
   }
 
   /// Starts the pending demo through whichever control channel is alive.
@@ -231,6 +274,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
     // Ensure gameinfo.gi is clean BEFORE relaunch — awaited, unlike the
     // best-effort call in initState.
     await _plugin.uninstall();
+    await _armConsoleLogWatch();
     if (Platform.isWindows) {
       try {
         final check = await Process.run(
@@ -402,6 +446,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
       // A minimized CS2 stops rendering and blanks the capture — keep it
       // restored (never focused) for as long as the session is live.
       await _capture.ensureVisible();
+      await _checkConsoleLog();
     });
   }
 

@@ -4,6 +4,7 @@ import '../services/demo_analytics.dart';
 import '../services/demo_session.dart';
 import '../services/radar_analytics.dart';
 import '../services/career_service.dart';
+import '../services/benchmark_service.dart';
 
 import '../theme.dart';
 import '../widgets/mini_charts.dart';
@@ -37,7 +38,25 @@ class _ReviewScreenState extends State<ReviewScreen> {
   void initState() {
     super.initState();
     _session.addListener(_onSession);
+    _loadBenchmarks();
     _rebuild();
+  }
+
+  ProBenchmarks? _benchmarks;
+
+  Future<void> _loadBenchmarks() async {
+    final loaded = await BenchmarkService.instance.load(
+      onUpdated: () {
+        if (!mounted) return;
+        setState(_applyBenchmarks);
+      },
+    );
+    if (loaded != null && mounted) setState(_applyBenchmarks);
+  }
+
+  void _applyBenchmarks() {
+    _benchmarks = BenchmarkService.instance.current;
+    _radar?.liveKnots = _benchmarks?.metrics;
   }
 
   @override
@@ -67,7 +86,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
       return;
     }
     final analytics = DemoAnalytics(demo);
-    final radar = RadarAnalytics(analytics);
+    final radar = RadarAnalytics(analytics)
+      ..liveKnots = BenchmarkService.instance.current?.metrics;
     String? keepSelection = _steamid;
     if (keepSelection == null ||
         !analytics.players.any((p) => p.steamid == keepSelection)) {
@@ -717,9 +737,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
             ),
           ),
         const SizedBox(height: 6),
-        const Text(
-          'Percentiles vs static pro reference (v1). Style axes describe role, not quality.',
-          style: TextStyle(fontSize: 8, color: BiobaseColors.textTertiary),
+        Text(
+          _benchmarks != null
+              ? 'Percentiles vs live pro benchmarks — ${_benchmarks!.players} players, ${_benchmarks!.demos} demos, ${_benchmarks!.playerRounds} rounds. Style axes describe role, not quality.'
+              : 'Percentiles vs static pro reference. Style axes describe role, not quality.',
+          style: const TextStyle(fontSize: 8, color: BiobaseColors.textTertiary),
         ),
       ],
     );
@@ -846,7 +868,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'Damage by round',
+          'Damage by round — green band is the pro p25–p75',
           style: TextStyle(fontSize: 9, color: BiobaseColors.textTertiary),
         ),
         const SizedBox(height: 4),
@@ -854,6 +876,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           bars: damage,
           color: BiobaseColors.accent,
           onBarTap: (p) => _jumpToTick(p.tick),
+          benchmarkBand: _benchmarks?.band('damage'),
         ),
       ],
     );
@@ -882,7 +905,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'Average speed by round',
+          'Average speed by round — green band is the pro p25–p75',
           style: TextStyle(fontSize: 9, color: BiobaseColors.textTertiary),
         ),
         const SizedBox(height: 4),
@@ -890,6 +913,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           bars: avgSpeed,
           color: BiobaseColors.accent,
           onBarTap: (p) => _jumpToTick(p.tick),
+          benchmarkBand: _benchmarks?.band('avg_speed'),
         ),
       ],
     );
@@ -983,7 +1007,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'Distance travelled by round',
+          'Distance travelled by round — green band is the pro p25–p75',
           style: TextStyle(fontSize: 9, color: BiobaseColors.textTertiary),
         ),
         const SizedBox(height: 4),
@@ -991,6 +1015,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           bars: _roundBars(a, dist),
           color: BiobaseColors.accent,
           onBarTap: (p) => _jumpToTick(p.tick),
+          benchmarkBand: _benchmarks?.band('distance'),
         ),
       ],
     );

@@ -1145,6 +1145,22 @@ async def api_demos_upload(
     )
 
 
+@dashboard.get("/api/demos/benchmarks")
+def api_demos_benchmarks() -> JSONResponse:
+    """Pro metric distributions from the parsed demo library (cached)."""
+    from demo_benchmarks import compute_benchmarks
+
+    try:
+        result = compute_benchmarks(DEMO_PLAYER_PARSED_DIR)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("benchmark computation failed")
+        return JSONResponse(
+            {"error": "benchmarks_failed", "detail": str(e)[:400]},
+            status_code=500,
+        )
+    return JSONResponse(result)
+
+
 @dashboard.get("/api/demos/{demo_id}")
 def api_demos_get(
     demo_id: str,

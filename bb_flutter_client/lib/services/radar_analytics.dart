@@ -182,6 +182,11 @@ class _RoundAtoms {
 
 class RadarAnalytics {
   final DemoAnalytics analytics;
+
+  /// Live pro benchmark knots (metric key -> [p5,p25,p50,p75,p95]) computed
+  /// server-side from the parsed library; overrides the static reference.
+  Map<String, List<double>>? liveKnots;
+
   NativeDemo get demo => analytics.demo;
 
   /// side ('T'/'CT') per player per round; teams swap at halftime so this is
@@ -507,7 +512,10 @@ class RadarAnalytics {
   /// corrected. Piecewise linear between knots, clamped.
   double _normalize(double value, RadarMetricDef def) {
     const knotPcts = [5.0, 25.0, 50.0, 75.0, 95.0];
-    final knots = def.knots;
+    final live = liveKnots?[def.key];
+    final knots = (live != null && live.length == 5 && live.last > live.first)
+        ? live
+        : def.knots;
     double pct;
     if (value <= knots.first) {
       pct = knotPcts.first * (value / (knots.first <= 0 ? 1 : knots.first));

@@ -19,6 +19,7 @@ class MiniLineChart extends StatelessWidget {
   final String? unit;
   final ValueChanged<ChartPoint>? onPointTap;
   final List<double>? markersX; // vertical reference lines (e.g. round starts)
+  final (double, double, double)? benchmarkBand; // pro p25/p50/p75, y-units
 
   const MiniLineChart({
     super.key,
@@ -28,6 +29,7 @@ class MiniLineChart extends StatelessWidget {
     this.unit,
     this.onPointTap,
     this.markersX,
+    this.benchmarkBand,
   });
 
   @override
@@ -62,6 +64,7 @@ class MiniLineChart extends StatelessWidget {
                 color: color,
                 unit: unit,
                 markersX: markersX,
+                benchmarkBand: benchmarkBand,
               ),
               child: const SizedBox.expand(),
             ),
@@ -95,12 +98,14 @@ class _LinePainter extends CustomPainter {
   final Color color;
   final String? unit;
   final List<double>? markersX;
+  final (double, double, double)? benchmarkBand;
 
   _LinePainter({
     required this.points,
     required this.color,
     this.unit,
     this.markersX,
+    this.benchmarkBand,
   });
 
   @override
@@ -113,11 +118,32 @@ class _LinePainter extends CustomPainter {
     for (final p in points) {
       if (p.y > maxY) maxY = p.y;
     }
+    final band = benchmarkBand;
+    if (band != null && band.$3 > maxY) maxY = band.$3;
     if (maxY <= 0) maxY = 1;
 
     const topPad = 12.0;
     const bottomPad = 4.0;
     final plotH = size.height - topPad - bottomPad;
+
+    double yOf(double v) =>
+        topPad + plotH - (v / maxY).clamp(0.0, 1.0) * plotH;
+
+    // Pro benchmark band: p25-p75 shading with the median line.
+    if (band != null) {
+      canvas.drawRect(
+        Rect.fromLTRB(0, yOf(band.$3), size.width, yOf(band.$1)),
+        Paint()..color = BiobaseColors.live.withAlpha(20),
+      );
+      final medianPaint = Paint()
+        ..color = BiobaseColors.live.withAlpha(110)
+        ..strokeWidth = 0.8;
+      canvas.drawLine(
+        Offset(0, yOf(band.$2)),
+        Offset(size.width, yOf(band.$2)),
+        medianPaint,
+      );
+    }
 
     Offset toScreen(ChartPoint p) => Offset(
           (p.x - minX) / spanX * size.width,
@@ -186,7 +212,9 @@ class _LinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _LinePainter old) =>
-      old.points != points || old.color != color;
+      old.points != points ||
+      old.color != color ||
+      old.benchmarkBand != benchmarkBand;
 }
 
 class MiniBarChart extends StatelessWidget {
@@ -196,6 +224,7 @@ class MiniBarChart extends StatelessWidget {
   final Color? secondaryColor;
   final List<ChartPoint>? secondaryBars; // drawn side-by-side (e.g. deaths)
   final ValueChanged<ChartPoint>? onBarTap;
+  final (double, double, double)? benchmarkBand; // pro p25/p50/p75, y-units
 
   const MiniBarChart({
     super.key,
@@ -205,6 +234,7 @@ class MiniBarChart extends StatelessWidget {
     this.secondaryColor,
     this.secondaryBars,
     this.onBarTap,
+    this.benchmarkBand,
   });
 
   @override
@@ -242,6 +272,7 @@ class MiniBarChart extends StatelessWidget {
                 secondaryBars: secondaryBars,
                 color: color,
                 secondaryColor: secondaryColor ?? BiobaseColors.error,
+                benchmarkBand: benchmarkBand,
               ),
               child: const SizedBox.expand(),
             ),
@@ -257,12 +288,14 @@ class _BarPainter extends CustomPainter {
   final List<ChartPoint>? secondaryBars;
   final Color color;
   final Color secondaryColor;
+  final (double, double, double)? benchmarkBand;
 
   _BarPainter({
     required this.bars,
     required this.color,
     required this.secondaryColor,
     this.secondaryBars,
+    this.benchmarkBand,
   });
 
   @override
@@ -277,11 +310,30 @@ class _BarPainter extends CustomPainter {
         if (b.y > maxY) maxY = b.y;
       }
     }
+    final band = benchmarkBand;
+    if (band != null && band.$3 > maxY) maxY = band.$3;
     if (maxY <= 0) maxY = 1;
 
     const topPad = 12.0;
     const labelH = 12.0;
     final plotH = size.height - topPad - labelH;
+
+    double yOf(double v) =>
+        topPad + plotH - (v / maxY).clamp(0.0, 1.0) * plotH;
+
+    if (band != null) {
+      canvas.drawRect(
+        Rect.fromLTRB(0, yOf(band.$3), size.width, yOf(band.$1)),
+        Paint()..color = BiobaseColors.live.withAlpha(20),
+      );
+      canvas.drawLine(
+        Offset(0, yOf(band.$2)),
+        Offset(size.width, yOf(band.$2)),
+        Paint()
+          ..color = BiobaseColors.live.withAlpha(110)
+          ..strokeWidth = 0.8,
+      );
+    }
     final slot = size.width / bars.length;
     final dual = secondaryBars != null;
     final barW = (slot * (dual ? 0.32 : 0.55)).clamp(1.0, 14.0);
@@ -346,5 +398,7 @@ class _BarPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BarPainter old) =>
-      old.bars != bars || old.secondaryBars != secondaryBars;
+      old.bars != bars ||
+      old.secondaryBars != secondaryBars ||
+      old.benchmarkBand != benchmarkBand;
 }
